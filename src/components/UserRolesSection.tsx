@@ -1,5 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { Users, Building2, GraduationCap, Briefcase, ArrowRight } from "lucide-react";
+import { Link } from "react-router-dom";
 
 const roles = [
   {
@@ -91,9 +92,11 @@ const UserRolesSection = () => {
                     ))}
                   </div>
                   
-                  <Button variant="outline" className="group/btn">
-                    {role.cta}
-                    <ArrowRight className="w-4 h-4 group-hover/btn:translate-x-1 transition-transform" />
+                  <Button variant="outline" className="group/btn" asChild>
+                    <Link to="/signup">
+                      {role.cta}
+                      <ArrowRight className="w-4 h-4 group-hover/btn:translate-x-1 transition-transform" />
+                    </Link>
                   </Button>
                 </div>
               </div>
