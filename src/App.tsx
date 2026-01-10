@@ -16,6 +16,9 @@ import Profile from "./pages/Profile";
 import AdminUsers from "./pages/admin/Users";
 import AdminCourses from "./pages/admin/Courses";
 import AdminJobs from "./pages/admin/Jobs";
+import AdminRoles from "./pages/admin/Roles";
+import AdminAuditLogs from "./pages/admin/AuditLogs";
+import AdminEnrollments from "./pages/admin/Enrollments";
 import TrainerCourses from "./pages/trainer/Courses";
 import TrainerLearners from "./pages/trainer/Learners";
 import EmployerJobs from "./pages/employer/Jobs";
@@ -86,12 +89,36 @@ const App = () => (
                 </ProtectedRoute>
               }
             />
+            <Route
+              path="/admin/roles"
+              element={
+                <ProtectedRoute allowedRoles={["admin"]}>
+                  <AdminRoles />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/admin/audit-logs"
+              element={
+                <ProtectedRoute allowedRoles={["admin"]}>
+                  <AdminAuditLogs />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/admin/enrollments"
+              element={
+                <ProtectedRoute allowedRoles={["admin", "trainer", "spd"]}>
+                  <AdminEnrollments />
+                </ProtectedRoute>
+              }
+            />
             
-            {/* Trainer Routes */}
+            {/* Trainer/SPD Routes */}
             <Route
               path="/trainer/courses"
               element={
-                <ProtectedRoute allowedRoles={["trainer"]}>
+                <ProtectedRoute allowedRoles={["trainer", "spd"]}>
                   <TrainerCourses />
                 </ProtectedRoute>
               }
@@ -99,8 +126,21 @@ const App = () => (
             <Route
               path="/trainer/learners"
               element={
-                <ProtectedRoute allowedRoles={["trainer"]}>
+                <ProtectedRoute allowedRoles={["trainer", "spd"]}>
                   <TrainerLearners />
+                </ProtectedRoute>
+              }
+            />
+            
+            {/* Validator Routes */}
+            <Route
+              path="/validator/dashboard"
+              element={
+                <ProtectedRoute allowedRoles={["validator", "admin"]}>
+                  <div className="p-6">
+                    <h1 className="text-2xl font-bold mb-4">Validator Dashboard</h1>
+                    <p className="text-muted-foreground">Validation dashboard coming soon...</p>
+                  </div>
                 </ProtectedRoute>
               }
             />

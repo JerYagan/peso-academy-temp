@@ -20,9 +20,9 @@ const Header = () => {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const handleLogout = () => {
-    logout();
-    navigate("/");
+  const handleLogout = async () => {
+    await logout();
+    navigate("/", { replace: true });
     setIsMenuOpen(false);
   };
 

@@ -2,7 +2,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { BookOpen, Users, Award, Briefcase, TrendingUp, ArrowRight } from "lucide-react";
+import { BookOpen, Users, Award, Briefcase, TrendingUp, ArrowRight, Shield, FileText } from "lucide-react";
 import { Link } from "react-router-dom";
 import { dataService } from "@/services/mockData";
 import { useEffect, useState } from "react";
@@ -87,7 +87,8 @@ const Dashboard = () => {
               </CardContent>
             </Card>
 
-            <Card>
+            {/* Job Matches card hidden - Future Phase */}
+            {/* <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium">Job Matches</CardTitle>
                 <Briefcase className="h-4 w-4 text-muted-foreground" />
@@ -96,7 +97,7 @@ const Dashboard = () => {
                 <div className="text-2xl font-bold">-</div>
                 <p className="text-xs text-muted-foreground">Available positions</p>
               </CardContent>
-            </Card>
+            </Card> */}
           </div>
 
           {/* My Courses */}
@@ -235,6 +236,24 @@ const Dashboard = () => {
                   <Link to="/admin/jobs">
                     <Briefcase className="mr-2 h-4 w-4" />
                     Manage Jobs
+                  </Link>
+                </Button>
+                <Button asChild className="w-full justify-start" variant="outline">
+                  <Link to="/admin/roles">
+                    <Shield className="mr-2 h-4 w-4" />
+                    Manage Roles
+                  </Link>
+                </Button>
+                <Button asChild className="w-full justify-start" variant="outline">
+                  <Link to="/admin/audit-logs">
+                    <FileText className="mr-2 h-4 w-4" />
+                    Audit Logs
+                  </Link>
+                </Button>
+                <Button asChild className="w-full justify-start" variant="outline">
+                  <Link to="/admin/enrollments">
+                    <Users className="mr-2 h-4 w-4" />
+                    Manage Enrollments
                   </Link>
                 </Button>
               </CardContent>

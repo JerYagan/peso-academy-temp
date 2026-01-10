@@ -8,7 +8,8 @@
     "build": "vite build",
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "seed:users": "tsx scripts/create-test-users.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
@@ -56,6 +57,7 @@
     "react-router-dom": "^6.30.1",
     "recharts": "^2.15.4",
     "sonner": "^1.7.4",
+    "@supabase/supabase-js": "^2.39.0",
     "tailwind-merge": "^2.6.0",
     "tailwindcss-animate": "^1.0.7",
     "vaul": "^0.9.9",
@@ -78,6 +80,7 @@
     "tailwindcss": "^3.4.17",
     "typescript": "^5.8.3",
     "typescript-eslint": "^8.38.0",
+    "tsx": "^4.7.0",
     "vite": "^5.4.19"
   }
 }

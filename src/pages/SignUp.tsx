@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { GraduationCap, AlertCircle } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { UserRole } from "@/types/auth";
+import { getPublicSignupRoles, getDashboardRoute, ROLE_DISPLAY_NAMES } from "@/lib/roles";
 
 const SignUp = () => {
   const [name, setName] = useState("");
@@ -17,20 +18,48 @@ const SignUp = () => {
   const [role, setRole] = useState<UserRole>("jobseeker");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const { signup } = useAuth();
+  const [signupSuccess, setSignupSuccess] = useState(false);
+  const { signup, user, isAuthenticated } = useAuth();
   const navigate = useNavigate();
+  
+  const availableRoles = getPublicSignupRoles();
+
+  // Navigate after successful signup when user is available
+  useEffect(() => {
+    if (signupSuccess && isAuthenticated && user) {
+      const dashboardRoute = getDashboardRoute(user.role);
+      navigate(dashboardRoute);
+      setSignupSuccess(false);
+    }
+  }, [signupSuccess, isAuthenticated, user, navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
     setLoading(true);
 
+    // Validate role is allowed for public signup
+    if (!availableRoles.includes(role)) {
+      setError("Selected role is not available for public signup.");
+      setLoading(false);
+      return;
+    }
+
+    // Validate password strength
+    if (password.length < 6) {
+      setError("Password must be at least 6 characters long.");
+      setLoading(false);
+      return;
+    }
+
     try {
-      const success = await signup(email, password, name, role);
-      if (success) {
-        navigate("/dashboard");
+      const result = await signup(email, password, name, role);
+      if (result.success) {
+        setSignupSuccess(true);
+        // Navigation will happen via useEffect when user state updates
       } else {
-        setError("Email already exists. Please use a different email.");
+        setError(result.error || "Email already exists. Please use a different email.");
+        setLoading(false);
       }
     } catch (err) {
       setError("An error occurred. Please try again.");
@@ -104,11 +133,16 @@ const SignUp = () => {
                   <SelectValue placeholder="Select your role" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="jobseeker">Job Seeker</SelectItem>
-                  <SelectItem value="trainer">Trainer</SelectItem>
-                  <SelectItem value="employer">Employer</SelectItem>
+                  {availableRoles.map((availableRole) => (
+                    <SelectItem key={availableRole} value={availableRole}>
+                      {ROLE_DISPLAY_NAMES[availableRole]}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
+              <p className="text-xs text-muted-foreground">
+                Note: Admin, Trainer, Validator, and SPD roles require approval from system administrators.
+              </p>
             </div>
 
             <Button type="submit" className="w-full" disabled={loading}>

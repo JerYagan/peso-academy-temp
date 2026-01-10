@@ -34,7 +34,7 @@ const DashboardLayout = ({ children }: DashboardLayoutProps) => {
         return [
           { path: "/dashboard", label: "My Dashboard", icon: BarChart3 },
           { path: "/courses", label: "Browse Courses", icon: BookOpen },
-          { path: "/jobs", label: "Job Matching", icon: Briefcase },
+          // { path: "/jobs", label: "Job Matching", icon: Briefcase }, // Hidden - Future Phase
           { path: "/profile", label: "Profile", icon: User },
         ];
       case "admin":
@@ -42,7 +42,7 @@ const DashboardLayout = ({ children }: DashboardLayoutProps) => {
           { path: "/dashboard", label: "Admin Dashboard", icon: BarChart3 },
           { path: "/admin/users", label: "Users", icon: Users },
           { path: "/admin/courses", label: "Courses", icon: BookOpen },
-          { path: "/admin/jobs", label: "Jobs", icon: Briefcase },
+          // { path: "/admin/jobs", label: "Jobs", icon: Briefcase }, // Hidden - Future Phase
           { path: "/profile", label: "Profile", icon: User },
         ];
       case "trainer":
@@ -55,8 +55,8 @@ const DashboardLayout = ({ children }: DashboardLayoutProps) => {
       case "employer":
         return [
           { path: "/dashboard", label: "Employer Dashboard", icon: BarChart3 },
-          { path: "/employer/jobs", label: "Job Postings", icon: Briefcase },
-          { path: "/employer/candidates", label: "Candidates", icon: Users },
+          // { path: "/employer/jobs", label: "Job Postings", icon: Briefcase }, // Hidden - Future Phase
+          // { path: "/employer/candidates", label: "Candidates", icon: Users }, // Hidden - Future Phase
           { path: "/profile", label: "Profile", icon: User },
         ];
       default:
