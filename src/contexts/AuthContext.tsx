@@ -13,241 +13,50 @@ interface AuthContextType extends AuthState {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// localStorage keys
-const STORAGE_KEY = "peso_academy_auth_user";
-const STORAGE_TIMESTAMP_KEY = "peso_academy_auth_timestamp";
-const STORAGE_SESSION_KEY = "peso_academy_auth_session_id";
-
-// Helper functions for localStorage
-const getCachedUser = (): User | null => {
-  try {
-    const cached = localStorage.getItem(STORAGE_KEY);
-    const timestamp = localStorage.getItem(STORAGE_TIMESTAMP_KEY);
-    const cachedSessionId = localStorage.getItem(STORAGE_SESSION_KEY);
-    
-    if (!cached || !timestamp) return null;
-    
-    // Check if cache is older than 1 hour (3600000 ms)
-    const cacheAge = Date.now() - parseInt(timestamp, 10);
-    if (cacheAge > 3600000) {
-      // Cache expired, clear it
-      clearAuthCache();
-      return null;
-    }
-    
-    return JSON.parse(cached) as User;
-  } catch (error) {
-    console.error("Error reading cached user:", error);
-    clearAuthCache();
-    return null;
-  }
-};
-
-const clearAuthCache = () => {
-  try {
-    localStorage.removeItem(STORAGE_KEY);
-    localStorage.removeItem(STORAGE_TIMESTAMP_KEY);
-    localStorage.removeItem(STORAGE_SESSION_KEY);
-  } catch (error) {
-    console.error("Error clearing auth cache:", error);
-  }
-};
-
-const setCachedUser = async (user: User | null, sessionId?: string | null) => {
-  try {
-    if (user) {
-      // Get current session ID if not provided
-      if (!sessionId) {
-        const sessionResult = await supabaseAuthService.getSession();
-        sessionId = sessionResult.data?.session?.access_token || null;
-      }
-      
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(user));
-      localStorage.setItem(STORAGE_TIMESTAMP_KEY, Date.now().toString());
-      if (sessionId) {
-        localStorage.setItem(STORAGE_SESSION_KEY, sessionId);
-      }
-    } else {
-      clearAuthCache();
-    }
-  } catch (error) {
-    console.error("Error caching user:", error);
-  }
-};
-
-function AuthProvider({ children }: { children: ReactNode }) {
-  // Initialize with cached user if available (for fast initial render)
-  const cachedUser = getCachedUser();
+export function AuthProvider({ children }: { children: ReactNode }) {
   const [authState, setAuthState] = useState<AuthState>({
-    user: cachedUser,
-    isAuthenticated: !!cachedUser,
+    user: null,
+    isAuthenticated: false,
   });
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let isMounted = true;
-    let timeoutId: NodeJS.Timeout;
-    let safetyTimeoutId: NodeJS.Timeout;
-    
-    // Force revalidation on hot reload by checking if this is a new mount
-    // Store a flag to detect hot reload
-    // Only clear cache if we're not in the middle of a login attempt
-    const hotReloadKey = `auth_hot_reload_${Date.now()}`;
-    const lastHotReload = sessionStorage.getItem('auth_last_hot_reload');
-    const isHotReload = lastHotReload && lastHotReload !== hotReloadKey;
-    const isLoggingIn = sessionStorage.getItem('auth_logging_in') === 'true';
-    
-    sessionStorage.setItem('auth_last_hot_reload', hotReloadKey);
-    
-    // On hot reload, clear cache to force fresh fetch (but not if actively logging in)
-    if (isHotReload && !isLoggingIn) {
-      console.log("Hot reload detected, forcing Supabase revalidation");
-      clearAuthCache();
-    }
+    let subscription: { unsubscribe: () => void } | null = null;
+    let timeoutId: NodeJS.Timeout | null = null;
 
-    // Safety timeout - always set loading to false after 15 seconds max
-    safetyTimeoutId = setTimeout(() => {
-      if (isMounted) {
-        console.warn("Auth check safety timeout - setting loading to false");
-        setLoading(false);
-      }
-    }, 15000);
-
-    // Check if user is logged in from Supabase with timeout
-    const checkUser = async () => {
+    // Immediately check for existing session (like payroll-pal does)
+    // This ensures session persists across hot reloads
+    const initializeSession = async () => {
       try {
-        // ALWAYS check Supabase session first (this makes an API call to validate session)
-        // This ensures we always make a request to Supabase, even on hot reload
         const sessionResult = await supabaseAuthService.getSession();
-        const currentSessionId = sessionResult.data?.session?.access_token || null;
-        const cachedSessionId = localStorage.getItem(STORAGE_SESSION_KEY);
         
-        // Check if session ID changed (hot reload scenario)
-        if (cachedSessionId && currentSessionId && cachedSessionId !== currentSessionId) {
-          console.warn("Session ID changed, clearing cache");
-          clearAuthCache();
-        }
-        
-        // If we have cached session but no current session, clear cache
-        if (cachedSessionId && !currentSessionId) {
-          console.warn("Session expired, clearing cache");
-          clearAuthCache();
-          if (isMounted) {
+        if (!isMounted) return;
+
+        if (sessionResult.data?.session) {
+          // Session exists, fetch user profile
+          const { user, error } = await supabaseAuthService.getCurrentUser();
+          
+          if (!isMounted) return;
+
+          if (!error && user) {
+            // User found, set authenticated state immediately
             setAuthState({
-              user: null,
-              isAuthenticated: false,
-            });
-            setLoading(false);
-          }
-          return;
-        }
-        
-        if (!sessionResult.data?.session) {
-          // No session, user is not logged in - clear cache
-          if (isMounted) {
-            clearAuthCache();
-            setAuthState({
-              user: null,
-              isAuthenticated: false,
-            });
-            setLoading(false);
-          }
-          return;
-        }
-
-        // Get cached user fresh from localStorage (after session validation)
-        const currentCachedUser = getCachedUser();
-        
-        // If we have cached user and session matches, set loading to false immediately for fast UI
-        // BUT we still ALWAYS fetch fresh data from Supabase below
-        if (currentCachedUser && currentSessionId === cachedSessionId && isMounted) {
-          setLoading(false);
-        }
-
-        // ALWAYS fetch user profile from Supabase (even if we have cache)
-        // This ensures fresh data and API calls on every mount/hot reload
-        console.log("Fetching user profile from Supabase...");
-        const timeoutPromise = new Promise<{ user: null; error: Error }>((resolve) => {
-          timeoutId = setTimeout(() => {
-            resolve({ user: null, error: new Error("Database query timeout") });
-          }, 5000); // 5 second timeout for profile fetch
-        });
-
-        const userPromise = supabaseAuthService.getCurrentUser();
-        const result = await Promise.race([userPromise, timeoutPromise]);
-
-        if (!isMounted) {
-          setLoading(false);
-          return;
-        }
-
-        clearTimeout(timeoutId);
-
-        if (!result.error && result.user) {
-          // Update cache and state with session ID
-          await setCachedUser(result.user, currentSessionId);
-          setAuthState({
-            user: result.user,
-            isAuthenticated: true,
-          });
-          setLoading(false);
-        } else {
-          // If timeout but we have cached user, use cache (session is valid)
-          if (result.error?.message?.includes("timeout") && currentCachedUser) {
-            console.warn("Profile fetch timeout, using cached user data");
-            setAuthState({
-              user: currentCachedUser,
+              user,
               isAuthenticated: true,
             });
             setLoading(false);
+            // Clear timeout since we got the user
+            if (timeoutId) {
+              clearTimeout(timeoutId);
+              timeoutId = null;
+            }
             return;
           }
+        }
 
-          // If timeout, try once more quickly
-          if (result.error?.message?.includes("timeout")) {
-            console.warn("Profile fetch timeout, retrying once...");
-            try {
-              const retryResult = await supabaseAuthService.getCurrentUser();
-              if (!isMounted) {
-                setLoading(false);
-                return;
-              }
-              if (!retryResult.error && retryResult.user) {
-                await setCachedUser(retryResult.user, currentSessionId);
-                setAuthState({
-                  user: retryResult.user,
-                  isAuthenticated: true,
-                });
-                setLoading(false);
-                return;
-              }
-            } catch (retryError) {
-              console.error("Retry failed:", retryError);
-              // If retry fails but we have cached user, use cache
-              const retryCachedUser = getCachedUser();
-              if (retryCachedUser && isMounted) {
-                setAuthState({
-                  user: retryCachedUser,
-                  isAuthenticated: true,
-                });
-                setLoading(false);
-                return;
-              }
-            }
-          }
-          
-          // If user profile is missing, it's a data integrity issue
-          if (result.error?.message?.includes("profile not found") || 
-              result.error?.message?.includes("User profile not found")) {
-            console.error("User profile missing - data integrity issue:", {
-              error: result.error?.message,
-            });
-            // Clear auth session and cache since profile is required
-            clearAuthCache();
-            await supabaseAuthService.logout();
-          }
-          
-          clearAuthCache();
+        // No session or user fetch failed
+        if (isMounted) {
           setAuthState({
             user: null,
             isAuthenticated: false,
@@ -255,17 +64,8 @@ function AuthProvider({ children }: { children: ReactNode }) {
           setLoading(false);
         }
       } catch (error) {
-        console.error("Error checking user:", error);
-        // On error, if we have cached user, use it
-        const errorCachedUser = getCachedUser();
-        if (errorCachedUser && isMounted) {
-          setAuthState({
-            user: errorCachedUser,
-            isAuthenticated: true,
-          });
-          setLoading(false);
-        } else if (isMounted) {
-          clearAuthCache();
+        console.error("Error initializing session:", error);
+        if (isMounted) {
           setAuthState({
             user: null,
             isAuthenticated: false,
@@ -275,53 +75,60 @@ function AuthProvider({ children }: { children: ReactNode }) {
       }
     };
 
-    checkUser();
+    // Check session immediately
+    initializeSession();
 
-    // Listen to auth state changes
-    const { data: { subscription } } = supabaseAuthService.onAuthStateChange((user) => {
-      if (!isMounted) return;
-      
-      // Only update state if we have a valid user or explicit logout (null)
-      // Don't clear user state on temporary errors - only on explicit logout
-      setAuthState((prevState) => {
-        // If callback returns null and we had a user, it's a logout
-        // If callback returns a user, update to that user
-        // If callback returns null and we had no user, no change needed
-        if (user === null && prevState.user === null) {
-          return prevState; // Already logged out, no change
+    // Listen to auth state changes from Supabase for future updates
+    // This handles SIGNED_IN, SIGNED_OUT, TOKEN_REFRESHED events
+    try {
+      const authStateChangeResult = supabaseAuthService.onAuthStateChange((user) => {
+        if (!isMounted) return;
+        
+        // Clear timeout since auth state change fired
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+          timeoutId = null;
         }
         
-        // Update cache when user changes
-        if (user) {
-          // Get session ID for cache validation (non-blocking)
-          supabaseAuthService.getSession().then((sessionResult) => {
-            const sessionId = sessionResult.data?.session?.access_token || null;
-            setCachedUser(user, sessionId).catch(() => {
-              // Silently fail cache update
-            });
-          }).catch(() => {
-            // If session check fails, still cache user but without session ID
-            setCachedUser(user, null).catch(() => {
-              // Silently fail cache update
-            });
-          });
-        } else {
-          clearAuthCache();
-        }
-        
-        return {
+        setAuthState({
           user,
           isAuthenticated: !!user,
-        };
+        });
+        setLoading(false);
       });
-      setLoading(false);
-    });
+      
+      subscription = authStateChangeResult.data?.subscription || null;
+      
+      // Set a timeout to ensure loading state is cleared even if auth state change doesn't fire
+      // This prevents infinite loading states
+      timeoutId = setTimeout(() => {
+        if (isMounted) {
+          console.warn("Auth state change listener timeout - forcing loading to false");
+          setLoading(false);
+        }
+      }, 3000); // 3 second timeout - shorter to fail faster
+      
+    } catch (error) {
+      console.error("Error setting up auth state change listener:", error);
+      // Ensure loading is set to false even if subscription setup fails
+      if (isMounted) {
+        setLoading(false);
+      }
+    }
 
+    // Single cleanup function
     return () => {
       isMounted = false;
-      clearTimeout(timeoutId);
-      clearTimeout(safetyTimeoutId);
-      subscription.unsubscribe();
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+      if (subscription) {
+        try {
+          subscription.unsubscribe();
+        } catch (error) {
+          console.error("Error unsubscribing from auth state changes:", error);
+        }
+      }
     };
   }, []);
 
@@ -331,17 +138,19 @@ function AuthProvider({ children }: { children: ReactNode }) {
   ): Promise<{ success: boolean; error?: string; user?: User | null }> => {
     try {
       console.log("Login attempt started for:", email);
-      // Mark that we're logging in to prevent hot reload from clearing cache
-      sessionStorage.setItem('auth_logging_in', 'true');
-      setLoading(true); // Set loading during login attempt
+      setLoading(true);
       
-      const { user, error } = await supabaseAuthService.login(email, password);
+      // Add timeout to prevent hanging
+      const loginPromise = supabaseAuthService.login(email, password);
+      const timeoutPromise = new Promise<{ user: null; error: Error }>((_, reject) => {
+        setTimeout(() => reject(new Error("Login request timed out")), 10000);
+      });
+      
+      const { user, error } = await Promise.race([loginPromise, timeoutPromise]);
       
       if (error || !user) {
         console.error("Login failed:", error?.message || "No user returned");
         setLoading(false);
-        // Clear login flag on failure
-        sessionStorage.removeItem('auth_logging_in');
         // Log failed login attempt (non-blocking)
         auditService.logFailedLogin(email, error?.message || "Invalid credentials").catch((err) => {
           console.error("Failed to log failed login:", err);
@@ -355,28 +164,21 @@ function AuthProvider({ children }: { children: ReactNode }) {
 
       console.log("Login successful, user:", user.email, "role:", user.role);
       
-      // Update cache and state immediately (with session ID)
-      try {
-        const sessionResult = await supabaseAuthService.getSession();
-        const sessionId = sessionResult.data?.session?.access_token || null;
-        await setCachedUser(user, sessionId);
-        
-        setAuthState({
+      // Update state immediately - use functional update to ensure state is set
+      setAuthState((prevState) => {
+        // Only update if user actually changed to prevent unnecessary re-renders
+        if (prevState.user?.id === user.id) {
+          return prevState;
+        }
+        return {
           user,
           isAuthenticated: true,
-        });
-        
-        console.log("Auth state updated, user authenticated");
-      } catch (cacheError) {
-        console.error("Error updating cache/state:", cacheError);
-        // Still update state even if cache fails
-        setAuthState({
-          user,
-          isAuthenticated: true,
-        });
-      }
+        };
+      });
       
-      setLoading(false); // IMPORTANT: Set loading to false so ProtectedRoute doesn't block
+      // Force a small delay to ensure state is updated before setting loading to false
+      await new Promise(resolve => setTimeout(resolve, 50));
+      setLoading(false);
       
       // Log successful login (non-blocking, don't wait for it)
       auditService.logLogin(user.id, true).catch((err) => {
@@ -384,15 +186,10 @@ function AuthProvider({ children }: { children: ReactNode }) {
       });
       
       console.log("Login function returning success");
-      // Clear login flag
-      sessionStorage.removeItem('auth_logging_in');
-      // Return user so component can navigate immediately
       return { success: true, user };
     } catch (error) {
       console.error("Login error caught:", error);
       setLoading(false);
-      // Clear login flag on error
-      sessionStorage.removeItem('auth_logging_in');
       // Log failed login attempt (non-blocking)
       auditService.logFailedLogin(email, error instanceof Error ? error.message : "Unknown error").catch((err) => {
         console.error("Failed to log failed login:", err);
@@ -409,21 +206,27 @@ function AuthProvider({ children }: { children: ReactNode }) {
     const userId = authState.user?.id;
     
     try {
+      console.log("Logout started");
       setLoading(true);
       
-      // Clear cache and state immediately (optimistic update)
-      clearAuthCache();
+      // Sign out from Supabase first (wait for it to complete)
+      const { error } = await supabaseAuthService.logout();
+      
+      if (error) {
+        console.error("Logout error:", error);
+      } else {
+        console.log("Supabase signOut completed successfully");
+      }
+      
+      // Clear state after signOut completes
+      // The onAuthStateChange listener will also handle SIGNED_OUT event,
+      // but we clear state here to ensure it's immediate
       setAuthState({
         user: null,
         isAuthenticated: false,
       });
       
-      // Then sign out from Supabase
-      const { error } = await supabaseAuthService.logout();
-      if (error) {
-        console.error("Logout error:", error);
-        // Even if Supabase logout fails, we've already cleared local state
-      }
+      console.log("Logout completed, state cleared");
       
       // Log logout event (non-blocking, only if we had a user)
       if (userId) {
@@ -433,8 +236,7 @@ function AuthProvider({ children }: { children: ReactNode }) {
       }
     } catch (error) {
       console.error("Logout error:", error);
-      // Clear cache even on error
-      clearAuthCache();
+      // Clear state even on error
       setAuthState({
         user: null,
         isAuthenticated: false,
@@ -451,27 +253,25 @@ function AuthProvider({ children }: { children: ReactNode }) {
     role: UserRole
   ): Promise<{ success: boolean; error?: string; user?: User | null }> => {
     try {
+      setLoading(true);
       const { user, error } = await supabaseAuthService.signup(email, password, name, role);
       if (error || !user) {
-        setLoading(false); // Set loading to false on error
+        setLoading(false);
         return {
           success: false,
           error: error?.message || "Failed to sign up",
           user: null,
         };
       }
-      // Update cache and state (with session ID)
-      const sessionResult = await supabaseAuthService.getSession();
-      const sessionId = sessionResult.data?.session?.access_token || null;
-      await setCachedUser(user, sessionId);
+      // Update state
       setAuthState({
         user,
         isAuthenticated: true,
       });
-      setLoading(false); // Set loading to false after successful signup
+      setLoading(false);
       return { success: true, user };
     } catch (error) {
-      setLoading(false); // Set loading to false on error
+      setLoading(false);
       return {
         success: false,
         error: error instanceof Error ? error.message : "An unknown error occurred",
@@ -490,10 +290,6 @@ function AuthProvider({ children }: { children: ReactNode }) {
         throw error;
       }
       if (user) {
-        // Update cache and state (with session ID)
-        const sessionResult = await supabaseAuthService.getSession();
-        const sessionId = sessionResult.data?.session?.access_token || null;
-        await setCachedUser(user, sessionId);
         setAuthState({
           user,
           isAuthenticated: true,
@@ -521,15 +317,11 @@ function AuthProvider({ children }: { children: ReactNode }) {
   );
 }
 
-// Export hook separately to ensure Fast Refresh compatibility
-function useAuth() {
+export function useAuth() {
   const context = useContext(AuthContext);
   if (context === undefined) {
     throw new Error("useAuth must be used within an AuthProvider");
   }
   return context;
 }
-
-// Export both using named exports for Fast Refresh compatibility
-export { AuthProvider, useAuth };
 

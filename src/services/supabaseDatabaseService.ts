@@ -1,6 +1,7 @@
 import { supabase, handleSupabaseError } from "@/lib/supabase";
 import { Course, Enrollment, Job, Certificate, Module } from "@/types";
 import { User } from "@/types/auth";
+import { notificationHelpers } from "@/services/notificationService";
 
 if (!supabase) {
   console.warn("Supabase client not initialized. Please set up environment variables.");
@@ -408,6 +409,228 @@ export const moduleService = {
   },
 };
 
+// Module completion operations
+export const moduleCompletionService = {
+  /**
+   * Mark a module as completed for an enrollment
+   */
+  markModuleComplete: async (
+    enrollmentId: string,
+    moduleId: string,
+    timeSpent?: number
+  ): Promise<void> => {
+    if (!supabase) {
+      throw new Error("Supabase not initialized");
+    }
+
+    // Check if already completed
+    const { data: existing } = await supabase
+      .from("module_completions")
+      .select("id")
+      .eq("enrollment_id", enrollmentId)
+      .eq("module_id", moduleId)
+      .single();
+
+    if (existing) {
+      // Update time spent if provided
+      if (timeSpent !== undefined) {
+        await supabase
+          .from("module_completions")
+          .update({ time_spent: timeSpent })
+          .eq("id", existing.id);
+      }
+      return;
+    }
+
+    // Insert new completion
+    const { error } = await supabase.from("module_completions").insert({
+      enrollment_id: enrollmentId,
+      module_id: moduleId,
+      completed_at: new Date().toISOString(),
+      time_spent: timeSpent || null,
+    });
+
+    if (error) {
+      handleSupabaseError(error);
+      throw error;
+    }
+
+    // Calculate and update enrollment progress
+    await updateEnrollmentProgress(enrollmentId);
+  },
+
+  /**
+   * Get completed modules for an enrollment
+   */
+  getCompletedModules: async (enrollmentId: string): Promise<string[]> => {
+    if (!supabase) {
+      console.warn("Supabase not initialized");
+      return [];
+    }
+
+    const { data, error } = await supabase
+      .from("module_completions")
+      .select("module_id")
+      .eq("enrollment_id", enrollmentId);
+
+    if (error) {
+      handleSupabaseError(error);
+      return [];
+    }
+
+    return data?.map((item) => item.module_id) || [];
+  },
+
+  /**
+   * Check if a module is completed for an enrollment
+   */
+  isModuleCompleted: async (
+    enrollmentId: string,
+    moduleId: string
+  ): Promise<boolean> => {
+    if (!supabase) {
+      return false;
+    }
+
+    const { data } = await supabase
+      .from("module_completions")
+      .select("id")
+      .eq("enrollment_id", enrollmentId)
+      .eq("module_id", moduleId)
+      .single();
+
+    return !!data;
+  },
+};
+
+/**
+ * Helper function to update enrollment progress based on completed modules
+ */
+async function updateEnrollmentProgress(enrollmentId: string): Promise<void> {
+  if (!supabase) return;
+
+  // Get enrollment
+  const { data: enrollment } = await supabase
+    .from("enrollments")
+    .select("course_id, user_id")
+    .eq("id", enrollmentId)
+    .single();
+
+  if (!enrollment) return;
+
+  // Get total modules for the course
+  const { data: modules } = await supabase
+    .from("modules")
+    .select("id")
+    .eq("course_id", enrollment.course_id);
+
+  if (!modules || modules.length === 0) return;
+
+  // Get completed modules
+  const { data: completions } = await supabase
+    .from("module_completions")
+    .select("module_id")
+    .eq("enrollment_id", enrollmentId);
+
+  const completedCount = completions?.length || 0;
+  const totalModules = modules.length;
+  const progress = Math.round((completedCount / totalModules) * 100);
+
+  // Update enrollment progress and status
+  const updateData: any = { progress };
+  if (progress === 100) {
+    updateData.status = "completed";
+    updateData.completed_at = new Date().toISOString();
+    
+    // Notify user about course completion
+    try {
+      const { data: course } = await supabase
+        .from("courses")
+        .select("title")
+        .eq("id", enrollment.course_id)
+        .single();
+      
+      if (course) {
+        await notificationHelpers.notifyCourseCompleted(
+          enrollment.user_id,
+          course.title,
+          enrollment.course_id
+        );
+      }
+    } catch (error) {
+      console.error("Error sending course completion notification:", error);
+      // Don't throw - notification failure shouldn't block progress update
+    }
+    
+    // Auto-generate certificate if course is completed
+    try {
+      await autoGenerateCertificate(enrollmentId);
+    } catch (error) {
+      console.error("Error auto-generating certificate:", error);
+      // Don't throw - certificate generation failure shouldn't block progress update
+    }
+  } else if (progress > 0 && progress < 100) {
+    updateData.status = "in-progress";
+  }
+
+  await supabase.from("enrollments").update(updateData).eq("id", enrollmentId);
+}
+
+/**
+ * Auto-generate certificate when course is completed
+ */
+async function autoGenerateCertificate(enrollmentId: string): Promise<void> {
+  if (!supabase) return;
+
+  // Get enrollment details
+  const { data: enrollment } = await supabase
+    .from("enrollments")
+    .select("user_id, course_id, certificate_id")
+    .eq("id", enrollmentId)
+    .single();
+
+  if (!enrollment || enrollment.certificate_id) {
+    // Already has a certificate
+    return;
+  }
+
+  // Get course details
+  const { data: course } = await supabase
+    .from("courses")
+    .select("id, title, certificate_type")
+    .eq("id", enrollment.course_id)
+    .single();
+
+  if (!course) return;
+
+  // Issue certificate
+  const certificate = await certificateService.issueCertificate(
+    enrollment.user_id,
+    enrollment.course_id,
+    course.title,
+    course.certificate_type || "completion"
+  );
+
+  // Notify user about certificate issuance
+  try {
+    await notificationHelpers.notifyCertificateIssued(
+      enrollment.user_id,
+      course.title,
+      certificate.id,
+      course.certificate_type || "completion"
+    );
+  } catch (error) {
+    console.error("Error sending certificate notification:", error);
+    // Don't throw - notification failure shouldn't block certificate issuance
+  }
+
+  // Update enrollment with certificate ID
+  await supabase
+    .from("enrollments")
+    .update({ certificate_id: certificate.id })
+    .eq("id", enrollmentId);
+}
+
 // Enrollment operations
 export const enrollmentService = {
   /**
@@ -464,6 +687,26 @@ export const enrollmentService = {
 
     // Update course enrolled count
     await supabase.rpc("increment_enrolled_count", { course_id: courseId });
+
+    // Notify user about enrollment confirmation
+    try {
+      const { data: course } = await supabase
+        .from("courses")
+        .select("title")
+        .eq("id", courseId)
+        .single();
+      
+      if (course) {
+        await notificationHelpers.notifyEnrollmentConfirmed(
+          userId,
+          course.title,
+          data.id
+        );
+      }
+    } catch (error) {
+      console.error("Error sending enrollment notification:", error);
+      // Don't throw - notification failure shouldn't block enrollment
+    }
 
     return {
       id: data.id,
@@ -569,6 +812,35 @@ export const enrollmentService = {
           });
         } catch (err) {
           console.error("Error updating enrolled count:", err);
+        }
+      }
+
+    // Notify users about enrollment confirmation
+    if (success > 0 && data) {
+      try {
+        const { data: course } = await supabase
+          .from("courses")
+          .select("title")
+          .eq("id", courseId)
+          .single();
+        
+        if (course) {
+          // Send notifications to all successfully enrolled users
+          const notificationPromises = data.map((enrollment: any) =>
+            notificationHelpers.notifyEnrollmentConfirmed(
+              enrollment.user_id,
+              course.title,
+              enrollment.id
+            ).catch((err) => {
+              console.error(`Error sending notification to user ${enrollment.user_id}:`, err);
+            })
+          );
+          
+          await Promise.all(notificationPromises);
+        }
+      } catch (error) {
+        console.error("Error sending bulk enrollment notifications:", error);
+        // Don't throw - notification failure shouldn't block enrollment
         }
       }
 
@@ -733,6 +1005,8 @@ export const certificateService = {
         courseTitle: (cert.courses as any)?.title || "",
         issuedAt: cert.issued_at,
         certificateNumber: cert.certificate_number,
+        certificateType: cert.certificate_type,
+        verificationCode: cert.verification_code,
       })) || []
     );
   },
@@ -767,13 +1041,104 @@ export const certificateService = {
       throw error;
     }
 
-    return {
+    const certificate = {
       id: data.id,
       userId: data.user_id,
       courseId: data.course_id,
       courseTitle,
       issuedAt: data.issued_at,
       certificateNumber: data.certificate_number,
+      certificateType: data.certificate_type,
+      verificationCode: data.verification_code,
+    };
+
+    // Notify user about certificate issuance (if not already notified by autoGenerateCertificate)
+    try {
+      await notificationHelpers.notifyCertificateIssued(
+        userId,
+        courseTitle,
+        certificate.id,
+        certificateType
+      );
+    } catch (error) {
+      console.error("Error sending certificate notification:", error);
+      // Don't throw - notification failure shouldn't block certificate issuance
+    }
+
+    return certificate;
+  },
+
+  /**
+   * Get certificate by verification code (for public verification)
+   */
+  getCertificateByVerificationCode: async (verificationCode: string): Promise<Certificate | null> => {
+    if (!supabase) {
+      console.warn("Supabase not initialized");
+      return null;
+    }
+
+    const { data, error } = await supabase
+      .from("certificates")
+      .select("*, courses(title), users(name)")
+      .eq("verification_code", verificationCode)
+      .single();
+
+    if (error) {
+      if (error.code === "PGRST116") {
+        return null; // Not found
+      }
+      handleSupabaseError(error);
+      return null;
+    }
+
+    if (!data) return null;
+
+    return {
+      id: data.id,
+      userId: data.user_id,
+      courseId: data.course_id,
+      courseTitle: (data.courses as any)?.title || "",
+      issuedAt: data.issued_at,
+      certificateNumber: data.certificate_number,
+      certificateType: data.certificate_type,
+      verificationCode: data.verification_code,
+    };
+  },
+
+  /**
+   * Get certificate by certificate number
+   */
+  getCertificateByNumber: async (certificateNumber: string): Promise<Certificate | null> => {
+    if (!supabase) {
+      console.warn("Supabase not initialized");
+      return null;
+    }
+
+    const { data, error } = await supabase
+      .from("certificates")
+      .select("*, courses(title)")
+      .eq("certificate_number", certificateNumber)
+      .single();
+
+    if (error) {
+      if (error.code === "PGRST116") {
+        return null;
+      }
+      handleSupabaseError(error);
+      return null;
+    }
+
+    if (!data) return null;
+
+    return {
+      id: data.id,
+      userId: data.user_id,
+      courseId: data.course_id,
+      courseTitle: (data.courses as any)?.title || "",
+      issuedAt: data.issued_at,
+      certificateNumber: data.certificate_number,
+      certificateType: data.certificate_type,
+      verificationCode: data.verification_code,
     };
   },
 };

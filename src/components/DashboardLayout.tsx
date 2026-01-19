@@ -2,7 +2,8 @@ import { ReactNode } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
-import { GraduationCap, LogOut, User, BookOpen, Briefcase, Settings, BarChart3, Users } from "lucide-react";
+import { GraduationCap, LogOut, User, BookOpen, Settings, BarChart3, Users, FileText, FileSpreadsheet, Bell } from "lucide-react";
+import NotificationCenter from "./NotificationCenter";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -34,6 +35,7 @@ const DashboardLayout = ({ children }: DashboardLayoutProps) => {
         return [
           { path: "/dashboard", label: "My Dashboard", icon: BarChart3 },
           { path: "/courses", label: "Browse Courses", icon: BookOpen },
+          { path: "/notifications", label: "Notifications", icon: Bell },
           // { path: "/jobs", label: "Job Matching", icon: Briefcase }, // Hidden - Future Phase
           { path: "/profile", label: "Profile", icon: User },
         ];
@@ -42,6 +44,8 @@ const DashboardLayout = ({ children }: DashboardLayoutProps) => {
           { path: "/dashboard", label: "Admin Dashboard", icon: BarChart3 },
           { path: "/admin/users", label: "Users", icon: Users },
           { path: "/admin/courses", label: "Courses", icon: BookOpen },
+          { path: "/admin/reports", label: "Reports", icon: FileSpreadsheet },
+          { path: "/notifications", label: "Notifications", icon: Bell },
           // { path: "/admin/jobs", label: "Jobs", icon: Briefcase }, // Hidden - Future Phase
           { path: "/profile", label: "Profile", icon: User },
         ];
@@ -50,11 +54,28 @@ const DashboardLayout = ({ children }: DashboardLayoutProps) => {
           { path: "/dashboard", label: "Trainer Dashboard", icon: BarChart3 },
           { path: "/trainer/courses", label: "My Courses", icon: BookOpen },
           { path: "/trainer/learners", label: "Learners", icon: Users },
+          { path: "/notifications", label: "Notifications", icon: Bell },
+          { path: "/profile", label: "Profile", icon: User },
+        ];
+      case "spd":
+        return [
+          { path: "/dashboard", label: "SPD Dashboard", icon: BarChart3 },
+          { path: "/trainer/courses", label: "My Courses", icon: BookOpen },
+          { path: "/trainer/learners", label: "Learners", icon: Users },
+          { path: "/notifications", label: "Notifications", icon: Bell },
+          { path: "/profile", label: "Profile", icon: User },
+        ];
+      case "validator":
+        return [
+          { path: "/validator/dashboard", label: "Validator Dashboard", icon: BarChart3 },
+          { path: "/validator/submissions", label: "Submissions", icon: FileText },
+          { path: "/notifications", label: "Notifications", icon: Bell },
           { path: "/profile", label: "Profile", icon: User },
         ];
       case "employer":
         return [
           { path: "/dashboard", label: "Employer Dashboard", icon: BarChart3 },
+          { path: "/notifications", label: "Notifications", icon: Bell },
           // { path: "/employer/jobs", label: "Job Postings", icon: Briefcase }, // Hidden - Future Phase
           // { path: "/employer/candidates", label: "Candidates", icon: Users }, // Hidden - Future Phase
           { path: "/profile", label: "Profile", icon: User },
@@ -102,6 +123,9 @@ const DashboardLayout = ({ children }: DashboardLayoutProps) => {
               })}
             </nav>
 
+            <div className="flex items-center gap-2">
+              <NotificationCenter />
+
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" className="gap-2">
@@ -134,6 +158,7 @@ const DashboardLayout = ({ children }: DashboardLayoutProps) => {
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
+        </div>
         </div>
       </header>
 

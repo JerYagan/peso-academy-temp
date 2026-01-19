@@ -60,6 +60,8 @@ export interface Certificate {
   courseTitle: string;
   issuedAt: string;
   certificateNumber: string;
+  certificateType?: "completion" | "participation";
+  verificationCode?: string;
 }
 
 export interface Submission {

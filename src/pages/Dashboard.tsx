@@ -2,7 +2,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { BookOpen, Users, Award, Briefcase, TrendingUp, ArrowRight, Shield, FileText } from "lucide-react";
+import { BookOpen, Users, Award, Briefcase, TrendingUp, ArrowRight, Shield, FileText, FileSpreadsheet } from "lucide-react";
 import { Link } from "react-router-dom";
 import { dataService } from "@/services/mockData";
 import { useEffect, useState } from "react";
@@ -256,6 +256,12 @@ const Dashboard = () => {
                     Manage Enrollments
                   </Link>
                 </Button>
+                <Button asChild className="w-full justify-start" variant="outline">
+                  <Link to="/admin/reports">
+                    <FileSpreadsheet className="mr-2 h-4 w-4" />
+                    Reports & Analytics
+                  </Link>
+                </Button>
               </CardContent>
             </Card>
           </div>
@@ -264,8 +270,8 @@ const Dashboard = () => {
     );
   }
 
-  // Trainer Dashboard
-  if (user.role === "trainer") {
+  // Trainer/SPD Dashboard
+  if (user.role === "trainer" || user.role === "spd") {
     const courses = dataService.getCourses().filter((c) => c.instructorId === user.id);
     const enrollments = dataService.getEnrollments();
     const myEnrollments = enrollments.filter((e) => courses.some((c) => c.id === e.courseId));
@@ -274,7 +280,9 @@ const Dashboard = () => {
       <DashboardLayout>
         <div className="space-y-8">
           <div>
-            <h1 className="text-3xl font-bold">Trainer Dashboard</h1>
+            <h1 className="text-3xl font-bold">
+              {user.role === "spd" ? "SPD Dashboard" : "Trainer Dashboard"}
+            </h1>
             <p className="text-muted-foreground mt-2">Manage your courses and learners</p>
           </div>
 

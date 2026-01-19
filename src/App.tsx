@@ -11,6 +11,9 @@ import Login from "./pages/Login";
 import SignUp from "./pages/SignUp";
 import Dashboard from "./pages/Dashboard";
 import Courses from "./pages/Courses";
+import CourseDetail from "./pages/CourseDetail";
+import Certificates from "./pages/Certificates";
+import VerifyCertificate from "./pages/VerifyCertificate";
 import Jobs from "./pages/Jobs";
 import Profile from "./pages/Profile";
 import AdminUsers from "./pages/admin/Users";
@@ -19,14 +22,33 @@ import AdminJobs from "./pages/admin/Jobs";
 import AdminRoles from "./pages/admin/Roles";
 import AdminAuditLogs from "./pages/admin/AuditLogs";
 import AdminEnrollments from "./pages/admin/Enrollments";
+import AdminReports from "./pages/admin/Reports";
 import TrainerCourses from "./pages/trainer/Courses";
 import TrainerLearners from "./pages/trainer/Learners";
+import ValidatorDashboard from "./pages/validator/Dashboard";
+import ValidatorSubmissions from "./pages/validator/Submissions";
+import SubmissionReview from "./pages/validator/SubmissionReview";
+import ProgressDashboard from "./pages/ProgressDashboard";
 import EmployerJobs from "./pages/employer/Jobs";
 import EmployerCandidates from "./pages/employer/Candidates";
 import NotFound from "./pages/NotFound";
 import { initializeMockData } from "@/services/mockData";
 
-const queryClient = new QueryClient();
+// Create QueryClient with better configuration for hot reload and error handling
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      retry: 1,
+      refetchOnWindowFocus: false,
+      refetchOnReconnect: true,
+      staleTime: 5 * 60 * 1000, // 5 minutes
+      gcTime: 10 * 60 * 1000, // 10 minutes (formerly cacheTime)
+    },
+    mutations: {
+      retry: 1,
+    },
+  },
+});
 
 // Initialize mock data on app start
 initializeMockData();
@@ -44,6 +66,23 @@ const App = () => (
             <Route path="/login" element={<Login />} />
             <Route path="/signup" element={<SignUp />} />
             <Route path="/courses" element={<Courses />} />
+            <Route
+              path="/courses/:id"
+              element={
+                <ProtectedRoute>
+                  <CourseDetail />
+                </ProtectedRoute>
+              }
+            />
+            <Route path="/verify-certificate" element={<VerifyCertificate />} />
+            <Route
+              path="/certificates"
+              element={
+                <ProtectedRoute>
+                  <Certificates />
+                </ProtectedRoute>
+              }
+            />
             <Route path="/jobs" element={<Jobs />} />
             
             {/* Protected Routes */}
@@ -113,6 +152,14 @@ const App = () => (
                 </ProtectedRoute>
               }
             />
+            <Route
+              path="/admin/reports"
+              element={
+                <ProtectedRoute allowedRoles={["admin"]}>
+                  <AdminReports />
+                </ProtectedRoute>
+              }
+            />
             
             {/* Trainer/SPD Routes */}
             <Route
@@ -137,10 +184,31 @@ const App = () => (
               path="/validator/dashboard"
               element={
                 <ProtectedRoute allowedRoles={["validator", "admin"]}>
-                  <div className="p-6">
-                    <h1 className="text-2xl font-bold mb-4">Validator Dashboard</h1>
-                    <p className="text-muted-foreground">Validation dashboard coming soon...</p>
-                  </div>
+                  <ValidatorDashboard />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/validator/submissions"
+              element={
+                <ProtectedRoute allowedRoles={["validator", "admin"]}>
+                  <ValidatorSubmissions />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/validator/submissions/:id"
+              element={
+                <ProtectedRoute allowedRoles={["validator", "admin"]}>
+                  <SubmissionReview />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/progress"
+              element={
+                <ProtectedRoute>
+                  <ProgressDashboard />
                 </ProtectedRoute>
               }
             />

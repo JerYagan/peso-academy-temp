@@ -1,5 +1,6 @@
 import { supabase, handleSupabaseError } from "@/lib/supabase";
 import { Submission, Validation, Feedback, FeedbackTemplate } from "@/types";
+import { notificationHelpers } from "@/services/notificationService";
 
 if (!supabase) {
   console.warn("Supabase client not initialized. Please set up environment variables.");
@@ -267,6 +268,29 @@ export const validatorService = {
     }
 
     try {
+      // Get validation with submission details first
+      const { data: validationData } = await supabase
+        .from("validations")
+        .select(`
+          *,
+          submissions:submission_id (
+            id,
+            user_id,
+            enrollment_id,
+            enrollments:enrollment_id (
+              course_id,
+              courses:course_id (title)
+            )
+          )
+        `)
+        .eq("id", validationId)
+        .single();
+
+      if (!validationData) {
+        throw new Error("Validation not found");
+      }
+
+      // Update validation
       const { data, error } = await supabase
         .from("validations")
         .update({
@@ -284,6 +308,59 @@ export const validatorService = {
       if (error) {
         handleSupabaseError(error);
         throw error;
+      }
+
+      // Update submission status based on decision
+      let submissionStatus: string;
+      if (decision === "approved") {
+        submissionStatus = "approved";
+      } else if (decision === "rejected") {
+        submissionStatus = "rejected";
+      } else {
+        submissionStatus = "revision_requested";
+      }
+
+      const submission = (validationData as any).submissions;
+      if (submission) {
+        await supabase
+          .from("submissions")
+          .update({ 
+            status: submissionStatus,
+            updated_at: new Date().toISOString()
+          })
+          .eq("id", submission.id);
+
+        // Send notification to user
+        try {
+          const courseTitle = submission.enrollments?.courses?.title || "the course";
+          const submissionId = submission.id;
+          const userId = submission.user_id;
+
+          if (decision === "approved") {
+            await notificationHelpers.notifySubmissionApproved(
+              userId,
+              courseTitle,
+              submissionId
+            );
+          } else if (decision === "rejected") {
+            await notificationHelpers.notifySubmissionRejected(
+              userId,
+              courseTitle,
+              submissionId,
+              feedback
+            );
+          } else if (decision === "revision_requested") {
+            await notificationHelpers.notifyRevisionRequested(
+              userId,
+              courseTitle,
+              submissionId,
+              feedback
+            );
+          }
+        } catch (notifError) {
+          console.error("Error sending submission notification:", notifError);
+          // Don't throw - notification failure shouldn't block validation
+        }
       }
 
       return data as Validation;
@@ -314,6 +391,21 @@ export const validatorService = {
     }
 
     try {
+      // Get submission details for notification
+      const { data: submissionData } = await supabase
+        .from("submissions")
+        .select(`
+          id,
+          user_id,
+          enrollment_id,
+          enrollments:enrollment_id (
+            course_id,
+            courses:course_id (title)
+          )
+        `)
+        .eq("id", submissionId)
+        .single();
+
       const { data, error } = await supabase
         .from("feedback")
         .insert({
@@ -329,6 +421,21 @@ export const validatorService = {
       if (error) {
         handleSupabaseError(error);
         throw error;
+      }
+
+      // Notify user about feedback received
+      if (submissionData && feedbackData.is_public !== false) {
+        try {
+          const courseTitle = (submissionData as any).enrollments?.courses?.title || "the course";
+          await notificationHelpers.notifyFeedbackReceived(
+            (submissionData as any).user_id,
+            courseTitle,
+            submissionId
+          );
+        } catch (notifError) {
+          console.error("Error sending feedback notification:", notifError);
+          // Don't throw - notification failure shouldn't block feedback
+        }
       }
 
       return data as Feedback;

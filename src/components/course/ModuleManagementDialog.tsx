@@ -1,4 +1,21 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  arrayMove,
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -6,14 +23,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -24,10 +34,21 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { X, Plus, GripVertical, Edit, Trash2, ArrowUp, ArrowDown } from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { X, Plus, GripVertical, Edit, Trash2, Copy, MoreVertical, BookOpen, Eye, FileText } from "lucide-react";
 import { Module, Course } from "@/types";
 import { moduleService } from "@/services/supabaseDatabaseService";
 import { toast } from "sonner";
+import { cn } from "@/lib/utils";
+import { RichTextEditor } from "./RichTextEditor";
+import { ContentBlockComponent, ContentBlock, ContentBlockType } from "./ContentBlock";
+import { ModulePreview } from "./ModulePreview";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 interface ModuleManagementDialogProps {
   open: boolean;
@@ -35,6 +56,131 @@ interface ModuleManagementDialogProps {
   course: Course;
   onSuccess?: () => void;
 }
+
+// Sortable Module Card Component
+interface SortableModuleCardProps {
+  module: Module;
+  isEditing: boolean;
+  onEdit: (module: Module) => void;
+  onDelete: (moduleId: string) => void;
+  onDuplicate: (module: Module) => void;
+  prerequisites: Module[];
+}
+
+const SortableModuleCard = ({
+  module,
+  isEditing,
+  onEdit,
+  onDelete,
+  onDuplicate,
+  prerequisites,
+}: SortableModuleCardProps) => {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: module.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  const prereqNames = prerequisites
+    .filter((p) => module.prerequisites.includes(p.id))
+    .map((p) => p.title);
+
+  return (
+    <Card
+      ref={setNodeRef}
+      style={style}
+      className={cn(
+        "group cursor-move transition-all hover:shadow-md",
+        isEditing && "ring-2 ring-primary",
+        isDragging && "shadow-lg"
+      )}
+    >
+      <CardHeader className="pb-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-start gap-3 flex-1 min-w-0">
+            {/* Drag Handle */}
+            <button
+              {...attributes}
+              {...listeners}
+              className="mt-1 p-1 hover:bg-muted rounded cursor-grab active:cursor-grabbing"
+            >
+              <GripVertical className="w-4 h-4 text-muted-foreground" />
+            </button>
+
+            {/* Module Number Badge */}
+            <div className="flex-shrink-0 w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center text-sm font-semibold">
+              {module.order}
+            </div>
+
+            {/* Module Info */}
+            <div className="flex-1 min-w-0">
+              <h4 className="font-semibold text-base leading-tight mb-1">{module.title}</h4>
+              <p className="text-sm text-muted-foreground line-clamp-2 mb-2">{module.description}</p>
+              
+              {/* Prerequisites */}
+              {prereqNames.length > 0 && (
+                <div className="flex flex-wrap gap-1 mt-2">
+                  {prereqNames.map((name, idx) => (
+                    <Badge key={idx} variant="outline" className="text-xs">
+                      Requires: {name}
+                    </Badge>
+                  ))}
+                </div>
+              )}
+
+              {/* Materials Count */}
+              {module.materials.length > 0 && (
+                <div className="flex items-center gap-1 mt-2 text-xs text-muted-foreground">
+                  <BookOpen className="w-3 h-3" />
+                  <span>{module.materials.length} material{module.materials.length !== 1 ? 's' : ''}</span>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Actions Menu */}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 w-8 p-0 opacity-0 group-hover:opacity-100 transition-opacity"
+              >
+                <MoreVertical className="w-4 h-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem onClick={() => onEdit(module)}>
+                <Edit className="w-4 h-4 mr-2" />
+                Edit
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => onDuplicate(module)}>
+                <Copy className="w-4 h-4 mr-2" />
+                Duplicate
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => onDelete(module.id)}
+                className="text-destructive focus:text-destructive"
+              >
+                <Trash2 className="w-4 h-4 mr-2" />
+                Delete
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      </CardHeader>
+    </Card>
+  );
+};
 
 export const ModuleManagementDialog = ({
   open,
@@ -53,16 +199,21 @@ export const ModuleManagementDialog = ({
     materials: [] as string[],
     prerequisites: [] as string[],
   });
+  const [contentBlocks, setContentBlocks] = useState<ContentBlock[]>([]);
+  const [useRichEditor, setUseRichEditor] = useState(true);
+  const [useContentBlocks, setUseContentBlocks] = useState(false);
   const [newMaterial, setNewMaterial] = useState("");
   const [loadingModules, setLoadingModules] = useState(false);
+  const [previewMode, setPreviewMode] = useState(false);
 
-  useEffect(() => {
-    if (open && course.id) {
-      loadModules();
-    }
-  }, [open, course.id]);
+  const sensors = useSensors(
+    useSensor(PointerSensor),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    })
+  );
 
-  const loadModules = async () => {
+  const loadModules = useCallback(async () => {
     setLoadingModules(true);
     try {
       const courseModules = await moduleService.getModulesByCourse(course.id);
@@ -73,7 +224,13 @@ export const ModuleManagementDialog = ({
     } finally {
       setLoadingModules(false);
     }
-  };
+  }, [course.id]);
+
+  useEffect(() => {
+    if (open && course.id) {
+      loadModules();
+    }
+  }, [open, course.id, loadModules]);
 
   const resetForm = () => {
     setFormData({
@@ -83,8 +240,12 @@ export const ModuleManagementDialog = ({
       materials: [],
       prerequisites: [],
     });
+    setContentBlocks([]);
     setEditingModule(null);
     setNewMaterial("");
+    setPreviewMode(false);
+    setUseRichEditor(true);
+    setUseContentBlocks(false);
   };
 
   const handleCreateModule = () => {
@@ -101,6 +262,49 @@ export const ModuleManagementDialog = ({
       materials: module.materials || [],
       prerequisites: module.prerequisites || [],
     });
+    
+    // Try to parse content blocks
+    try {
+      const parsed = JSON.parse(module.content || "[]");
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        setContentBlocks(parsed);
+        setUseContentBlocks(true);
+        setUseRichEditor(false);
+      } else {
+        setContentBlocks([]);
+        setUseContentBlocks(false);
+        setUseRichEditor(true);
+      }
+    } catch {
+      setContentBlocks([]);
+      setUseContentBlocks(false);
+      setUseRichEditor(true);
+    }
+    
+    setPreviewMode(false);
+  };
+
+  const handleDuplicateModule = async (module: Module) => {
+    try {
+      setLoading(true);
+      const duplicatedModule = await moduleService.createModule({
+        course_id: course.id,
+        title: `${module.title} (Copy)`,
+        description: module.description,
+        content: module.content || undefined,
+        materials: module.materials,
+        prerequisites: module.prerequisites,
+        order: modules.length + 1,
+      });
+      toast.success("Module duplicated successfully");
+      loadModules();
+      onSuccess?.();
+    } catch (error) {
+      console.error("Error duplicating module:", error);
+      toast.error("Failed to duplicate module");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleSaveModule = async () => {
@@ -111,11 +315,18 @@ export const ModuleManagementDialog = ({
 
     setLoading(true);
     try {
+      // Determine content based on mode
+      let finalContent = formData.content;
+      if (useContentBlocks && contentBlocks.length > 0) {
+        // Save content blocks as JSON
+        finalContent = JSON.stringify(contentBlocks);
+      }
+
       if (editingModule) {
         await moduleService.updateModule(editingModule.id, {
           title: formData.title,
           description: formData.description,
-          content: formData.content || undefined,
+          content: finalContent || undefined,
           materials: formData.materials,
           prerequisites: formData.prerequisites,
         });
@@ -125,7 +336,7 @@ export const ModuleManagementDialog = ({
           course_id: course.id,
           title: formData.title,
           description: formData.description,
-          content: formData.content || undefined,
+          content: finalContent || undefined,
           materials: formData.materials,
           prerequisites: formData.prerequisites,
           order: modules.length + 1,
@@ -135,12 +346,48 @@ export const ModuleManagementDialog = ({
       resetForm();
       loadModules();
       onSuccess?.();
+      // Close dialog after successful save
+      onOpenChange(false);
     } catch (error) {
       console.error("Error saving module:", error);
       toast.error(editingModule ? "Failed to update module" : "Failed to create module");
     } finally {
       setLoading(false);
     }
+  };
+
+  const addContentBlock = (type: ContentBlockType) => {
+    const newBlock: ContentBlock = {
+      id: Date.now().toString(),
+      type,
+      content: "",
+      ...(type === "code" && { language: "javascript" }),
+      ...(type === "quiz" && { title: "", options: [""], correctAnswer: 0 }),
+      ...(type === "video" && { videoUrl: "" }),
+    };
+    setContentBlocks([...contentBlocks, newBlock]);
+    setUseContentBlocks(true);
+    setUseRichEditor(false);
+  };
+
+  const updateContentBlock = (updatedBlock: ContentBlock) => {
+    setContentBlocks(contentBlocks.map((b) => (b.id === updatedBlock.id ? updatedBlock : b)));
+  };
+
+  const deleteContentBlock = (id: string) => {
+    setContentBlocks(contentBlocks.filter((b) => b.id !== id));
+  };
+
+  const moveContentBlock = (id: string, direction: "up" | "down") => {
+    const index = contentBlocks.findIndex((b) => b.id === id);
+    if (index === -1) return;
+
+    const newIndex = direction === "up" ? index - 1 : index + 1;
+    if (newIndex < 0 || newIndex >= contentBlocks.length) return;
+
+    const newBlocks = [...contentBlocks];
+    [newBlocks[index], newBlocks[newIndex]] = [newBlocks[newIndex], newBlocks[index]];
+    setContentBlocks(newBlocks);
   };
 
   const handleDeleteModule = async () => {
@@ -161,16 +408,18 @@ export const ModuleManagementDialog = ({
     }
   };
 
-  const handleReorder = async (moduleId: string, direction: "up" | "down") => {
-    const moduleIndex = modules.findIndex((m) => m.id === moduleId);
-    if (moduleIndex === -1) return;
+  const handleDragEnd = async (event: DragEndEvent) => {
+    const { active, over } = event;
 
-    const newIndex = direction === "up" ? moduleIndex - 1 : moduleIndex + 1;
-    if (newIndex < 0 || newIndex >= modules.length) return;
+    if (!over || active.id === over.id) {
+      return;
+    }
 
-    const reorderedModules = [...modules];
-    const [moved] = reorderedModules.splice(moduleIndex, 1);
-    reorderedModules.splice(newIndex, 0, moved);
+    const oldIndex = modules.findIndex((m) => m.id === active.id);
+    const newIndex = modules.findIndex((m) => m.id === over.id);
+
+    const reorderedModules = arrayMove(modules, oldIndex, newIndex);
+    setModules(reorderedModules);
 
     // Update order values
     const moduleOrders = reorderedModules.map((m, idx) => ({
@@ -180,12 +429,13 @@ export const ModuleManagementDialog = ({
 
     try {
       await moduleService.reorderModules(course.id, moduleOrders);
-      setModules(reorderedModules);
       toast.success("Module order updated");
       onSuccess?.();
     } catch (error) {
       console.error("Error reordering modules:", error);
       toast.error("Failed to reorder modules");
+      // Revert on error
+      loadModules();
     }
   };
 
@@ -217,231 +467,319 @@ export const ModuleManagementDialog = ({
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
+        <DialogContent className="max-w-6xl max-h-[90vh] overflow-hidden flex flex-col">
           <DialogHeader>
-            <DialogTitle>Manage Modules - {course.title}</DialogTitle>
+            <DialogTitle className="text-xl">Manage Modules - {course.title}</DialogTitle>
           </DialogHeader>
 
-          <div className="flex-1 overflow-hidden flex gap-4">
-            {/* Modules List */}
+          <div className="flex-1 overflow-hidden flex gap-6">
+            {/* Modules List - Sololearn Style */}
             <div className="flex-1 flex flex-col min-w-0">
               <div className="flex items-center justify-between mb-4">
-                <h3 className="font-semibold">Modules ({modules.length})</h3>
+                <div>
+                  <h3 className="font-semibold text-lg">Modules</h3>
+                  <p className="text-sm text-muted-foreground">
+                    {modules.length} {modules.length === 1 ? "module" : "modules"} • Drag to reorder
+                  </p>
+                </div>
                 <Button onClick={handleCreateModule} size="sm">
                   <Plus className="w-4 h-4 mr-2" />
                   Add Module
                 </Button>
               </div>
 
-              <ScrollArea className="flex-1 border rounded-lg">
+              <ScrollArea className="flex-1">
                 {loadingModules ? (
-                  <div className="p-8 text-center text-muted-foreground">Loading modules...</div>
+                  <div className="p-12 text-center text-muted-foreground">
+                    <div className="animate-pulse">Loading modules...</div>
+                  </div>
                 ) : modules.length === 0 ? (
-                  <div className="p-8 text-center text-muted-foreground">
-                    No modules yet. Create your first module!
+                  <div className="p-12 text-center">
+                    <BookOpen className="w-16 h-16 mx-auto mb-4 text-muted-foreground opacity-50" />
+                    <p className="text-muted-foreground mb-4">No modules yet</p>
+                    <Button onClick={handleCreateModule} variant="outline">
+                      <Plus className="w-4 h-4 mr-2" />
+                      Create your first module
+                    </Button>
                   </div>
                 ) : (
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="w-12">Order</TableHead>
-                        <TableHead>Title</TableHead>
-                        <TableHead>Prerequisites</TableHead>
-                        <TableHead className="w-32">Actions</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {modules.map((module, index) => (
-                        <TableRow key={module.id}>
-                          <TableCell>
-                            <div className="flex items-center gap-1">
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => handleReorder(module.id, "up")}
-                                disabled={index === 0}
-                                className="h-6 w-6 p-0"
-                              >
-                                <ArrowUp className="w-3 h-3" />
-                              </Button>
-                              <span className="text-sm font-medium">{module.order}</span>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => handleReorder(module.id, "down")}
-                                disabled={index === modules.length - 1}
-                                className="h-6 w-6 p-0"
-                              >
-                                <ArrowDown className="w-3 h-3" />
-                              </Button>
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            <div>
-                              <div className="font-medium">{module.title}</div>
-                              <div className="text-xs text-muted-foreground line-clamp-1">
-                                {module.description}
-                              </div>
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            {module.prerequisites.length > 0 ? (
-                              <Badge variant="outline" className="text-xs">
-                                {module.prerequisites.length} required
-                              </Badge>
-                            ) : (
-                              <span className="text-xs text-muted-foreground">None</span>
-                            )}
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex items-center gap-1">
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => handleEditModule(module)}
-                                className="h-8 w-8 p-0"
-                              >
-                                <Edit className="w-4 h-4" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() => setDeleteModuleId(module.id)}
-                                className="h-8 w-8 p-0 text-destructive"
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </Button>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
+                  <DndContext
+                    sensors={sensors}
+                    collisionDetection={closestCenter}
+                    onDragEnd={handleDragEnd}
+                  >
+                    <SortableContext items={modules.map((m) => m.id)} strategy={verticalListSortingStrategy}>
+                      <div className="space-y-3 pr-4">
+                        {modules.map((module) => (
+                          <SortableModuleCard
+                            key={module.id}
+                            module={module}
+                            isEditing={editingModule?.id === module.id}
+                            onEdit={handleEditModule}
+                            onDelete={setDeleteModuleId}
+                            onDuplicate={handleDuplicateModule}
+                            prerequisites={modules}
+                          />
+                        ))}
+                      </div>
+                    </SortableContext>
+                  </DndContext>
                 )}
               </ScrollArea>
             </div>
 
-            {/* Module Form */}
-            <div className="w-96 border-l pl-4 flex flex-col">
-              <h3 className="font-semibold mb-4">
-                {editingModule ? "Edit Module" : "Create Module"}
-              </h3>
+            {/* Module Form Sidebar */}
+            <div className="w-96 border-l pl-6 flex flex-col">
+              <div className="mb-4">
+                <h3 className="font-semibold text-lg mb-1">
+                  {editingModule ? "Edit Module" : "Create Module"}
+                </h3>
+                {editingModule && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={resetForm}
+                    className="h-7 text-xs text-muted-foreground"
+                  >
+                    <Plus className="w-3 h-3 mr-1" />
+                    Create New Instead
+                  </Button>
+                )}
+              </div>
 
               <ScrollArea className="flex-1">
-                <div className="space-y-4 pr-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="module-title">Title *</Label>
-                    <Input
-                      id="module-title"
-                      value={formData.title}
-                      onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                      placeholder="Module title"
-                    />
-                  </div>
+                <Tabs value={previewMode ? "preview" : "edit"} onValueChange={(v) => setPreviewMode(v === "preview")}>
+                  <TabsList className="grid w-full grid-cols-2 mb-4">
+                    <TabsTrigger value="edit">
+                      <FileText className="w-4 h-4 mr-2" />
+                      Edit
+                    </TabsTrigger>
+                    <TabsTrigger value="preview">
+                      <Eye className="w-4 h-4 mr-2" />
+                      Preview
+                    </TabsTrigger>
+                  </TabsList>
 
-                  <div className="space-y-2">
-                    <Label htmlFor="module-description">Description *</Label>
-                    <Textarea
-                      id="module-description"
-                      value={formData.description}
-                      onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                      placeholder="Module description"
-                      rows={3}
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="module-content">Content</Label>
-                    <Textarea
-                      id="module-content"
-                      value={formData.content}
-                      onChange={(e) => setFormData({ ...formData, content: e.target.value })}
-                      placeholder="Module content (HTML/text)"
-                      rows={6}
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label>Learning Materials</Label>
-                    <div className="flex gap-2">
-                      <Input
-                        value={newMaterial}
-                        onChange={(e) => setNewMaterial(e.target.value)}
-                        onKeyPress={(e) => {
-                          if (e.key === "Enter") {
-                            e.preventDefault();
-                            addMaterial();
-                          }
-                        }}
-                        placeholder="Material URL"
-                      />
-                      <Button type="button" onClick={addMaterial} variant="outline" size="sm">
-                        <Plus className="w-4 h-4" />
-                      </Button>
-                    </div>
-                    {formData.materials.length > 0 && (
-                      <div className="flex flex-wrap gap-2 mt-2">
-                        {formData.materials.map((material) => (
-                          <Badge key={material} variant="secondary" className="gap-1">
-                            {material.substring(0, 20)}...
-                            <button
-                              type="button"
-                              onClick={() => removeMaterial(material)}
-                              className="ml-1 hover:text-destructive"
-                            >
-                              <X className="w-3 h-3" />
-                            </button>
-                          </Badge>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  {modules.length > 0 && (
+                  <TabsContent value="edit" className="space-y-4 pr-4 mt-0">
                     <div className="space-y-2">
-                      <Label>Prerequisites (select modules that must be completed first)</Label>
-                      <div className="space-y-2 max-h-32 overflow-y-auto border rounded p-2">
-                        {modules
-                          .filter((m) => !editingModule || m.id !== editingModule.id)
-                          .map((module) => (
-                            <div key={module.id} className="flex items-center space-x-2">
-                              <input
-                                type="checkbox"
-                                checked={formData.prerequisites.includes(module.id)}
-                                onChange={() => togglePrerequisite(module.id)}
-                                className="rounded"
-                              />
-                              <Label className="text-sm cursor-pointer">
-                                {module.order}. {module.title}
-                              </Label>
-                            </div>
-                          ))}
-                      </div>
+                      <Label htmlFor="module-title">Title *</Label>
+                      <Input
+                        id="module-title"
+                        value={formData.title}
+                        onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                        placeholder="e.g., Introduction to JavaScript"
+                      />
                     </div>
-                  )}
 
-                  <div className="flex gap-2 pt-4">
-                    <Button
-                      onClick={handleSaveModule}
-                      disabled={loading || !formData.title || !formData.description}
-                      className="flex-1"
-                    >
-                      {loading ? "Saving..." : editingModule ? "Update" : "Create"}
-                    </Button>
-                    {editingModule && (
-                      <Button variant="outline" onClick={resetForm}>
-                        Cancel
-                      </Button>
+                    <div className="space-y-2">
+                      <Label htmlFor="module-description">Description *</Label>
+                      <Textarea
+                        id="module-description"
+                        value={formData.description}
+                        onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                        placeholder="Brief description of what learners will learn..."
+                        rows={3}
+                      />
+                    </div>
+
+                    {/* Content Mode Toggle */}
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <Label>Content</Label>
+                        <div className="flex gap-2">
+                          <Button
+                            type="button"
+                            variant={useContentBlocks ? "outline" : "default"}
+                            size="sm"
+                            onClick={() => {
+                              setUseContentBlocks(false);
+                              setUseRichEditor(true);
+                            }}
+                          >
+                            Rich Editor
+                          </Button>
+                          <Button
+                            type="button"
+                            variant={useContentBlocks ? "default" : "outline"}
+                            size="sm"
+                            onClick={() => {
+                              setUseContentBlocks(true);
+                              setUseRichEditor(false);
+                            }}
+                          >
+                            Content Blocks
+                          </Button>
+                        </div>
+                      </div>
+
+                      {useContentBlocks ? (
+                        <div className="space-y-3">
+                          {/* Add Content Block Buttons */}
+                          <div className="flex flex-wrap gap-2 p-3 border rounded-lg bg-muted/30">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => addContentBlock("text")}
+                            >
+                              <Plus className="w-4 h-4 mr-1" />
+                              Text
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => addContentBlock("code")}
+                            >
+                              <Plus className="w-4 h-4 mr-1" />
+                              Code
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => addContentBlock("video")}
+                            >
+                              <Plus className="w-4 h-4 mr-1" />
+                              Video
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => addContentBlock("quiz")}
+                            >
+                              <Plus className="w-4 h-4 mr-1" />
+                              Quiz
+                            </Button>
+                          </div>
+
+                          {/* Content Blocks */}
+                          {contentBlocks.length > 0 ? (
+                            <div className="space-y-3">
+                              {contentBlocks.map((block, idx) => (
+                                <ContentBlockComponent
+                                  key={block.id}
+                                  block={block}
+                                  index={idx}
+                                  onUpdate={updateContentBlock}
+                                  onDelete={deleteContentBlock}
+                                  onMove={moveContentBlock}
+                                  canMoveUp={idx > 0}
+                                  canMoveDown={idx < contentBlocks.length - 1}
+                                />
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="text-center py-8 text-muted-foreground border rounded-lg">
+                              <p>No content blocks yet. Add one above to get started.</p>
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <RichTextEditor
+                          content={formData.content}
+                          onChange={(content) => setFormData({ ...formData, content })}
+                          placeholder="Start typing your content here..."
+                        />
+                      )}
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label>Learning Materials</Label>
+                      <div className="flex gap-2">
+                        <Input
+                          value={newMaterial}
+                          onChange={(e) => setNewMaterial(e.target.value)}
+                          onKeyPress={(e) => {
+                            if (e.key === "Enter") {
+                              e.preventDefault();
+                              addMaterial();
+                            }
+                          }}
+                          placeholder="Material URL"
+                        />
+                        <Button type="button" onClick={addMaterial} variant="outline" size="sm">
+                          <Plus className="w-4 h-4" />
+                        </Button>
+                      </div>
+                      {formData.materials.length > 0 && (
+                        <div className="flex flex-wrap gap-2 mt-2">
+                          {formData.materials.map((material) => (
+                            <Badge key={material} variant="secondary" className="gap-1 pr-1">
+                              <span className="max-w-[120px] truncate">{material}</span>
+                              <button
+                                type="button"
+                                onClick={() => removeMaterial(material)}
+                                className="ml-1 hover:text-destructive rounded-full p-0.5"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            </Badge>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {modules.length > 0 && (
+                      <div className="space-y-2">
+                        <Label>Prerequisites</Label>
+                        <p className="text-xs text-muted-foreground mb-2">
+                          Select modules that must be completed first
+                        </p>
+                        <div className="space-y-2 max-h-40 overflow-y-auto border rounded-lg p-3 bg-muted/30">
+                          {modules
+                            .filter((m) => !editingModule || m.id !== editingModule.id)
+                            .map((module) => (
+                              <div key={module.id} className="flex items-center space-x-2">
+                                <input
+                                  type="checkbox"
+                                  id={`prereq-${module.id}`}
+                                  checked={formData.prerequisites.includes(module.id)}
+                                  onChange={() => togglePrerequisite(module.id)}
+                                  className="rounded"
+                                />
+                                <Label
+                                  htmlFor={`prereq-${module.id}`}
+                                  className="text-sm cursor-pointer flex-1"
+                                >
+                                  {module.order}. {module.title}
+                                </Label>
+                              </div>
+                            ))}
+                        </div>
+                      </div>
                     )}
-                  </div>
-                </div>
+
+                  </TabsContent>
+
+                  <TabsContent value="preview" className="pr-4 mt-0">
+                    <ModulePreview
+                      module={{
+                        title: formData.title || "Untitled Module",
+                        description: formData.description || "",
+                        content: useContentBlocks ? JSON.stringify(contentBlocks) : formData.content,
+                        materials: formData.materials,
+                        prerequisites: formData.prerequisites,
+                        order: editingModule?.order || modules.length + 1,
+                      }}
+                      allModules={modules}
+                    />
+                  </TabsContent>
+                </Tabs>
               </ScrollArea>
             </div>
           </div>
 
-          <DialogFooter>
-            <Button variant="outline" onClick={() => onOpenChange(false)}>
+          <DialogFooter className="gap-2">
+            <Button variant="outline" onClick={() => onOpenChange(false)} disabled={loading}>
               Close
+            </Button>
+            <Button
+              onClick={handleSaveModule}
+              disabled={loading || !formData.title || !formData.description}
+            >
+              {loading ? "Saving..." : editingModule ? "Update Module" : "Create Module"}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -458,7 +796,10 @@ export const ModuleManagementDialog = ({
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDeleteModule} className="bg-destructive text-destructive-foreground">
+            <AlertDialogAction
+              onClick={handleDeleteModule}
+              className="bg-destructive text-destructive-foreground"
+            >
               Delete
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -467,4 +808,3 @@ export const ModuleManagementDialog = ({
     </>
   );
 };
-

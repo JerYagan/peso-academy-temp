@@ -188,12 +188,21 @@ const AdminUsers = () => {
 
     try {
       setCreating(true);
+      console.log("Starting user creation for:", newUser.email);
+      
       const result = await supabaseAuthService.signup(
         newUser.email,
         newUser.password,
         newUser.name,
         newUser.role
       );
+
+      console.log("User creation result:", { 
+        hasUser: !!result.user, 
+        hasError: !!result.error,
+        userId: result.user?.id,
+        errorMessage: result.error?.message 
+      });
 
       if (result.error) {
         console.error("User creation error:", result.error);
@@ -204,10 +213,12 @@ const AdminUsers = () => {
           description: result.error instanceof Error ? result.error.stack : undefined,
           duration: 5000,
         });
+        setCreating(false);
         return;
       }
 
       if (result.user) {
+        console.log("User created successfully:", result.user.id);
         toast.success(`User "${newUser.name}" created successfully`);
         setIsCreateDialogOpen(false);
         setNewUser({
@@ -217,11 +228,17 @@ const AdminUsers = () => {
           role: "jobseeker",
         });
         loadUsers();
+        setCreating(false);
+        return;
       }
+
+      // Fallback: If no error but also no user, something unexpected happened
+      console.warn("User creation returned no error but also no user:", result);
+      toast.error("User creation completed but no user data was returned. Please refresh and check if the user was created.");
+      setCreating(false);
     } catch (error) {
       console.error("Error creating user:", error);
       toast.error("Failed to create user");
-    } finally {
       setCreating(false);
     }
   };

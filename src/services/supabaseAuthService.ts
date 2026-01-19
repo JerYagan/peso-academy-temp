@@ -22,31 +22,86 @@ export const supabaseAuthService = {
     if (!supabase) {
       return { user: null, error: new Error("Supabase client not initialized") };
     }
+    
+    // Basic email validation and normalization
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return { 
+        user: null, 
+        error: new Error("Invalid email format. Please enter a valid email address.") 
+      };
+    }
+    
+    // Trim and normalize email
+    const trimmedEmail = email.trim().toLowerCase();
+    
     try {
       // Sign up with Supabase Auth
+      // Note: In development, Supabase may restrict emails to pre-authorized addresses
+      // To allow any email, configure custom SMTP or disable email confirmation in Supabase dashboard
       const { data: authData, error: authError } = await supabase.auth.signUp({
-        email,
+        email: trimmedEmail,
         password,
         options: {
           data: {
             name,
             role,
           },
+          // For development: auto-confirm email if email confirmation is disabled
+          // This requires Supabase project settings to have "Enable email confirmations" disabled
         },
       });
 
+      // IMPORTANT: Check if user was created FIRST, even if there's an error
+      // Supabase sometimes returns errors even when user creation succeeds
+      const userWasCreated = !!(authData?.user);
+      
       if (authError) {
         // Log detailed error information for debugging
         console.error("Supabase Auth signup error:", {
           message: authError.message,
           status: authError.status,
           name: authError.name,
+          code: authError.status,
+          userWasCreated: userWasCreated,
+          userId: authData?.user?.id,
+          hasAuthData: !!authData,
         });
-        return { user: null, error: authError };
+        
+        // If user was created despite the error, continue with profile creation
+        // This handles cases where Supabase returns an error but still creates the auth user
+        if (userWasCreated) {
+          console.warn("Auth error occurred but user was created. Continuing with profile creation.", {
+            errorMessage: authError.message,
+            userId: authData.user.id,
+            email: authData.user.email,
+          });
+          // Don't return error, continue to profile creation below
+        } else {
+          // User was NOT created, handle the error
+          let errorMessage = authError.message;
+          
+          if (authError.message.includes("already registered") || 
+              authError.message.includes("already exists") ||
+              authError.message.includes("User already registered")) {
+            errorMessage = "A user with this email already exists";
+          } else if (authError.message.includes("Password")) {
+            errorMessage = "Password does not meet requirements";
+          } else if (authError.message.includes("invalid") && authError.message.includes("email")) {
+            errorMessage = `Email validation failed: ${trimmedEmail}. This may be because:\n1. Supabase default SMTP only allows pre-authorized emails\n2. Email confirmation is enabled and the domain is not verified\n\nSolution: In Supabase Dashboard → Authentication → Settings, either:\n- Disable "Enable email confirmations" for development, OR\n- Configure custom SMTP provider, OR\n- Add this email to authorized recipients list`;
+          }
+          
+          return { 
+            user: null, 
+            error: new Error(errorMessage || "Failed to create user account. Please try again.") 
+          };
+        }
       }
 
-      if (!authData.user) {
-        return { user: null, error: new Error("Failed to create user") };
+      // Final safety check: If no user was created (shouldn't happen if no error, but check anyway)
+      if (!authData?.user) {
+        console.error("No user created and no error was returned - unexpected state");
+        return { user: null, error: new Error("Failed to create user account") };
       }
 
       // Wait a bit for the trigger to create the profile automatically
@@ -116,7 +171,7 @@ export const supabaseAuthService = {
           .select()
           .single();
 
-        if (insertError || !insertedData) {
+        if (insertError) {
           console.error("Profile creation error:", insertError);
           console.error("Insert error details:", {
             code: insertError?.code,
@@ -125,26 +180,55 @@ export const supabaseAuthService = {
             hint: insertError?.hint,
           });
           
-          // Check if it's an RLS policy error
-          if (insertError?.code === "42501" || insertError?.message?.includes("policy") || insertError?.message?.includes("permission")) {
-            return { 
-              user: null, 
-              error: new Error(`Permission denied: ${insertError?.message || "RLS policy blocked the insert. Make sure you're logged in as an admin and the admin insert policy is active."}`)
-            };
+          // Check if it's a unique constraint violation (user already exists)
+          if (insertError.code === "23505" || insertError.message?.includes("duplicate") || insertError.message?.includes("unique")) {
+            // User already exists, try to fetch it
+            console.log("User profile already exists, fetching...");
+            const { data: existingUser } = await supabase
+              .from("users")
+              .select("*")
+              .eq("id", authData.user.id)
+              .single();
+            
+            if (existingUser) {
+              profileData = existingUser;
+            } else {
+              // Try by email
+              const { data: userByEmail } = await supabase
+                .from("users")
+                .select("*")
+                .eq("email", authData.user.email!)
+                .single();
+              
+              if (userByEmail) {
+                profileData = userByEmail;
+              }
+            }
+          } else if (insertError?.code === "42501" || insertError?.message?.includes("policy") || insertError?.message?.includes("permission")) {
+            // RLS policy error - but auth user was created, so return success with warning
+            console.warn("RLS policy blocked profile creation, but auth user was created");
+            // Don't return error - auth user exists, profile can be created later
+          } else {
+            // Other errors - log but don't fail since auth user was created
+            console.warn("Could not create profile, but auth user was created:", insertError);
           }
-          
-          // Try to get more details about the error
-          const errorMessage = insertError?.message || "Failed to create user profile";
-          const errorDetails = insertError?.details ? ` Details: ${insertError.details}` : "";
-          const errorHint = insertError?.hint ? ` Hint: ${insertError.hint}` : "";
-          const errorCode = insertError?.code ? ` Code: ${insertError.code}` : "";
-          
-          return { 
-            user: null, 
-            error: new Error(`Database error saving new user: ${errorMessage}${errorCode}${errorDetails}${errorHint}`)
-          };
+        } else if (insertedData) {
+          profileData = insertedData;
         }
-        profileData = insertedData;
+      }
+
+      // If we still don't have profile data, create a minimal user object from auth data
+      // This allows the user to log in, and the profile can be created on first access
+      if (!profileData) {
+        console.warn("Profile not created, but auth user exists. Creating minimal user object.");
+        const minimalUser: User = {
+          id: authData.user.id,
+          email: authData.user.email!,
+          name: name,
+          role: role,
+          createdAt: authData.user.created_at || new Date().toISOString(),
+        };
+        return { user: minimalUser, error: null };
       }
 
       const user: User = {
@@ -427,7 +511,10 @@ export const supabaseAuthService = {
     if (!supabase) {
       return { data: { subscription: { unsubscribe: () => {} } } };
     }
-    return supabase.auth.onAuthStateChange(async (event, session) => {
+    
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      console.log("Auth state change event:", event, "Has session:", !!session?.user);
+      
       // Handle explicit sign out - always clear user
       if (event === "SIGNED_OUT") {
         callback(null);
@@ -437,6 +524,24 @@ export const supabaseAuthService = {
       // If no session, clear user
       if (!session?.user) {
         callback(null);
+        return;
+      }
+
+      // Handle INITIAL_SESSION event (fires when app loads and finds existing session)
+      // Also handle undefined/null events which can happen on initial load
+      if (event === "INITIAL_SESSION" || event === null || event === undefined) {
+        try {
+          const { user, error } = await supabaseAuthService.getCurrentUser();
+          if (!error && user) {
+            callback(user);
+          } else {
+            // If profile fetch fails, still clear user
+            callback(null);
+          }
+        } catch (error) {
+          console.error("Error in auth state change (INITIAL_SESSION):", error);
+          callback(null);
+        }
         return;
       }
 
@@ -481,6 +586,8 @@ export const supabaseAuthService = {
         }
       }
     });
+    
+    return { data: { subscription } };
   },
 };
 

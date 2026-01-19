@@ -42,7 +42,10 @@ const Login = () => {
           ? getDashboardRoute(result.user.role) 
           : "/dashboard";
         console.log("Navigating to:", dashboardRoute);
-        navigate(dashboardRoute, { replace: true });
+        // Small delay to ensure state is updated before navigation
+        setTimeout(() => {
+          navigate(dashboardRoute, { replace: true });
+        }, 100);
       } else {
         console.error("Login failed:", result.error);
         setError(result.error || "Invalid email or password");
