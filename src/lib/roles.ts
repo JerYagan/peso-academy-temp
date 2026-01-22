@@ -1,117 +1,182 @@
-import { UserRole } from "@/types/auth";
-import {
-  getRoleConfig,
-  getAllRoles,
-  getRolesByCategory,
-  getPublicSignupRoles as getPublicSignupRolesConfig,
-  roleHasPermission,
-  getRoleDisplayName,
-  getRoleDescription,
-  getDashboardRoute as getDashboardRouteConfig,
-} from "./roleConfig";
-
 /**
- * Role-based access control utilities
- * Now uses dynamic role configuration from roleConfig.ts
+ * User roles and permissions
+ * Roles are stored in user metadata in Supabase (auth.users.raw_user_meta_data->>'role')
+ * Following payroll-pal's authentication approach
+ * 
+ * System has 4 roles:
+ * - admin (Administrator)
+ * - training_officer (Training Officer)
+ * - validator (Validator)
+ * - trainee (Trainee)
+ * 
+ * Display names can be customized via role_aliases table
  */
 
-// Role categories - dynamically generated from config
-export const INTERNAL_ROLES: UserRole[] = getRolesByCategory("internal").map((r) => r.id) as UserRole[];
-export const END_USER_ROLES: UserRole[] = getRolesByCategory("end_user").map((r) => r.id) as UserRole[];
+export type UserRole = 'admin' | 'training_officer' | 'validator' | 'trainee';
 
-// Role display names - dynamically generated from config
-export const ROLE_DISPLAY_NAMES: Record<UserRole, string> = {
-  jobseeker: getRoleDisplayName("jobseeker"),
-  admin: getRoleDisplayName("admin"),
-  trainer: getRoleDisplayName("trainer"),
-  employer: getRoleDisplayName("employer"),
-  validator: getRoleDisplayName("validator"),
-  spd: getRoleDisplayName("spd"),
-};
+export interface RolePermissions {
+  canManageUsers: boolean;
+  canManageCourses: boolean;
+  canManageTraining: boolean;
+  canValidate: boolean;
+  canPostJobs: boolean;
+  canViewReports: boolean;
+  canManageSettings: boolean;
+}
 
-// Role descriptions - dynamically generated from config
-export const ROLE_DESCRIPTIONS: Record<UserRole, string> = {
-  jobseeker: getRoleDescription("jobseeker"),
-  admin: getRoleDescription("admin"),
-  trainer: getRoleDescription("trainer"),
-  employer: getRoleDescription("employer"),
-  validator: getRoleDescription("validator"),
-  spd: getRoleDescription("spd"),
-};
-
-/**
- * Check if a user has one of the allowed roles
- */
-export const hasRole = (userRole: UserRole, allowedRoles: UserRole[]): boolean => {
-  return allowedRoles.includes(userRole);
-};
-
-/**
- * Check if user is an internal user (admin or validator)
- */
-export const isInternalUser = (role: UserRole): boolean => {
-  return INTERNAL_ROLES.includes(role);
-};
-
-/**
- * Check if user is an end user
- */
-export const isEndUser = (role: UserRole): boolean => {
-  return END_USER_ROLES.includes(role);
-};
-
-/**
- * Check if user can manage courses
- * Uses dynamic permission system
- */
-export const canManageCourses = (role: UserRole): boolean => {
-  return roleHasPermission(role, "courses.create") || roleHasPermission(role, "courses.update");
+export const rolePermissions: Record<UserRole, RolePermissions> = {
+  admin: {
+    canManageUsers: true,
+    canManageCourses: true,
+    canManageTraining: true,
+    canValidate: true,
+    canPostJobs: true,
+    canViewReports: true,
+    canManageSettings: true,
+  },
+  training_officer: {
+    canManageUsers: false,
+    canManageCourses: true,
+    canManageTraining: true,
+    canValidate: false,
+    canPostJobs: true,
+    canViewReports: true,
+    canManageSettings: false,
+  },
+  validator: {
+    canManageUsers: false,
+    canManageCourses: false,
+    canManageTraining: false,
+    canValidate: true,
+    canPostJobs: false,
+    canViewReports: true,
+    canManageSettings: false,
+  },
+  trainee: {
+    canManageUsers: false,
+    canManageCourses: false,
+    canManageTraining: false,
+    canValidate: false,
+    canPostJobs: false,
+    canViewReports: false,
+    canManageSettings: false,
+  },
 };
 
 /**
- * Check if user can validate submissions
- * Uses dynamic permission system
+ * Default role display names (can be overridden by role_aliases table)
  */
-export const canValidate = (role: UserRole): boolean => {
-  return roleHasPermission(role, "training.validate");
+export const defaultRoleDisplayNames: Record<UserRole, string> = {
+  admin: 'Administrator',
+  training_officer: 'Training Officer',
+  validator: 'Validator',
+  trainee: 'Trainee',
 };
 
 /**
- * Check if user can manage users
- * Uses dynamic permission system
+ * Default role descriptions
  */
-export const canManageUsers = (role: UserRole): boolean => {
-  return roleHasPermission(role, "users.manage_roles") || roleHasPermission(role, "users.update");
+export const defaultRoleDescriptions: Record<UserRole, string> = {
+  admin: 'Assigns and manages roles and defines access permissions',
+  training_officer: 'Accesses training-related modules only',
+  validator: 'Accesses validation and review modules only',
+  trainee: 'Accesses learning, assessment, and progress modules only',
 };
 
 /**
- * Check if user can post jobs
- * Uses dynamic permission system
+ * Get user role from user metadata
+ * Defaults to 'trainee' if no role is set
+ * Handles both Supabase user objects (with user_metadata) and User objects (with role property)
  */
-export const canPostJobs = (role: UserRole): boolean => {
-  return roleHasPermission(role, "jobs.create");
-};
+export function getUserRole(user: any): UserRole {
+  // Check if it's a User object with direct role property (from AuthContext)
+  if (user?.role) {
+    const role = user.role;
+    const validRoles: UserRole[] = ['admin', 'training_officer', 'validator', 'trainee'];
+    return validRoles.includes(role) ? role : 'trainee';
+  }
+  
+  // Otherwise, check for Supabase user metadata
+  const role = user?.user_metadata?.role || 'trainee';
+  // Validate role is one of the 4 valid roles
+  const validRoles: UserRole[] = ['admin', 'training_officer', 'validator', 'trainee'];
+  return validRoles.includes(role) ? role : 'trainee';
+}
+
+/**
+ * Check if user has a specific role
+ */
+export function hasRole(user: any, role: UserRole): boolean {
+  return getUserRole(user) === role;
+}
+
+/**
+ * Check if user has any of the allowed roles
+ */
+export function hasAnyRole(user: any, roles: UserRole[]): boolean {
+  const userRole = getUserRole(user);
+  return roles.includes(userRole);
+}
+
+/**
+ * Check if user has admin role
+ */
+export function isAdmin(user: any): boolean {
+  return hasRole(user, 'admin');
+}
+
+/**
+ * Get permissions for a user
+ */
+export function getUserPermissions(user: any): RolePermissions {
+  const role = getUserRole(user);
+  return rolePermissions[role];
+}
 
 /**
  * Get dashboard route based on user role
- * Uses dynamic configuration
  */
-export const getDashboardRoute = (role: UserRole): string => {
-  return getDashboardRouteConfig(role);
-};
+export function getDashboardRoute(role: UserRole): string {
+  switch (role) {
+    case 'admin':
+      return '/admin/users';
+    case 'training_officer':
+      return '/trainer/courses';
+    case 'validator':
+      return '/validator/dashboard';
+    case 'trainee':
+    default:
+      return '/dashboard';
+  }
+}
 
 /**
- * Get available roles for signup (public roles only)
- * Uses dynamic configuration
+ * Get public signup roles (roles that can be selected during signup)
+ * Only trainee can sign up publicly
  */
-export const getPublicSignupRoles = (): UserRole[] => {
-  return getPublicSignupRolesConfig().map((r) => r.id) as UserRole[];
-};
+export function getPublicSignupRoles(): UserRole[] {
+  return ['trainee'];
+}
 
 /**
  * Check if role can be selected during signup
  */
-export const isPublicSignupRole = (role: UserRole): boolean => {
+export function isPublicSignupRole(role: UserRole): boolean {
   return getPublicSignupRoles().includes(role);
-};
+}
 
+/**
+ * Get role display name (with alias support)
+ * This should be called with a service that fetches from role_aliases table
+ * For now, returns default display name
+ */
+export function getRoleDisplayName(role: UserRole): string {
+  return defaultRoleDisplayNames[role];
+}
+
+/**
+ * Get role description
+ */
+export function getRoleDescription(role: UserRole): string {
+  return defaultRoleDescriptions[role];
+}

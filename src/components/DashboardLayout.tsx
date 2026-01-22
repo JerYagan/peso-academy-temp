@@ -22,8 +22,8 @@ const DashboardLayout = ({ children }: DashboardLayoutProps) => {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const handleLogout = () => {
-    logout();
+  const handleLogout = async () => {
+    await logout();
     navigate("/");
   };
 
@@ -31,7 +31,7 @@ const DashboardLayout = ({ children }: DashboardLayoutProps) => {
     if (!user) return [];
 
     switch (user.role) {
-      case "jobseeker":
+      case "trainee":
         return [
           { path: "/dashboard", label: "My Dashboard", icon: BarChart3 },
           { path: "/courses", label: "Browse Courses", icon: BookOpen },
@@ -49,17 +49,9 @@ const DashboardLayout = ({ children }: DashboardLayoutProps) => {
           // { path: "/admin/jobs", label: "Jobs", icon: Briefcase }, // Hidden - Future Phase
           { path: "/profile", label: "Profile", icon: User },
         ];
-      case "trainer":
+      case "training_officer":
         return [
-          { path: "/dashboard", label: "Trainer Dashboard", icon: BarChart3 },
-          { path: "/trainer/courses", label: "My Courses", icon: BookOpen },
-          { path: "/trainer/learners", label: "Learners", icon: Users },
-          { path: "/notifications", label: "Notifications", icon: Bell },
-          { path: "/profile", label: "Profile", icon: User },
-        ];
-      case "spd":
-        return [
-          { path: "/dashboard", label: "SPD Dashboard", icon: BarChart3 },
+          { path: "/dashboard", label: "Training Officer Dashboard", icon: BarChart3 },
           { path: "/trainer/courses", label: "My Courses", icon: BookOpen },
           { path: "/trainer/learners", label: "Learners", icon: Users },
           { path: "/notifications", label: "Notifications", icon: Bell },
@@ -70,14 +62,6 @@ const DashboardLayout = ({ children }: DashboardLayoutProps) => {
           { path: "/validator/dashboard", label: "Validator Dashboard", icon: BarChart3 },
           { path: "/validator/submissions", label: "Submissions", icon: FileText },
           { path: "/notifications", label: "Notifications", icon: Bell },
-          { path: "/profile", label: "Profile", icon: User },
-        ];
-      case "employer":
-        return [
-          { path: "/dashboard", label: "Employer Dashboard", icon: BarChart3 },
-          { path: "/notifications", label: "Notifications", icon: Bell },
-          // { path: "/employer/jobs", label: "Job Postings", icon: Briefcase }, // Hidden - Future Phase
-          // { path: "/employer/candidates", label: "Candidates", icon: Users }, // Hidden - Future Phase
           { path: "/profile", label: "Profile", icon: User },
         ];
       default:

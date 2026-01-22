@@ -1260,15 +1260,39 @@ export const userService = {
       console.warn("Supabase not initialized");
       return [];
     }
+    
+    console.log("🔍 getAllUsers: Starting query to fetch users...");
+    console.log("🔍 getAllUsers: Current user ID:", (await supabase.auth.getUser()).data.user?.id);
+    
     const { data, error } = await supabase
       .from("users")
       .select("*")
       .order("created_at", { ascending: false });
 
+    console.log("🔍 getAllUsers: Query completed", { 
+      dataCount: data?.length || 0, 
+      hasError: !!error,
+      error: error ? {
+        message: error.message,
+        code: error.code,
+        details: error.details,
+        hint: error.hint,
+      } : null
+    });
+
     if (error) {
+      console.error("❌ Error fetching users:", error);
+      console.error("Error details:", {
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+        code: error.code,
+      });
       handleSupabaseError(error);
-      return [];
+      throw error; // Throw error so the component can handle it
     }
+    
+    console.log("✅ getAllUsers: Successfully fetched", data?.length || 0, "users");
 
     return (
       data?.map((user) => ({
@@ -1321,6 +1345,7 @@ export const userService = {
 
   /**
    * Update user role and details
+   * IMPORTANT: When updating role, this also syncs it to Supabase auth metadata
    */
   updateUser: async (userId: string, updates: Partial<User>): Promise<User> => {
     if (!supabase) {
@@ -1337,6 +1362,20 @@ export const userService = {
     if (updates.avatar !== undefined) updateData.avatar = updates.avatar;
     if (updates.skills !== undefined) updateData.skills = updates.skills;
     if (updates.role !== undefined) updateData.role = updates.role;
+
+    // If role is being updated, sync it to auth metadata FIRST
+    if (updates.role !== undefined) {
+      const { error: roleError } = await supabase.rpc('set_user_role_by_id', {
+        user_id: userId,
+        user_role: updates.role
+      });
+
+      if (roleError) {
+        console.error("Error updating role in auth metadata:", roleError);
+        // Don't throw here - continue with database update
+        // The role might still be updated in the database table
+      }
+    }
 
     const { data, error } = await supabase
       .from("users")

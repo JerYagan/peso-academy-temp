@@ -253,7 +253,30 @@ export const supabaseAuthService = {
   },
 
   /**
-   * Sign in an existing user
+   * Simple sign in (like payroll-pal) - just signs in, doesn't fetch profile
+   */
+  signIn: async (
+    email: string,
+    password: string
+  ): Promise<{ error: Error | null }> => {
+    if (!supabase) {
+      return { error: new Error("Supabase client not initialized") };
+    }
+    try {
+      const { error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+      return { error: error || null };
+    } catch (error) {
+      return {
+        error: error instanceof Error ? error : new Error("Unknown error occurred"),
+      };
+    }
+  },
+
+  /**
+   * Sign in an existing user (legacy - kept for compatibility)
    */
   login: async (
     email: string,
@@ -276,50 +299,64 @@ export const supabaseAuthService = {
         return { user: null, error: new Error("Failed to sign in") };
       }
 
-      // Fetch user profile from users table
-      const { data: profileData, error: profileError } = await supabase
+      // Get role from user_metadata (payroll-pal approach)
+      const roleFromMetadata = authData.user.user_metadata?.role || 'trainee';
+      const validRoles: User["role"][] = ["admin", "training_officer", "validator", "trainee"];
+      const userRole = validRoles.includes(roleFromMetadata) ? roleFromMetadata : 'trainee';
+
+      // Fetch user profile from users table (for other profile data, not role)
+      // Add timeout to prevent hanging
+      const profilePromise = supabase
         .from("users")
         .select("*")
         .eq("id", authData.user.id)
         .single();
 
-      // If profile doesn't exist or has invalid role, create a temporary user with default role
+      const timeoutPromise = new Promise<{ data: null; error: Error }>((resolve) => {
+        setTimeout(() => {
+          resolve({ data: null, error: new Error("Profile fetch timeout") });
+        }, 5000); // 5 second timeout for profile fetch
+      });
+
+      let profileData = null;
+      let profileError = null;
+
+      try {
+        const result = await Promise.race([profilePromise, timeoutPromise]) as any;
+        profileData = result.data;
+        profileError = result.error;
+      } catch (err) {
+        profileError = err instanceof Error ? err : new Error("Profile fetch failed");
+      }
+
+      // If profile doesn't exist or fetch timed out, create a temporary user
       if (profileError || !profileData) {
-        console.warn("User profile not found for user ID:", authData.user.id, "Creating temporary user with default role");
+        console.warn("User profile not found or fetch timed out for user ID:", authData.user.id, "Creating temporary user");
         
-        // Return a temporary user with default role so they can access the dashboard
-        // They can complete their profile later
+        // Return a temporary user - profile will be created by trigger or can be fetched later
         const tempUser: User = {
           id: authData.user.id,
           email: authData.user.email!,
           name: authData.user.user_metadata?.name || authData.user.email!.split("@")[0],
-          role: "jobseeker", // Default role - can be updated later
-          createdAt: new Date().toISOString(),
+          role: userRole, // Role from metadata
+          createdAt: authData.user.created_at || new Date().toISOString(),
         };
         
         return { user: tempUser, error: null };
       }
 
-      // Validate role - if invalid, use default
-      const validRoles: User["role"][] = ["jobseeker", "admin", "trainer", "employer", "validator", "spd"];
-      const userRole = profileData.role as User["role"];
-      const isValidRole = validRoles.includes(userRole);
-
+      // Build user object with role from metadata (not database)
       const user: User = {
         id: profileData.id,
         email: profileData.email,
         name: profileData.name,
-        role: isValidRole ? userRole : "jobseeker", // Fallback to jobseeker if invalid role
+        role: userRole, // Role from user_metadata, not database
         avatar: profileData.avatar || undefined,
         phone: profileData.phone || undefined,
         address: profileData.address || undefined,
         skills: profileData.skills || undefined,
         createdAt: profileData.created_at,
       };
-
-      if (!isValidRole) {
-        console.warn("Invalid role found:", userRole, "Using default role: jobseeker");
-      }
 
       return { user, error: null };
     } catch (error) {
@@ -374,7 +411,12 @@ export const supabaseAuthService = {
         return { user: null, error: authError || new Error("No user found") };
       }
 
-      // Fetch user profile from users table with timeout
+      // Get role from user_metadata (payroll-pal approach)
+      const roleFromMetadata = authUser.user_metadata?.role || 'trainee';
+      const validRoles: User["role"][] = ["admin", "training_officer", "validator", "trainee"];
+      const userRole = validRoles.includes(roleFromMetadata) ? roleFromMetadata : 'trainee';
+
+      // Fetch user profile from users table with timeout (for other profile data, not role)
       const profilePromise = supabase
         .from("users")
         .select("*")
@@ -394,30 +436,31 @@ export const supabaseAuthService = {
       ]) as any;
 
       if (profileError || !profileData) {
-        // Log the error for admin review
-        // This should not happen if database trigger is working correctly
-        console.error("User profile not found - data integrity issue:", {
+        // Profile doesn't exist, but we can still return user with role from metadata
+        // Profile will be created by trigger or can be created later
+        console.warn("User profile not found, using auth user data:", {
           userId: authUser.id,
           email: authUser.email,
-          error: profileError?.message || "Profile not found",
-          errorCode: profileError?.code,
+          role: userRole,
         });
 
-        // Return error - profile should be created by database trigger during signup
-        // If missing, admin needs to create it manually or fix the trigger
-        return { 
-          user: null, 
-          error: new Error(
-            "User profile not found. Please contact an administrator to set up your account."
-          ) 
+        const user: User = {
+          id: authUser.id,
+          email: authUser.email!,
+          name: authUser.user_metadata?.name || authUser.email!.split("@")[0],
+          role: userRole, // Role from metadata
+          createdAt: authUser.created_at || new Date().toISOString(),
         };
+
+        return { user, error: null };
       }
 
+      // Build user object with role from metadata (not database)
       const user: User = {
         id: profileData.id,
         email: profileData.email,
         name: profileData.name,
-        role: profileData.role as User["role"],
+        role: userRole, // Role from user_metadata, not database
         avatar: profileData.avatar || undefined,
         phone: profileData.phone || undefined,
         address: profileData.address || undefined,
@@ -452,6 +495,20 @@ export const supabaseAuthService = {
       if (updates.avatar !== undefined) updateData.avatar = updates.avatar;
       if (updates.skills !== undefined) updateData.skills = updates.skills;
       if (updates.role !== undefined) updateData.role = updates.role;
+
+      // If role is being updated, sync it to auth metadata FIRST
+      if (updates.role !== undefined) {
+        const { error: roleError } = await supabase.rpc('set_user_role_by_id', {
+          user_id: userId,
+          user_role: updates.role
+        });
+
+        if (roleError) {
+          console.error("Error updating role in auth metadata:", roleError);
+          // Don't return error here - continue with database update
+          // The role might still be updated in the database table
+        }
+      }
 
       const { data, error } = await supabase
         .from("users")
@@ -505,86 +562,28 @@ export const supabaseAuthService = {
   },
 
   /**
-   * Listen to auth state changes
+   * Get Supabase auth user (contains user_metadata with role)
    */
-  onAuthStateChange: (callback: (user: User | null) => void) => {
+  getSupabaseUser: async () => {
+    if (!supabase) {
+      return { data: { user: null }, error: new Error("Supabase client not initialized") };
+    }
+    return await supabase.auth.getUser();
+  },
+
+  /**
+   * Listen to auth state changes
+   * Simplified like payroll-pal - just pass the session user directly
+   */
+  onAuthStateChange: (callback: (user: User | null, supabaseUser: any) => void) => {
     if (!supabase) {
       return { data: { subscription: { unsubscribe: () => {} } } };
     }
     
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      console.log("Auth state change event:", event, "Has session:", !!session?.user);
-      
-      // Handle explicit sign out - always clear user
-      if (event === "SIGNED_OUT") {
-        callback(null);
-        return;
-      }
-      
-      // If no session, clear user
-      if (!session?.user) {
-        callback(null);
-        return;
-      }
-
-      // Handle INITIAL_SESSION event (fires when app loads and finds existing session)
-      // Also handle undefined/null events which can happen on initial load
-      if (event === "INITIAL_SESSION" || event === null || event === undefined) {
-        try {
-          const { user, error } = await supabaseAuthService.getCurrentUser();
-          if (!error && user) {
-            callback(user);
-          } else {
-            // If profile fetch fails, still clear user
-            callback(null);
-          }
-        } catch (error) {
-          console.error("Error in auth state change (INITIAL_SESSION):", error);
-          callback(null);
-        }
-        return;
-      }
-
-      // For SIGNED_IN events, fetch user profile
-      if (event === "SIGNED_IN") {
-        try {
-          const { user, error } = await supabaseAuthService.getCurrentUser();
-          if (!error && user) {
-            callback(user);
-          } else {
-            console.warn("Auth state change: user fetch failed on SIGNED_IN", error?.message);
-            // Don't logout on SIGNED_IN errors - let the session persist
-            // The user might still be authenticated, just profile fetch failed
-          }
-        } catch (error) {
-          console.error("Error in auth state change (SIGNED_IN):", error);
-          // Don't logout on errors - session might still be valid
-        }
-        return;
-      }
-
-      // For TOKEN_REFRESHED events, don't refetch user - just keep current state
-      // Token refresh is automatic and shouldn't trigger logout
-      if (event === "TOKEN_REFRESHED") {
-        // Token was refreshed successfully, user is still authenticated
-        // Don't refetch user profile to avoid unnecessary database calls
-        // The existing user state should remain valid
-        return;
-      }
-
-      // For other events (USER_UPDATED, etc.), try to refresh user if session exists
-      if (session?.user) {
-        try {
-          const { user, error } = await supabaseAuthService.getCurrentUser();
-          if (!error && user) {
-            callback(user);
-          }
-          // If error, don't logout - keep existing state
-        } catch (error) {
-          console.error("Error in auth state change:", error);
-          // Don't logout on errors
-        }
-      }
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      // Simple: just pass the session user (or null if no session)
+      // AuthContext will handle creating the User object from Supabase user
+      callback(null, session?.user ?? null);
     });
     
     return { data: { subscription } };

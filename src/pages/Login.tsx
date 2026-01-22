@@ -38,6 +38,8 @@ const Login = () => {
       
       if (result.success && result.user) {
         console.log("Login successful, navigating to dashboard");
+        // Reset loading state immediately
+        setLoading(false);
         const dashboardRoute = result.user.role 
           ? getDashboardRoute(result.user.role) 
           : "/dashboard";
@@ -56,6 +58,11 @@ const Login = () => {
       const errorMessage = err instanceof Error ? err.message : "An error occurred. Please try again.";
       setError(errorMessage);
       setLoading(false);
+    } finally {
+      // Ensure loading is always reset, even if something unexpected happens
+      setTimeout(() => {
+        setLoading(false);
+      }, 2000);
     }
   };
 

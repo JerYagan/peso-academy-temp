@@ -32,8 +32,7 @@ import {
 import { Users, Mail, Phone, Search, Edit2, Shield, User as UserIcon, Settings, Plus } from "lucide-react";
 import { User, UserRole } from "@/types/auth";
 import { userService } from "@/services/supabaseDatabaseService";
-import { ROLE_DISPLAY_NAMES } from "@/lib/roles";
-import { getAllRoles } from "@/lib/roleConfig";
+import { defaultRoleDisplayNames, getRoleDisplayName } from "@/lib/roles";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
@@ -51,27 +50,56 @@ const AdminUsers = () => {
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isRoleDialogOpen, setIsRoleDialogOpen] = useState(false);
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
-  const [selectedRole, setSelectedRole] = useState<UserRole>("jobseeker");
+  const [selectedRole, setSelectedRole] = useState<UserRole>("trainee");
   const [creating, setCreating] = useState(false);
   const [newUser, setNewUser] = useState({
     name: "",
     email: "",
     password: "",
-    role: "jobseeker" as UserRole,
+    role: "trainee" as UserRole,
   });
 
   // Fetch users from Supabase
   useEffect(() => {
+    console.log("🔍 AdminUsers useEffect triggered", { 
+      authLoading, 
+      hasCurrentUser: !!currentUser,
+      currentUserRole: currentUser?.role,
+      currentUserId: currentUser?.id 
+    });
+    
     // Wait for auth to be ready before fetching users
-    if (authLoading) return;
+    if (authLoading) {
+      console.log("⏳ Auth still loading, waiting...");
+      return;
+    }
+    
+    if (!currentUser) {
+      console.warn("⚠️ No current user, cannot fetch users");
+      setLoading(false);
+      return;
+    }
+    
+    console.log("✅ Auth loaded, fetching users...", { 
+      currentUser: {
+        id: currentUser.id,
+        email: currentUser.email,
+        role: currentUser.role
+      }, 
+      authLoading 
+    });
     
     // Small delay to ensure Supabase is ready after hot reload
     const timer = setTimeout(() => {
+      console.log("🚀 Calling loadUsers()...");
       loadUsers();
     }, 100);
     
-    return () => clearTimeout(timer);
-  }, [authLoading]);
+    return () => {
+      console.log("🧹 Cleaning up timer");
+      clearTimeout(timer);
+    };
+  }, [authLoading, currentUser]);
 
   // Filter users based on search and role
   useEffect(() => {
@@ -97,13 +125,16 @@ const AdminUsers = () => {
   const loadUsers = async (retryCount = 0) => {
     try {
       setLoading(true);
+      console.log(`Loading users (attempt ${retryCount + 1})...`);
       
       // Wait a bit if retrying (for hot reload scenarios)
       if (retryCount > 0) {
         await new Promise(resolve => setTimeout(resolve, 500 * retryCount));
       }
       
+      console.log("Calling userService.getAllUsers()...");
       const allUsers = await userService.getAllUsers();
+      console.log("Received users:", allUsers.length, allUsers);
       
       // If we got an empty array and we're retrying, it might be a timing issue
       if (allUsers.length === 0 && retryCount < 2) {
@@ -117,8 +148,14 @@ const AdminUsers = () => {
       );
       setUsers(filteredUsers);
       setFilteredUsers(filteredUsers);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error loading users:", error);
+      console.error("Error details:", {
+        message: error?.message,
+        details: error?.details,
+        hint: error?.hint,
+        code: error?.code,
+      });
       
       // Retry on error if we haven't retried too many times
       if (retryCount < 2) {
@@ -126,7 +163,12 @@ const AdminUsers = () => {
         return loadUsers(retryCount + 1);
       }
       
-      toast.error("Failed to load users");
+      // Show more detailed error message
+      const errorMessage = error?.message || "Failed to load users";
+      const errorHint = error?.hint || "";
+      toast.error(errorMessage, {
+        description: errorHint || "Please check your permissions and try again.",
+      });
     } finally {
       setLoading(false);
     }
@@ -137,7 +179,7 @@ const AdminUsers = () => {
 
     try {
       await userService.updateUser(editingUser.id, { role: selectedRole });
-      toast.success(`Role updated to ${ROLE_DISPLAY_NAMES[selectedRole]}`);
+      toast.success(`Role updated to ${defaultRoleDisplayNames[selectedRole]}`);
       setIsRoleDialogOpen(false);
       setEditingUser(null);
       loadUsers();
@@ -225,7 +267,7 @@ const AdminUsers = () => {
           name: "",
           email: "",
           password: "",
-          role: "jobseeker",
+          role: "trainee",
         });
         loadUsers();
         setCreating(false);
@@ -252,7 +294,18 @@ const AdminUsers = () => {
     }, {} as Record<UserRole, number>),
   };
 
-  const allRoles: UserRole[] = getAllRoles().map((r) => r.id) as UserRole[];
+  // 4 roles in the system
+  const allRoles: UserRole[] = ['admin', 'training_officer', 'validator', 'trainee'];
+
+  // Debug: Log render state
+  console.log("🎨 AdminUsers render", { 
+    loading, 
+    usersCount: users.length, 
+    filteredCount: filteredUsers.length,
+    authLoading,
+    hasCurrentUser: !!currentUser,
+    currentUserRole: currentUser?.role
+  });
 
   return (
     <DashboardLayout>
@@ -269,7 +322,7 @@ const AdminUsers = () => {
                   name: "",
                   email: "",
                   password: "",
-                  role: "jobseeker",
+                  role: "trainee",
                 });
                 setIsCreateDialogOpen(true);
               }}
@@ -307,7 +360,7 @@ const AdminUsers = () => {
           {allRoles.map((role) => (
             <Card key={role}>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">{ROLE_DISPLAY_NAMES[role]}</CardTitle>
+                <CardTitle className="text-sm font-medium">{defaultRoleDisplayNames[role]}</CardTitle>
                 <Shield className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
@@ -343,7 +396,7 @@ const AdminUsers = () => {
                   <SelectItem value="all">All Roles</SelectItem>
                   {allRoles.map((role) => (
                     <SelectItem key={role} value={role}>
-                      {ROLE_DISPLAY_NAMES[role]}
+                      {defaultRoleDisplayNames[role]}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -352,12 +405,40 @@ const AdminUsers = () => {
 
             {loading ? (
               <div className="text-center py-8">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
                 <p className="text-muted-foreground">Loading users...</p>
+              </div>
+            ) : users.length === 0 ? (
+              <div className="text-center py-8">
+                <Users className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+                <p className="text-muted-foreground mb-2">No users found</p>
+                <p className="text-sm text-muted-foreground">
+                  {currentUser?.role === 'admin' 
+                    ? 'This might be an RLS policy issue. Check console for errors.'
+                    : 'You may not have permission to view users.'}
+                </p>
+                <Button 
+                  onClick={() => loadUsers()} 
+                  variant="outline" 
+                  className="mt-4"
+                >
+                  Retry Loading
+                </Button>
               </div>
             ) : filteredUsers.length === 0 ? (
               <div className="text-center py-8">
                 <Users className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-                <p className="text-muted-foreground">No users found</p>
+                <p className="text-muted-foreground">No users match your filters</p>
+                <Button 
+                  onClick={() => {
+                    setSearchTerm("");
+                    setRoleFilter("all");
+                  }} 
+                  variant="outline" 
+                  className="mt-4"
+                >
+                  Clear Filters
+                </Button>
               </div>
             ) : (
               <div className="rounded-md border">
@@ -416,7 +497,7 @@ const AdminUsers = () => {
                         </TableCell>
                         <TableCell>
                           <Badge variant={user.role === "admin" ? "default" : "secondary"}>
-                            {ROLE_DISPLAY_NAMES[user.role]}
+                            {defaultRoleDisplayNames[user.role]}
                           </Badge>
                         </TableCell>
                         <TableCell>
@@ -468,7 +549,7 @@ const AdminUsers = () => {
               <div className="space-y-2">
                 <Label>Current Role</Label>
                 <div>
-                  <Badge variant="secondary">{editingUser && ROLE_DISPLAY_NAMES[editingUser.role]}</Badge>
+                  <Badge variant="secondary">{editingUser && defaultRoleDisplayNames[editingUser.role]}</Badge>
                 </div>
               </div>
               <div className="space-y-2">
@@ -480,7 +561,7 @@ const AdminUsers = () => {
                   <SelectContent>
                     {allRoles.map((role) => (
                       <SelectItem key={role} value={role}>
-                        {ROLE_DISPLAY_NAMES[role]}
+                        {defaultRoleDisplayNames[role]}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -572,7 +653,7 @@ const AdminUsers = () => {
                   <SelectContent>
                     {allRoles.map((role) => (
                       <SelectItem key={role} value={role}>
-                        {ROLE_DISPLAY_NAMES[role]}
+                        {defaultRoleDisplayNames[role]}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -588,7 +669,7 @@ const AdminUsers = () => {
                     name: "",
                     email: "",
                     password: "",
-                    role: "jobseeker",
+                    role: "trainee",
                   });
                 }}
               >

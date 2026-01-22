@@ -2,6 +2,8 @@ import { createContext, useContext, useState, useEffect, ReactNode } from "react
 import { User, AuthState, UserRole } from "@/types/auth";
 import { supabaseAuthService } from "@/services/supabaseAuthService";
 import { auditService } from "@/services/auditService";
+import { getUserRole, getUserPermissions, RolePermissions } from "@/lib/roles";
+import { User as SupabaseUser } from "@supabase/supabase-js";
 
 interface AuthContextType extends AuthState {
   login: (email: string, password: string) => Promise<{ success: boolean; error?: string; user?: User | null }>;
@@ -9,119 +11,89 @@ interface AuthContextType extends AuthState {
   signup: (email: string, password: string, name: string, role: UserRole) => Promise<{ success: boolean; error?: string; user?: User | null }>;
   updateUser: (user: Partial<User>) => Promise<void>;
   loading: boolean;
+  role: UserRole;
+  permissions: RolePermissions;
+  authUser: SupabaseUser | null; // Supabase auth user (contains user_metadata with role)
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+// Helper function to create user from Supabase user (moved outside component)
+const createUserFromSupabaseUser = (supabaseUser: SupabaseUser): User => {
+  const roleFromMetadata = supabaseUser.user_metadata?.role || 'trainee';
+  const validRoles: UserRole[] = ["admin", "training_officer", "validator", "trainee"];
+  const userRole = validRoles.includes(roleFromMetadata) ? roleFromMetadata : 'trainee';
+  
+  return {
+    id: supabaseUser.id,
+    email: supabaseUser.email!,
+    name: supabaseUser.user_metadata?.name || supabaseUser.email!.split("@")[0],
+    role: userRole,
+    createdAt: supabaseUser.created_at || new Date().toISOString(),
+  };
+};
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [authState, setAuthState] = useState<AuthState>({
     user: null,
     isAuthenticated: false,
   });
+  const [authUser, setAuthUser] = useState<SupabaseUser | null>(null); // Supabase auth user
   const [loading, setLoading] = useState(true);
+
+  // Get role and permissions from auth user metadata (payroll-pal approach)
+  const role = authUser ? getUserRole(authUser) : 'trainee';
+  const permissions = authUser ? getUserPermissions(authUser) : getUserPermissions(null);
 
   useEffect(() => {
     let isMounted = true;
     let subscription: { unsubscribe: () => void } | null = null;
-    let timeoutId: NodeJS.Timeout | null = null;
 
-    // Immediately check for existing session (like payroll-pal does)
-    // This ensures session persists across hot reloads
-    const initializeSession = async () => {
-      try {
-        const sessionResult = await supabaseAuthService.getSession();
-        
-        if (!isMounted) return;
-
-        if (sessionResult.data?.session) {
-          // Session exists, fetch user profile
-          const { user, error } = await supabaseAuthService.getCurrentUser();
-          
-          if (!isMounted) return;
-
-          if (!error && user) {
-            // User found, set authenticated state immediately
-            setAuthState({
-              user,
-              isAuthenticated: true,
-            });
-            setLoading(false);
-            // Clear timeout since we got the user
-            if (timeoutId) {
-              clearTimeout(timeoutId);
-              timeoutId = null;
-            }
-            return;
-          }
-        }
-
-        // No session or user fetch failed
-        if (isMounted) {
-          setAuthState({
-            user: null,
-            isAuthenticated: false,
-          });
-          setLoading(false);
-        }
-      } catch (error) {
-        console.error("Error initializing session:", error);
-        if (isMounted) {
-          setAuthState({
-            user: null,
-            isAuthenticated: false,
-          });
-          setLoading(false);
-        }
-      }
-    };
-
-    // Check session immediately
-    initializeSession();
-
-    // Listen to auth state changes from Supabase for future updates
-    // This handles SIGNED_IN, SIGNED_OUT, TOKEN_REFRESHED events
-    try {
-      const authStateChangeResult = supabaseAuthService.onAuthStateChange((user) => {
-        if (!isMounted) return;
-        
-        // Clear timeout since auth state change fired
-        if (timeoutId) {
-          clearTimeout(timeoutId);
-          timeoutId = null;
-        }
-        
+    // Helper function to update state from Supabase user
+    const updateStateFromSupabaseUser = (supabaseUser: SupabaseUser | null) => {
+      if (!isMounted) return;
+      
+      if (supabaseUser) {
+        setAuthUser(supabaseUser);
+        const user = createUserFromSupabaseUser(supabaseUser);
         setAuthState({
           user,
-          isAuthenticated: !!user,
+          isAuthenticated: true,
         });
-        setLoading(false);
+      } else {
+        setAuthUser(null);
+        setAuthState({
+          user: null,
+          isAuthenticated: false,
+        });
+      }
+      setLoading(false);
+    };
+
+    // Get initial session (like payroll-pal does - SIMPLE!)
+    supabaseAuthService.getSession().then(({ data: { session } }) => {
+      if (!isMounted) return;
+      updateStateFromSupabaseUser(session?.user ?? null);
+    });
+
+    // Listen for auth changes (like payroll-pal does - SIMPLE!)
+    try {
+      const authStateChangeResult = supabaseAuthService.onAuthStateChange((user, supabaseUser) => {
+        if (!isMounted) return;
+        updateStateFromSupabaseUser(supabaseUser);
       });
       
       subscription = authStateChangeResult.data?.subscription || null;
-      
-      // Set a timeout to ensure loading state is cleared even if auth state change doesn't fire
-      // This prevents infinite loading states
-      timeoutId = setTimeout(() => {
-        if (isMounted) {
-          console.warn("Auth state change listener timeout - forcing loading to false");
-          setLoading(false);
-        }
-      }, 3000); // 3 second timeout - shorter to fail faster
-      
     } catch (error) {
       console.error("Error setting up auth state change listener:", error);
-      // Ensure loading is set to false even if subscription setup fails
       if (isMounted) {
         setLoading(false);
       }
     }
 
-    // Single cleanup function
+    // Cleanup
     return () => {
       isMounted = false;
-      if (timeoutId) {
-        clearTimeout(timeoutId);
-      }
       if (subscription) {
         try {
           subscription.unsubscribe();
@@ -137,58 +109,47 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     password: string
   ): Promise<{ success: boolean; error?: string; user?: User | null }> => {
     try {
-      console.log("Login attempt started for:", email);
       setLoading(true);
       
-      // Add timeout to prevent hanging
-      const loginPromise = supabaseAuthService.login(email, password);
-      const timeoutPromise = new Promise<{ user: null; error: Error }>((_, reject) => {
-        setTimeout(() => reject(new Error("Login request timed out")), 10000);
-      });
+      // Simple login - just sign in with Supabase (like payroll-pal)
+      const { error } = await supabaseAuthService.signIn(email, password);
       
-      const { user, error } = await Promise.race([loginPromise, timeoutPromise]);
-      
-      if (error || !user) {
-        console.error("Login failed:", error?.message || "No user returned");
+      if (error) {
         setLoading(false);
         // Log failed login attempt (non-blocking)
-        auditService.logFailedLogin(email, error?.message || "Invalid credentials").catch((err) => {
+        auditService.logFailedLogin(email, error.message).catch((err) => {
           console.error("Failed to log failed login:", err);
         });
         return {
           success: false,
-          error: error?.message || "Failed to login",
+          error: error.message || "Failed to login",
           user: null,
         };
       }
 
-      console.log("Login successful, user:", user.email, "role:", user.role);
+      // Get the current user after login
+      // The auth state change listener will also update state, but we get user here for return value
+      const { data: { user: supabaseUser } } = await supabaseAuthService.getSupabaseUser();
       
-      // Update state immediately - use functional update to ensure state is set
-      setAuthState((prevState) => {
-        // Only update if user actually changed to prevent unnecessary re-renders
-        if (prevState.user?.id === user.id) {
-          return prevState;
-        }
-        return {
-          user,
-          isAuthenticated: true,
-        };
-      });
+      if (supabaseUser) {
+        const user = createUserFromSupabaseUser(supabaseUser);
+        
+        // Log successful login (non-blocking)
+        auditService.logLogin(user.id, true).catch((err) => {
+          console.error("Failed to log login event:", err);
+        });
+        
+        setLoading(false);
+        return { success: true, user };
+      }
       
-      // Force a small delay to ensure state is updated before setting loading to false
-      await new Promise(resolve => setTimeout(resolve, 50));
       setLoading(false);
-      
-      // Log successful login (non-blocking, don't wait for it)
-      auditService.logLogin(user.id, true).catch((err) => {
-        console.error("Failed to log login event:", err);
-      });
-      
-      console.log("Login function returning success");
-      return { success: true, user };
+      return {
+        success: false,
+        error: "Failed to get user after login",
+        user: null,
+      };
     } catch (error) {
-      console.error("Login error caught:", error);
       setLoading(false);
       // Log failed login attempt (non-blocking)
       auditService.logFailedLogin(email, error instanceof Error ? error.message : "Unknown error").catch((err) => {
@@ -206,27 +167,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const userId = authState.user?.id;
     
     try {
-      console.log("Logout started");
-      setLoading(true);
-      
-      // Sign out from Supabase first (wait for it to complete)
+      // Sign out from Supabase
       const { error } = await supabaseAuthService.logout();
       
       if (error) {
         console.error("Logout error:", error);
-      } else {
-        console.log("Supabase signOut completed successfully");
       }
       
-      // Clear state after signOut completes
-      // The onAuthStateChange listener will also handle SIGNED_OUT event,
-      // but we clear state here to ensure it's immediate
+      // Clear state immediately (auth state change listener will also handle it, but this ensures it's immediate)
+      setAuthUser(null);
       setAuthState({
         user: null,
         isAuthenticated: false,
       });
-      
-      console.log("Logout completed, state cleared");
       
       // Log logout event (non-blocking, only if we had a user)
       if (userId) {
@@ -236,13 +189,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     } catch (error) {
       console.error("Logout error:", error);
-      // Clear state even on error
+      // Even on error, clear state
+      setAuthUser(null);
       setAuthState({
         user: null,
         isAuthenticated: false,
       });
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -310,6 +262,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         signup,
         updateUser,
         loading,
+        role,
+        permissions,
+        authUser,
       }}
     >
       {children}

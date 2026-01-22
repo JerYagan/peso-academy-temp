@@ -31,8 +31,8 @@ const Dashboard = () => {
 
   if (!user) return null;
 
-  // Job Seeker Dashboard
-  if (user.role === "jobseeker") {
+  // Trainee Dashboard (replaces old "jobseeker" role)
+  if (user.role === "trainee") {
     const enrollments = dataService.getEnrollments(user.id);
     const certificates = dataService.getCertificates(user.id);
     const courses = dataService.getCourses();
@@ -270,8 +270,8 @@ const Dashboard = () => {
     );
   }
 
-  // Trainer/SPD Dashboard
-  if (user.role === "trainer" || user.role === "spd") {
+  // Training Officer Dashboard (replaces old "trainer" and "spd" roles)
+  if (user.role === "training_officer") {
     const courses = dataService.getCourses().filter((c) => c.instructorId === user.id);
     const enrollments = dataService.getEnrollments();
     const myEnrollments = enrollments.filter((e) => courses.some((c) => c.id === e.courseId));
@@ -280,9 +280,7 @@ const Dashboard = () => {
       <DashboardLayout>
         <div className="space-y-8">
           <div>
-            <h1 className="text-3xl font-bold">
-              {user.role === "spd" ? "SPD Dashboard" : "Trainer Dashboard"}
-            </h1>
+            <h1 className="text-3xl font-bold">Training Officer Dashboard</h1>
             <p className="text-muted-foreground mt-2">Manage your courses and learners</p>
           </div>
 
@@ -367,86 +365,69 @@ const Dashboard = () => {
     );
   }
 
-  // Employer Dashboard
-  if (user.role === "employer") {
-    const jobs = dataService.getJobs().filter((j) => j.postedBy === user.id);
-
+  // Validator Dashboard
+  if (user.role === "validator") {
+    // Redirect to validator dashboard page instead
     return (
       <DashboardLayout>
         <div className="space-y-8">
           <div>
-            <h1 className="text-3xl font-bold">Employer Dashboard</h1>
-            <p className="text-muted-foreground mt-2">Manage your job postings and find candidates</p>
+            <h1 className="text-3xl font-bold">Validator Dashboard</h1>
+            <p className="text-muted-foreground mt-2">Review and validate submissions</p>
           </div>
 
           <div className="grid gap-4 md:grid-cols-3">
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Job Postings</CardTitle>
-                <Briefcase className="h-4 w-4 text-muted-foreground" />
+                <CardTitle className="text-sm font-medium">Pending Reviews</CardTitle>
+                <FileText className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{jobs.length}</div>
-                <p className="text-xs text-muted-foreground">Active postings</p>
+                <div className="text-2xl font-bold">-</div>
+                <p className="text-xs text-muted-foreground">Awaiting validation</p>
               </CardContent>
             </Card>
 
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Applications</CardTitle>
-                <Users className="h-4 w-4 text-muted-foreground" />
+                <CardTitle className="text-sm font-medium">Completed</CardTitle>
+                <Award className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">-</div>
-                <p className="text-xs text-muted-foreground">Total applications</p>
+                <p className="text-xs text-muted-foreground">Validated submissions</p>
               </CardContent>
             </Card>
 
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Candidates</CardTitle>
-                <Users className="h-4 w-4 text-muted-foreground" />
+                <CardTitle className="text-sm font-medium">This Month</CardTitle>
+                <TrendingUp className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">-</div>
-                <p className="text-xs text-muted-foreground">Matched candidates</p>
+                <p className="text-xs text-muted-foreground">Reviews completed</p>
               </CardContent>
             </Card>
           </div>
 
           <Card>
             <CardHeader>
-              <div className="flex items-center justify-between">
-                <CardTitle>Job Postings</CardTitle>
-                <Button asChild>
-                  <Link to="/employer/jobs">Create Job Posting</Link>
-                </Button>
-              </div>
+              <CardTitle>Quick Actions</CardTitle>
             </CardHeader>
-            <CardContent>
-              {jobs.length > 0 ? (
-                <div className="space-y-4">
-                  {jobs.map((job) => (
-                    <div key={job.id} className="flex items-center justify-between p-4 border rounded-lg">
-                      <div>
-                        <h3 className="font-semibold">{job.title}</h3>
-                        <p className="text-sm text-muted-foreground">{job.location} • {job.type}</p>
-                      </div>
-                      <Button asChild variant="outline">
-                        <Link to={`/employer/jobs/${job.id}`}>View</Link>
+            <CardContent className="space-y-2">
+              <Button asChild className="w-full justify-start" variant="outline">
+                <Link to="/validator/submissions">
+                  <FileText className="mr-2 h-4 w-4" />
+                  Review Submissions
+                </Link>
                       </Button>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-8">
-                  <Briefcase className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-                  <p className="text-muted-foreground mb-4">You haven't posted any jobs yet</p>
-                  <Button asChild>
-                    <Link to="/employer/jobs">Create Job Posting</Link>
+              <Button asChild className="w-full justify-start" variant="outline">
+                <Link to="/validator/dashboard">
+                  <TrendingUp className="mr-2 h-4 w-4" />
+                  View Dashboard
+                </Link>
                   </Button>
-                </div>
-              )}
             </CardContent>
           </Card>
         </div>
@@ -454,7 +435,23 @@ const Dashboard = () => {
     );
   }
 
-  return null;
+  // Fallback: If role doesn't match any dashboard, show a default message
+  return (
+    <DashboardLayout>
+      <div className="space-y-8">
+        <div>
+          <h1 className="text-3xl font-bold">Welcome, {user.name}!</h1>
+          <p className="text-muted-foreground mt-2">Your dashboard is being set up</p>
+        </div>
+        <Card>
+          <CardContent className="flex flex-col items-center justify-center py-8">
+            <p className="text-muted-foreground">Role: {user.role}</p>
+            <p className="text-sm text-muted-foreground mt-2">If you believe this is an error, please contact an administrator.</p>
+          </CardContent>
+        </Card>
+      </div>
+    </DashboardLayout>
+  );
 };
 
 export default Dashboard;

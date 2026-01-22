@@ -9,13 +9,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { GraduationCap, AlertCircle } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { UserRole } from "@/types/auth";
-import { getPublicSignupRoles, getDashboardRoute, ROLE_DISPLAY_NAMES } from "@/lib/roles";
+import { getPublicSignupRoles, getDashboardRoute, defaultRoleDisplayNames } from "@/lib/roles";
 
 const SignUp = () => {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [role, setRole] = useState<UserRole>("jobseeker");
+  const [role, setRole] = useState<UserRole>("trainee");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [signupSuccess, setSignupSuccess] = useState(false);
@@ -135,13 +135,13 @@ const SignUp = () => {
                 <SelectContent>
                   {availableRoles.map((availableRole) => (
                     <SelectItem key={availableRole} value={availableRole}>
-                      {ROLE_DISPLAY_NAMES[availableRole]}
+                      {defaultRoleDisplayNames[availableRole]}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">
-                Note: Admin, Trainer, Validator, and SPD roles require approval from system administrators.
+                Note: Only Trainee role is available for public signup. Other roles require approval from system administrators.
               </p>
             </div>
 
