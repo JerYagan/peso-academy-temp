@@ -1401,5 +1401,33 @@ export const userService = {
       createdAt: data.created_at,
     };
   },
+
+  /**
+   * Delete a user account (admin only)
+   * Uses the delete_user_account RPC function which prevents deleting yourself
+   */
+  deleteUser: async (userId: string): Promise<{ error: Error | null }> => {
+    if (!supabase) {
+      return { error: new Error("Supabase not initialized") };
+    }
+
+    try {
+      const { error } = await supabase.rpc('delete_user_account', {
+        user_id: userId,
+      });
+
+      if (error) {
+        console.error("Error deleting user:", error);
+        return { error: error as Error };
+      }
+
+      return { error: null };
+    } catch (error) {
+      console.error("Error deleting user:", error);
+      return {
+        error: error instanceof Error ? error : new Error("Failed to delete user"),
+      };
+    }
+  },
 };
 

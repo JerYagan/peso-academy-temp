@@ -65,6 +65,7 @@ export const roleService = {
       return [];
     }
 
+    console.log("🔍 Fetching all roles from database...");
     const { data, error } = await supabase
       .from("roles")
       .select("*")
@@ -72,10 +73,21 @@ export const roleService = {
       .order("name", { ascending: true });
 
     if (error) {
+      console.error("❌ Error fetching roles:", error);
+      console.error("Error details:", {
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+        code: error.code,
+      });
       handleSupabaseError(error);
       return [];
     }
 
+    console.log("✅ Successfully fetched roles:", data?.length || 0, "roles");
+    if (data && data.length > 0) {
+      console.log("📋 Roles:", data.map(r => ({ id: r.id, name: r.name, category: r.category })));
+    }
     return data || [];
   },
 
@@ -316,6 +328,95 @@ export const roleService = {
     });
 
     return grouped;
+  },
+
+  /**
+   * Get user permissions by user ID
+   * Uses the database function get_user_permissions
+   */
+  getUserPermissions: async (userId: string): Promise<string[]> => {
+    if (!supabase) {
+      console.warn("Supabase not initialized");
+      return [];
+    }
+
+    try {
+      const { data, error } = await supabase.rpc('get_user_permissions', {
+        user_id: userId
+      });
+
+      if (error) {
+        console.error("❌ Error fetching user permissions:", error);
+        console.error("Error details:", {
+          message: error.message,
+          details: error.details,
+          hint: error.hint,
+          code: error.code,
+        });
+        return [];
+      }
+
+      // Extract permission IDs from the result
+      const permissions = (data || []).map((p: any) => p.permission_id || p.id).filter(Boolean);
+      console.log("📋 User permissions fetched:", { userId, count: permissions.length, permissions });
+      return permissions;
+    } catch (error) {
+      console.error("❌ Exception fetching user permissions:", error);
+      return [];
+    }
+  },
+
+  /**
+   * Check if user has a specific permission
+   * Uses the database function user_has_permission
+   */
+  userHasPermission: async (userId: string, permissionId: string): Promise<boolean> => {
+    if (!supabase) {
+      console.warn("Supabase not initialized");
+      return false;
+    }
+
+    try {
+      const { data, error } = await supabase.rpc('user_has_permission', {
+        user_id: userId,
+        permission_id: permissionId
+      });
+
+      if (error) {
+        console.error("❌ Error checking user permission:", error);
+        console.error("Error details:", {
+          message: error.message,
+          details: error.details,
+          hint: error.hint,
+          code: error.code,
+          userId,
+          permissionId,
+        });
+        return false;
+      }
+
+      const hasPermission = data === true;
+      console.log("🔍 Permission check:", { userId, permissionId, hasPermission });
+      return hasPermission;
+    } catch (error) {
+      console.error("❌ Exception checking user permission:", error);
+      return false;
+    }
+  },
+
+  /**
+   * Check if user has any of the required permissions
+   */
+  userHasAnyPermission: async (userId: string, permissionIds: string[]): Promise<boolean> => {
+    if (permissionIds.length === 0) return true; // No permissions required
+
+    // Check all permissions in parallel
+    const checks = await Promise.all(
+      permissionIds.map(permId => roleService.userHasPermission(userId, permId))
+    );
+
+    // Return true if user has at least one permission
+    return checks.some(hasPermission => hasPermission === true);
   },
 };
 

@@ -29,7 +29,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Users, Mail, Phone, Search, Edit2, Shield, User as UserIcon, Settings, Plus } from "lucide-react";
+import { Users, Mail, Phone, Search, Edit2, Shield, User as UserIcon, Settings, Plus, Loader2, Trash2 } from "lucide-react";
 import { User, UserRole } from "@/types/auth";
 import { userService } from "@/services/supabaseDatabaseService";
 import { defaultRoleDisplayNames, getRoleDisplayName } from "@/lib/roles";
@@ -37,6 +37,7 @@ import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
 import { supabaseAuthService } from "@/services/supabaseAuthService";
+import { roleService, DatabaseRole } from "@/services/roleService";
 
 const AdminUsers = () => {
   const { user: currentUser, loading: authLoading } = useAuth();
@@ -50,14 +51,75 @@ const AdminUsers = () => {
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isRoleDialogOpen, setIsRoleDialogOpen] = useState(false);
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
-  const [selectedRole, setSelectedRole] = useState<UserRole>("trainee");
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
+  const [deletingUser, setDeletingUser] = useState<User | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [selectedRole, setSelectedRole] = useState<string>("trainee");
   const [creating, setCreating] = useState(false);
   const [newUser, setNewUser] = useState({
     name: "",
     email: "",
     password: "",
-    role: "trainee" as UserRole,
+    role: "trainee",
   });
+  const [availableRoles, setAvailableRoles] = useState<DatabaseRole[]>([]);
+  const [rolesLoading, setRolesLoading] = useState(true);
+
+  // Fetch available roles from database
+  useEffect(() => {
+    const loadRoles = async () => {
+      try {
+        setRolesLoading(true);
+        console.log("🔄 Starting to load roles from database...");
+        const roles = await roleService.getAllRoles();
+        console.log("📋 Loaded roles from database:", {
+          count: roles.length,
+          roles: roles.map(r => ({ id: r.id, name: r.name, category: r.category }))
+        });
+        
+        if (roles.length === 0) {
+          console.warn("⚠️ No roles found in database! Using fallback roles.");
+          toast.warning("No roles found in database. Using default roles.", {
+            description: "Please add roles in the Roles management page.",
+            duration: 5000,
+          });
+        } else {
+          console.log("✅ Successfully loaded", roles.length, "roles from database");
+        }
+        
+        setAvailableRoles(roles);
+        
+        // Set default role for new user if current role doesn't exist in database
+        if (roles.length > 0) {
+          const currentRoleExists = roles.find(r => r.id === newUser.role);
+          if (!currentRoleExists) {
+            // Try to find 'trainee' first, otherwise use first available role
+            const defaultRole = roles.find(r => r.id === 'trainee') || roles[0];
+            setNewUser(prev => ({ ...prev, role: defaultRole.id }));
+          }
+        }
+      } catch (error: any) {
+        console.error("❌ Error loading roles:", error);
+        console.error("Error details:", {
+          message: error?.message,
+          details: error?.details,
+          hint: error?.hint,
+          code: error?.code,
+        });
+        toast.error("Failed to load roles from database", {
+          description: error?.message || "Check console for details. Using fallback roles.",
+          duration: 5000,
+        });
+        // Don't set to empty array - keep fallback roles visible
+        setAvailableRoles([]);
+      } finally {
+        setRolesLoading(false);
+        console.log("🏁 Finished loading roles. Loading state:", false);
+      }
+    };
+    
+    loadRoles();
+  }, []);
 
   // Fetch users from Supabase
   useEffect(() => {
@@ -178,8 +240,9 @@ const AdminUsers = () => {
     if (!editingUser) return;
 
     try {
-      await userService.updateUser(editingUser.id, { role: selectedRole });
-      toast.success(`Role updated to ${defaultRoleDisplayNames[selectedRole]}`);
+      // Cast to UserRole for type safety (database will validate)
+      await userService.updateUser(editingUser.id, { role: selectedRole as UserRole });
+      toast.success(`Role updated to ${getRoleDisplayName(selectedRole)}`);
       setIsRoleDialogOpen(false);
       setEditingUser(null);
       loadUsers();
@@ -211,7 +274,33 @@ const AdminUsers = () => {
     }
   };
 
-  const openRoleDialog = (user: User) => {
+  const openRoleDialog = async (user: User) => {
+    console.log("🔓 Opening role dialog for user:", user);
+    
+    // Force refresh roles if they're empty or incomplete (we know there are 7 roles in DB)
+    if ((availableRoles.length === 0 || availableRoles.length < 5) && !rolesLoading) {
+      console.log("⚠️ No roles loaded, refreshing...");
+      try {
+        setRolesLoading(true);
+        const roles = await roleService.getAllRoles();
+        console.log("📋 Refreshed roles:", {
+          count: roles.length,
+          roles: roles.map(r => ({ id: r.id, name: r.name }))
+        });
+        setAvailableRoles(roles);
+      } catch (error) {
+        console.error("Error refreshing roles:", error);
+      } finally {
+        setRolesLoading(false);
+      }
+    }
+    
+    console.log("📋 Available roles at dialog open:", {
+      count: availableRoles.length,
+      roles: availableRoles.map(r => ({ id: r.id, name: r.name })),
+      allRoles,
+      rolesLoading
+    });
     setEditingUser(user);
     setSelectedRole(user.role);
     setIsRoleDialogOpen(true);
@@ -220,6 +309,45 @@ const AdminUsers = () => {
   const openEditDialog = (user: User) => {
     setEditingUser(user);
     setIsEditDialogOpen(true);
+  };
+
+  const openDeleteDialog = (user: User) => {
+    setDeletingUser(user);
+    setIsDeleteDialogOpen(true);
+  };
+
+  const handleDeleteUser = async () => {
+    if (!deletingUser) return;
+
+    // Prevent deleting yourself
+    if (deletingUser.id === currentUser?.id) {
+      toast.error("You cannot delete your own account");
+      setIsDeleteDialogOpen(false);
+      setDeletingUser(null);
+      return;
+    }
+
+    try {
+      setDeleting(true);
+      const result = await userService.deleteUser(deletingUser.id);
+
+      if (result.error) {
+        console.error("Error deleting user:", result.error);
+        toast.error(result.error.message || "Failed to delete user");
+        setDeleting(false);
+        return;
+      }
+
+      toast.success(`User "${deletingUser.name}" deleted successfully`);
+      setIsDeleteDialogOpen(false);
+      setDeletingUser(null);
+      loadUsers(); // Refresh the user list
+      setDeleting(false);
+    } catch (error) {
+      console.error("Error deleting user:", error);
+      toast.error("Failed to delete user");
+      setDeleting(false);
+    }
   };
 
   const handleCreateUser = async () => {
@@ -236,7 +364,7 @@ const AdminUsers = () => {
         newUser.email,
         newUser.password,
         newUser.name,
-        newUser.role
+        newUser.role as UserRole
       );
 
       console.log("User creation result:", { 
@@ -294,8 +422,32 @@ const AdminUsers = () => {
     }, {} as Record<UserRole, number>),
   };
 
-  // 4 roles in the system
-  const allRoles: UserRole[] = ['admin', 'training_officer', 'validator', 'trainee'];
+  // Get roles dynamically from database, fallback to default if empty
+  // Map database role IDs to UserRole type (allows any string from database)
+  // IMPORTANT: Only use fallback if roles have finished loading AND are still empty
+  const allRoles: string[] = availableRoles.length > 0
+    ? availableRoles.map(r => r.id)
+    : ['admin', 'training_officer', 'validator', 'trainee']; // Fallback if no roles loaded
+  
+  // Debug: Log roles for troubleshooting (log when roles change)
+  useEffect(() => {
+    console.log("🔍 Roles Debug (State Change):", {
+      availableRolesCount: availableRoles.length,
+      availableRoles: availableRoles.map(r => ({ id: r.id, name: r.name })),
+      allRoles,
+      rolesLoading,
+      willUseFallback: availableRoles.length === 0,
+      timestamp: new Date().toISOString()
+    });
+  }, [availableRoles.length, rolesLoading]); // Only log when roles count or loading state changes
+  
+  // Get role display name (from database or fallback)
+  const getRoleDisplayName = (roleId: string): string => {
+    const dbRole = availableRoles.find(r => r.id === roleId);
+    if (dbRole) return dbRole.name;
+    // Fallback to default display names
+    return defaultRoleDisplayNames[roleId as UserRole] || roleId;
+  };
 
   // Debug: Log render state
   console.log("🎨 AdminUsers render", { 
@@ -309,6 +461,18 @@ const AdminUsers = () => {
 
   return (
     <DashboardLayout>
+      {/* Loading overlay during user creation to prevent redirects/glitches */}
+      {creating && (
+        <div className="fixed inset-0 bg-background/80 backdrop-blur-sm z-50 flex items-center justify-center">
+          <Card className="w-full max-w-md">
+            <CardContent className="flex flex-col items-center justify-center p-8">
+              <Loader2 className="h-8 w-8 animate-spin text-primary mb-4" />
+              <p className="text-lg font-medium">Creating user account...</p>
+              <p className="text-sm text-muted-foreground mt-2">Please wait, this will only take a moment.</p>
+            </CardContent>
+          </Card>
+        </div>
+      )}
       <div className="space-y-8">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
@@ -360,7 +524,7 @@ const AdminUsers = () => {
           {allRoles.map((role) => (
             <Card key={role}>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">{defaultRoleDisplayNames[role]}</CardTitle>
+                <CardTitle className="text-sm font-medium">{getRoleDisplayName(role)}</CardTitle>
                 <Shield className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
@@ -396,7 +560,7 @@ const AdminUsers = () => {
                   <SelectItem value="all">All Roles</SelectItem>
                   {allRoles.map((role) => (
                     <SelectItem key={role} value={role}>
-                      {defaultRoleDisplayNames[role]}
+                      {getRoleDisplayName(role)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -497,7 +661,7 @@ const AdminUsers = () => {
                         </TableCell>
                         <TableCell>
                           <Badge variant={user.role === "admin" ? "default" : "secondary"}>
-                            {defaultRoleDisplayNames[user.role]}
+                            {getRoleDisplayName(user.role)}
                           </Badge>
                         </TableCell>
                         <TableCell>
@@ -525,6 +689,16 @@ const AdminUsers = () => {
                               <Edit2 className="w-4 h-4" />
                               Edit
                             </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => openDeleteDialog(user)}
+                              className="gap-2 text-destructive hover:text-destructive hover:bg-destructive/10"
+                              disabled={user.id === currentUser?.id}
+                            >
+                              <Trash2 className="w-4 h-4" />
+                              Delete
+                            </Button>
                           </div>
                         </TableCell>
                       </TableRow>
@@ -549,23 +723,45 @@ const AdminUsers = () => {
               <div className="space-y-2">
                 <Label>Current Role</Label>
                 <div>
-                  <Badge variant="secondary">{editingUser && defaultRoleDisplayNames[editingUser.role]}</Badge>
+                  <Badge variant="secondary">{editingUser && getRoleDisplayName(editingUser.role)}</Badge>
                 </div>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="role">New Role</Label>
-                <Select value={selectedRole} onValueChange={(value) => setSelectedRole(value as UserRole)}>
-                  <SelectTrigger id="role">
-                    <SelectValue placeholder="Select a role" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {allRoles.map((role) => (
-                      <SelectItem key={role} value={role}>
-                        {defaultRoleDisplayNames[role]}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                {rolesLoading ? (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Loading roles...
+                  </div>
+                ) : (
+                  <Select 
+                    value={selectedRole} 
+                    onValueChange={(value) => {
+                      console.log("🔄 Role changed:", value);
+                      setSelectedRole(value);
+                    }}
+                    key={`role-select-${availableRoles.length}-${allRoles.join(',')}`} // Force re-render when roles change
+                  >
+                    <SelectTrigger id="role">
+                      <SelectValue placeholder="Select a role" />
+                    </SelectTrigger>
+                    <SelectContent key={`role-content-${allRoles.length}`}>
+                      {allRoles.length === 0 ? (
+                        <SelectItem value="" disabled>No roles available</SelectItem>
+                      ) : (
+                        allRoles.map((role) => {
+                          const displayName = getRoleDisplayName(role);
+                          console.log("📋 Rendering role option:", { role, displayName, totalRoles: allRoles.length });
+                          return (
+                            <SelectItem key={role} value={role}>
+                              {displayName}
+                            </SelectItem>
+                          );
+                        })
+                      )}
+                    </SelectContent>
+                  </Select>
+                )}
               </div>
             </div>
             <DialogFooter>
@@ -645,7 +841,7 @@ const AdminUsers = () => {
                 <Label htmlFor="new-role">Role *</Label>
                 <Select
                   value={newUser.role}
-                  onValueChange={(value: UserRole) => setNewUser({ ...newUser, role: value })}
+                  onValueChange={(value: string) => setNewUser({ ...newUser, role: value })}
                 >
                   <SelectTrigger id="new-role">
                     <SelectValue />
@@ -653,7 +849,7 @@ const AdminUsers = () => {
                   <SelectContent>
                     {allRoles.map((role) => (
                       <SelectItem key={role} value={role}>
-                        {defaultRoleDisplayNames[role]}
+                        {getRoleDisplayName(role)}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -677,6 +873,53 @@ const AdminUsers = () => {
               </Button>
               <Button onClick={handleCreateUser} disabled={creating}>
                 {creating ? "Creating..." : "Create User"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Delete User Confirmation Dialog */}
+        <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Delete User</DialogTitle>
+              <DialogDescription>
+                Are you sure you want to delete {deletingUser?.name} ({deletingUser?.email})? 
+                This action cannot be undone and will permanently delete the user account and all associated data.
+              </DialogDescription>
+            </DialogHeader>
+            {deletingUser?.id === currentUser?.id && (
+              <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+                You cannot delete your own account.
+              </div>
+            )}
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setIsDeleteDialogOpen(false);
+                  setDeletingUser(null);
+                }}
+                disabled={deleting}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={handleDeleteUser}
+                disabled={deleting || deletingUser?.id === currentUser?.id}
+              >
+                {deleting ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Deleting...
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="w-4 h-4 mr-2" />
+                    Delete User
+                  </>
+                )}
               </Button>
             </DialogFooter>
           </DialogContent>

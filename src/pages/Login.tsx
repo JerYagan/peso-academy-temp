@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useNavigate, Link, useLocation } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -7,7 +7,8 @@ import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { GraduationCap, AlertCircle } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { getDashboardRoute } from "@/lib/roles";
+import { toast } from "sonner";
+import { getDashboardRouteAsync } from "@/lib/roles";
 
 const Login = () => {
   const [email, setEmail] = useState("");
@@ -16,15 +17,15 @@ const Login = () => {
   const [loading, setLoading] = useState(false);
   const { login, user, isAuthenticated, loading: authLoading } = useAuth();
   const navigate = useNavigate();
-  const location = useLocation();
 
-  // Redirect if already authenticated
+  // Show toast if already authenticated
   useEffect(() => {
-    if (!authLoading && isAuthenticated && user && location.pathname === "/login") {
-      const dashboardRoute = user.role ? getDashboardRoute(user.role) : "/dashboard";
-      navigate(dashboardRoute, { replace: true });
+    if (!authLoading && isAuthenticated && user) {
+      toast.info("You are already logged in", {
+        description: `Welcome back, ${user.name || user.email}!`,
+      });
     }
-  }, [authLoading, isAuthenticated, user, navigate, location.pathname]);
+  }, [authLoading, isAuthenticated, user]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -37,17 +38,18 @@ const Login = () => {
       console.log("Login result:", result);
       
       if (result.success && result.user) {
-        console.log("Login successful, navigating to dashboard");
-        // Reset loading state immediately
+        console.log("Login successful");
         setLoading(false);
+        toast.success("Login successful!", {
+          description: `Welcome back, ${result.user.name || result.user.email}!`,
+        });
+        // Redirect to dashboard after showing toast
         const dashboardRoute = result.user.role 
-          ? getDashboardRoute(result.user.role) 
+          ? await getDashboardRouteAsync(result.user.role) 
           : "/dashboard";
-        console.log("Navigating to:", dashboardRoute);
-        // Small delay to ensure state is updated before navigation
         setTimeout(() => {
           navigate(dashboardRoute, { replace: true });
-        }, 100);
+        }, 500); // Small delay to let user see the toast
       } else {
         console.error("Login failed:", result.error);
         setError(result.error || "Invalid email or password");

@@ -1,31 +1,149 @@
-import { Navigate } from "react-router-dom";
+import { Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { UserRole } from "@/types/auth";
-import { ReactNode } from "react";
-import { getDashboardRoute, hasAnyRole } from "@/lib/roles";
+import { ReactNode, useEffect, useState } from "react";
+import { getDashboardRoute } from "@/lib/roles";
 import { Card, CardContent } from "@/components/ui/card";
 import { Loader2 } from "lucide-react";
+import { getRequiredPermissionsForRoute, routeRequiresAuth } from "@/lib/routePermissions";
+import { roleService } from "@/services/roleService";
 
 interface ProtectedRouteProps {
   children: ReactNode;
-  allowedRoles?: UserRole[];
+  allowedRoles?: UserRole[]; // Deprecated: kept for backward compatibility, use requiredPermissions instead
+  requiredPermissions?: string[]; // New: permission IDs required to access this route
 }
 
-export const ProtectedRoute = ({ children, allowedRoles }: ProtectedRouteProps) => {
+export const ProtectedRoute = ({ children, allowedRoles, requiredPermissions }: ProtectedRouteProps) => {
   const { isAuthenticated, user, loading } = useAuth();
+  const location = useLocation();
+  const [permissionLoading, setPermissionLoading] = useState(true);
+  const [hasAccess, setHasAccess] = useState(false);
+
+  // Determine required permissions for this route
+  useEffect(() => {
+    const checkPermissions = async () => {
+      if (loading || !user) {
+        setPermissionLoading(false);
+        setHasAccess(false);
+        return;
+      }
+
+      try {
+        let permissionsToCheck: string[] = [];
+
+        // Priority: requiredPermissions prop > route-based permissions > allowedRoles (deprecated)
+        if (requiredPermissions && requiredPermissions.length > 0) {
+          permissionsToCheck = requiredPermissions;
+        } else {
+          // Get permissions from route mapping
+          const routePermissions = getRequiredPermissionsForRoute(location.pathname);
+          permissionsToCheck = routePermissions;
+        }
+
+        console.log("🔍 Permission check:", {
+          pathname: location.pathname,
+          userId: user.id,
+          userRole: user.role,
+          permissionsToCheck,
+        });
+
+        // If no permissions required, check if route requires auth
+        if (permissionsToCheck.length === 0) {
+          const requiresAuth = routeRequiresAuth(location.pathname);
+          setHasAccess(!requiresAuth || isAuthenticated);
+          setPermissionLoading(false);
+          return;
+        }
+
+        // Quick admin check - admins get access to everything
+        if (user.role === "admin") {
+          console.log("✅ Admin user - granting full access");
+          setHasAccess(true);
+          setPermissionLoading(false);
+          return;
+        }
+
+        // Check if user has required permissions
+        if (permissionsToCheck.length > 0 && user.id) {
+          // Add timeout to prevent infinite loading
+          const timeoutPromise = new Promise<boolean>((resolve) => {
+            setTimeout(() => {
+              console.warn("⏱️ Permission check timeout, using fallback");
+              resolve(false);
+            }, 3000); // 3 second timeout
+          });
+
+          const permissionPromise = roleService.userHasAnyPermission(user.id, permissionsToCheck);
+          
+          const hasPermission = await Promise.race([permissionPromise, timeoutPromise]);
+          
+          console.log("✅ Permission check result:", {
+            hasPermission,
+            permissionsToCheck,
+            userId: user.id,
+            userRole: user.role,
+          });
+
+          if (hasPermission) {
+            setHasAccess(true);
+          } else {
+            // If permission check fails, try fallback to role-based check
+            console.warn("⚠️ Permission check failed, trying role-based fallback");
+            if (allowedRoles && allowedRoles.length > 0) {
+              const userRole = user.role;
+              const hasRoleAccess = allowedRoles.includes(userRole as UserRole);
+              console.log("🔄 Role-based fallback:", { userRole, allowedRoles, hasRoleAccess });
+              setHasAccess(hasRoleAccess);
+            } else {
+              setHasAccess(false);
+            }
+          }
+        } else {
+          // Fallback to role-based check for backward compatibility
+          if (allowedRoles && allowedRoles.length > 0) {
+            const userRole = user.role;
+            setHasAccess(allowedRoles.includes(userRole as UserRole));
+          } else {
+            setHasAccess(true);
+          }
+        }
+      } catch (error) {
+        console.error("❌ Error checking permissions:", error);
+        // Fallback to role-based check on error
+        if (allowedRoles && allowedRoles.length > 0 && user) {
+          const userRole = user.role;
+          setHasAccess(allowedRoles.includes(userRole as UserRole));
+        } else if (user?.role === "admin") {
+          // Admin gets access by default on error
+          console.warn("⚠️ Admin user - granting access due to error");
+          setHasAccess(true);
+        } else {
+          setHasAccess(false);
+        }
+      } finally {
+        setPermissionLoading(false);
+      }
+    };
+
+    checkPermissions();
+  }, [loading, isAuthenticated, user, location.pathname, requiredPermissions, allowedRoles]);
 
   // Debug logging
   console.log("🛡️ ProtectedRoute check", {
     loading,
+    permissionLoading,
     isAuthenticated,
     hasUser: !!user,
     userRole: user?.role,
+    pathname: location.pathname,
+    requiredPermissions,
     allowedRoles,
-    willAllow: allowedRoles ? hasAnyRole(user || { role: 'trainee' }, allowedRoles) : true
+    hasAccess
   });
 
-  // Show loading state while checking authentication
-  if (loading) {
+  // Show loading state while checking authentication or permissions
+  if (loading || permissionLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <Card className="w-full max-w-md">
@@ -44,22 +162,11 @@ export const ProtectedRoute = ({ children, allowedRoles }: ProtectedRouteProps) 
     return <Navigate to="/login" replace />;
   }
 
-  // Check role-based access
-  // hasAnyRole expects a user object, but our User type already has role property
-  const userRole = user.role;
-  const hasAccess = allowedRoles ? allowedRoles.includes(userRole) : true;
-  
-  console.log("🛡️ ProtectedRoute: Role check", {
-    userRole,
-    allowedRoles,
-    hasAccess,
-    userObject: user
-  });
-  
-  if (allowedRoles && !hasAccess) {
-    console.warn("🛡️ ProtectedRoute: Role mismatch - redirecting", {
+  // Check if user has access
+  if (!hasAccess) {
+    console.warn("🛡️ ProtectedRoute: Access denied - redirecting", {
       userRole: user.role,
-      allowedRoles,
+      pathname: location.pathname,
       redirectingTo: getDashboardRoute(user.role)
     });
     // Redirect to user's appropriate dashboard

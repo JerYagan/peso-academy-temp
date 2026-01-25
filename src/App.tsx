@@ -33,6 +33,7 @@ import EmployerJobs from "./pages/employer/Jobs";
 import EmployerCandidates from "./pages/employer/Candidates";
 import NotFound from "./pages/NotFound";
 import { initializeMockData } from "@/services/mockData";
+import { initializeDashboardRoutes } from "@/lib/roles";
 
 // Create QueryClient with better configuration for hot reload and error handling
 const queryClient = new QueryClient({
@@ -52,6 +53,11 @@ const queryClient = new QueryClient({
 
 // Initialize mock data on app start
 initializeMockData();
+
+// Initialize dashboard routes cache from database
+initializeDashboardRoutes().catch((error) => {
+  console.warn("Failed to initialize dashboard routes cache:", error);
+});
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
@@ -103,11 +109,11 @@ const App = () => (
               }
             />
             
-            {/* Admin Routes */}
+            {/* Admin Routes - Permissions checked dynamically from database */}
             <Route
               path="/admin/users"
               element={
-                <ProtectedRoute allowedRoles={["admin"]}>
+                <ProtectedRoute>
                   <AdminUsers />
                 </ProtectedRoute>
               }
@@ -115,7 +121,7 @@ const App = () => (
             <Route
               path="/admin/courses"
               element={
-                <ProtectedRoute allowedRoles={["admin"]}>
+                <ProtectedRoute>
                   <AdminCourses />
                 </ProtectedRoute>
               }
@@ -123,7 +129,7 @@ const App = () => (
             <Route
               path="/admin/jobs"
               element={
-                <ProtectedRoute allowedRoles={["admin"]}>
+                <ProtectedRoute>
                   <AdminJobs />
                 </ProtectedRoute>
               }
@@ -131,7 +137,7 @@ const App = () => (
             <Route
               path="/admin/roles"
               element={
-                <ProtectedRoute allowedRoles={["admin"]}>
+                <ProtectedRoute>
                   <AdminRoles />
                 </ProtectedRoute>
               }
@@ -139,7 +145,7 @@ const App = () => (
             <Route
               path="/admin/audit-logs"
               element={
-                <ProtectedRoute allowedRoles={["admin"]}>
+                <ProtectedRoute>
                   <AdminAuditLogs />
                 </ProtectedRoute>
               }
@@ -147,7 +153,7 @@ const App = () => (
             <Route
               path="/admin/enrollments"
               element={
-                <ProtectedRoute allowedRoles={["admin", "trainer", "spd"]}>
+                <ProtectedRoute>
                   <AdminEnrollments />
                 </ProtectedRoute>
               }
@@ -155,17 +161,17 @@ const App = () => (
             <Route
               path="/admin/reports"
               element={
-                <ProtectedRoute allowedRoles={["admin"]}>
+                <ProtectedRoute>
                   <AdminReports />
                 </ProtectedRoute>
               }
             />
             
-            {/* Trainer/SPD Routes */}
+            {/* Trainer/SPD/Training Officer Routes - Permissions checked dynamically */}
             <Route
               path="/trainer/courses"
               element={
-                <ProtectedRoute allowedRoles={["trainer", "spd"]}>
+                <ProtectedRoute>
                   <TrainerCourses />
                 </ProtectedRoute>
               }
@@ -173,17 +179,17 @@ const App = () => (
             <Route
               path="/trainer/learners"
               element={
-                <ProtectedRoute allowedRoles={["trainer", "spd"]}>
+                <ProtectedRoute>
                   <TrainerLearners />
                 </ProtectedRoute>
               }
             />
             
-            {/* Validator Routes */}
+            {/* Validator Routes - Permissions checked dynamically */}
             <Route
               path="/validator/dashboard"
               element={
-                <ProtectedRoute allowedRoles={["validator", "admin"]}>
+                <ProtectedRoute>
                   <ValidatorDashboard />
                 </ProtectedRoute>
               }
@@ -191,7 +197,7 @@ const App = () => (
             <Route
               path="/validator/submissions"
               element={
-                <ProtectedRoute allowedRoles={["validator", "admin"]}>
+                <ProtectedRoute>
                   <ValidatorSubmissions />
                 </ProtectedRoute>
               }
@@ -199,7 +205,7 @@ const App = () => (
             <Route
               path="/validator/submissions/:id"
               element={
-                <ProtectedRoute allowedRoles={["validator", "admin"]}>
+                <ProtectedRoute>
                   <SubmissionReview />
                 </ProtectedRoute>
               }
@@ -213,11 +219,11 @@ const App = () => (
               }
             />
             
-            {/* Employer Routes */}
+            {/* Employer Routes - Permissions checked dynamically */}
             <Route
               path="/employer/jobs"
               element={
-                <ProtectedRoute allowedRoles={["employer"]}>
+                <ProtectedRoute>
                   <EmployerJobs />
                 </ProtectedRoute>
               }
@@ -225,7 +231,7 @@ const App = () => (
             <Route
               path="/employer/candidates"
               element={
-                <ProtectedRoute allowedRoles={["employer"]}>
+                <ProtectedRoute>
                   <EmployerCandidates />
                 </ProtectedRoute>
               }

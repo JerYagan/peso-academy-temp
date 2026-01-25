@@ -12,7 +12,13 @@
  * Display names can be customized via role_aliases table
  */
 
+import { roleService } from "@/services/roleService";
+
 export type UserRole = 'admin' | 'training_officer' | 'validator' | 'trainee';
+
+// Cache for dashboard routes to avoid repeated database calls
+const dashboardRouteCache: Map<string, string> = new Map();
+let cacheInitialized = false;
 
 export interface RolePermissions {
   canManageUsers: boolean;
@@ -134,20 +140,90 @@ export function getUserPermissions(user: any): RolePermissions {
 }
 
 /**
- * Get dashboard route based on user role
+ * Fallback dashboard routes (used when database is unavailable or role not found)
  */
-export function getDashboardRoute(role: UserRole): string {
-  switch (role) {
-    case 'admin':
-      return '/admin/users';
-    case 'training_officer':
-      return '/trainer/courses';
-    case 'validator':
-      return '/validator/dashboard';
-    case 'trainee':
-    default:
-      return '/dashboard';
+const fallbackDashboardRoutes: Record<string, string> = {
+  'admin': '/admin/users',
+  'training_officer': '/trainer/courses',
+  'trainer': '/trainer/courses',
+  'spd': '/trainer/courses',
+  'validator': '/validator/dashboard',
+  'employer': '/employer/jobs',
+  'trainee': '/dashboard',
+  'jobseeker': '/dashboard',
+};
+
+/**
+ * Initialize dashboard route cache from database
+ * Call this on app startup to preload routes
+ */
+export async function initializeDashboardRoutes(): Promise<void> {
+  if (cacheInitialized) return;
+  
+  try {
+    const roles = await roleService.getAllRoles();
+    roles.forEach(role => {
+      if (role.dashboard_route) {
+        dashboardRouteCache.set(role.id, role.dashboard_route);
+      }
+    });
+    cacheInitialized = true;
+    console.log('✅ Dashboard routes cache initialized:', dashboardRouteCache.size, 'roles');
+  } catch (error) {
+    console.warn('⚠️ Failed to initialize dashboard routes cache, using fallback:', error);
+    cacheInitialized = true; // Mark as initialized to prevent retry loops
   }
+}
+
+/**
+ * Refresh dashboard route cache from database
+ * Call this when roles are updated in the database
+ */
+export async function refreshDashboardRoutes(): Promise<void> {
+  dashboardRouteCache.clear();
+  cacheInitialized = false;
+  await initializeDashboardRoutes();
+}
+
+/**
+ * Get dashboard route from database (async)
+ * Fetches from database and caches the result
+ */
+export async function getDashboardRouteAsync(role: UserRole | string): Promise<string> {
+  // Check cache first
+  if (dashboardRouteCache.has(role)) {
+    return dashboardRouteCache.get(role)!;
+  }
+
+  // Try to fetch from database
+  try {
+    const dbRole = await roleService.getRoleById(role);
+    if (dbRole?.dashboard_route) {
+      // Cache the result
+      dashboardRouteCache.set(role, dbRole.dashboard_route);
+      return dbRole.dashboard_route;
+    }
+  } catch (error) {
+    console.warn(`Failed to fetch dashboard route for role "${role}" from database:`, error);
+  }
+
+  // Fallback to hardcoded routes
+  return fallbackDashboardRoutes[role] || fallbackDashboardRoutes['trainee'] || '/dashboard';
+}
+
+/**
+ * Get dashboard route based on user role
+ * Uses cache if available, otherwise falls back to hardcoded routes
+ * For async database fetching, use getDashboardRouteAsync instead
+ */
+export function getDashboardRoute(role: UserRole | string): string {
+  // Check cache first
+  if (dashboardRouteCache.has(role)) {
+    return dashboardRouteCache.get(role)!;
+  }
+
+  // Fallback to hardcoded routes
+  return fallbackDashboardRoutes[role] || fallbackDashboardRoutes['trainee'] || '/dashboard';
 }
 
 /**

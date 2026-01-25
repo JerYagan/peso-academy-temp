@@ -36,6 +36,12 @@ export const supabaseAuthService = {
     const trimmedEmail = email.trim().toLowerCase();
     
     try {
+      // IMPORTANT: Save the current admin session before creating user
+      // signUp() will automatically log in as the new user, so we need to restore admin session
+      const { data: currentSession } = await supabase.auth.getSession();
+      const adminSession = currentSession?.session;
+      const adminUserId = adminSession?.user?.id;
+      
       // Sign up with Supabase Auth
       // Note: In development, Supabase may restrict emails to pre-authorized addresses
       // To allow any email, configure custom SMTP or disable email confirmation in Supabase dashboard
@@ -51,6 +57,45 @@ export const supabaseAuthService = {
           // This requires Supabase project settings to have "Enable email confirmations" disabled
         },
       });
+      
+      // Immediately restore the admin session to prevent being logged in as the new user
+      // This ensures the admin stays logged in as themselves without any visual glitches
+      if (authData?.user && adminSession && adminUserId) {
+        // Restore admin session immediately (this will replace the new user's session)
+        // Do this synchronously to prevent any auth state changes from propagating
+        try {
+          const { error: sessionError } = await supabase.auth.setSession({
+            access_token: adminSession.access_token,
+            refresh_token: adminSession.refresh_token,
+          });
+          
+          if (sessionError) {
+            console.warn("Session restoration failed, trying sign out approach:", sessionError);
+            // Fallback: sign out first, then restore
+            await supabase.auth.signOut();
+            await supabase.auth.setSession({
+              access_token: adminSession.access_token,
+              refresh_token: adminSession.refresh_token,
+            });
+          }
+          
+          // Small delay to ensure session is fully restored before continuing
+          await new Promise(resolve => setTimeout(resolve, 100));
+        } catch (err) {
+          console.error("Error restoring admin session:", err);
+          // Try fallback approach
+          await supabase.auth.signOut();
+          if (adminSession) {
+            await supabase.auth.setSession({
+              access_token: adminSession.access_token,
+              refresh_token: adminSession.refresh_token,
+            });
+          }
+        }
+      } else if (authData?.user && !adminSession) {
+        // No admin session to restore, just sign out
+        await supabase.auth.signOut();
+      }
 
       // IMPORTANT: Check if user was created FIRST, even if there's an error
       // Supabase sometimes returns errors even when user creation succeeds

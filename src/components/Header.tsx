@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { useTheme } from "next-themes";
 import { useAuth } from "@/contexts/AuthContext";
+import { getDashboardRoute } from "@/lib/roles";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -124,7 +125,7 @@ const Header = () => {
                     <DropdownMenuLabel>{user?.email}</DropdownMenuLabel>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem asChild>
-                      <Link to="/dashboard" className="cursor-pointer">Dashboard</Link>
+                      <Link to={user?.role ? getDashboardRoute(user.role as string) : "/dashboard"} className="cursor-pointer">Dashboard</Link>
                     </DropdownMenuItem>
                     <DropdownMenuItem asChild>
                       <Link to="/profile" className="cursor-pointer">Profile</Link>
@@ -203,7 +204,7 @@ const Header = () => {
                 {isAuthenticated ? (
                   <>
                     <Button variant="ghost" className="w-full justify-center" asChild>
-                      <Link to="/dashboard">Dashboard</Link>
+                      <Link to={user?.role ? getDashboardRoute(user.role as string) : "/dashboard"}>Dashboard</Link>
                     </Button>
                     <Button variant="ghost" className="w-full justify-center" asChild>
                       <Link to="/profile">Profile</Link>
