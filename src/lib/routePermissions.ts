@@ -31,32 +31,33 @@ export const routePermissions: RoutePermissionConfig[] = [
   { path: "/certificates", requiredPermissions: [] },
   { path: "/courses/:id", requiredPermissions: [] },
 
-  // Admin routes - require specific permissions
-  { path: "/admin/users", requiredPermissions: ["users.view"] },
-  { path: "/admin/courses", requiredPermissions: ["courses.view"] },
-  { path: "/admin/jobs", requiredPermissions: ["jobs.view"] },
-  { path: "/admin/roles", requiredPermissions: ["users.manage_roles"] },
+  // Admin routes - require ANY related permission (if you can create/update/delete, you can access the dashboard)
+  { path: "/admin/users", requiredPermissions: ["users.view", "users.create", "users.update", "users.delete", "users.manage_roles"] },
+  { path: "/admin/courses", requiredPermissions: ["courses.view", "courses.create", "courses.update", "courses.delete"] },
+  { path: "/admin/jobs", requiredPermissions: ["jobs.view", "jobs.create", "jobs.update", "jobs.delete"] },
+  { path: "/admin/roles", requiredPermissions: ["users.manage_roles", "users.view"] },
   { path: "/admin/audit-logs", requiredPermissions: ["system.audit"] },
-  { path: "/admin/enrollments", requiredPermissions: ["training.manage"] },
-  { path: "/admin/reports", requiredPermissions: ["reports.view"] },
+  { path: "/admin/enrollments", requiredPermissions: ["training.manage", "courses.view"] },
+  { path: "/admin/reports", requiredPermissions: ["reports.view", "reports.export"] },
 
-  // Trainer/SPD routes
-  { path: "/trainer/courses", requiredPermissions: ["courses.view", "training.manage"] },
-  { path: "/trainer/learners", requiredPermissions: ["training.manage"] },
+  // Trainer/SPD routes - if you can manage training or courses, you can access
+  { path: "/trainer/courses", requiredPermissions: ["courses.view", "courses.create", "courses.update", "courses.delete", "training.manage"] },
+  { path: "/trainer/learners", requiredPermissions: ["training.manage", "courses.view"] },
 
-  // Validator routes
-  { path: "/validator/dashboard", requiredPermissions: ["training.validate"] },
-  { path: "/validator/submissions", requiredPermissions: ["training.validate"] },
-  { path: "/validator/submissions/:id", requiredPermissions: ["training.validate"] },
+  // Validator routes - if you can validate or certify, you can access
+  { path: "/validator/dashboard", requiredPermissions: ["training.validate", "training.certify"] },
+  { path: "/validator/submissions", requiredPermissions: ["training.validate", "training.certify"] },
+  { path: "/validator/submissions/:id", requiredPermissions: ["training.validate", "training.certify"] },
 
-  // Employer routes
-  { path: "/employer/jobs", requiredPermissions: ["jobs.view", "jobs.create"] },
-  { path: "/employer/candidates", requiredPermissions: ["jobs.view"] },
+  // Employer routes - if you can view, create, update, or delete jobs, you can access
+  { path: "/employer/jobs", requiredPermissions: ["jobs.view", "jobs.create", "jobs.update", "jobs.delete"] },
+  { path: "/employer/candidates", requiredPermissions: ["jobs.view", "jobs.create"] },
 ];
 
 /**
  * Get required permissions for a route path
  * Handles dynamic routes (e.g., /courses/:id) by pattern matching
+ * Returns the permissions required for the route (user needs ANY of these permissions)
  */
 export function getRequiredPermissionsForRoute(pathname: string): string[] {
   // Try exact match first

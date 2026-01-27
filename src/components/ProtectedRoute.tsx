@@ -2,7 +2,7 @@ import { Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { UserRole } from "@/types/auth";
 import { ReactNode, useEffect, useState } from "react";
-import { getDashboardRoute } from "@/lib/roles";
+import { getDashboardRoute, getDashboardRouteForUser } from "@/lib/roles";
 import { Card, CardContent } from "@/components/ui/card";
 import { Loader2 } from "lucide-react";
 import { getRequiredPermissionsForRoute, routeRequiresAuth } from "@/lib/routePermissions";
@@ -19,6 +19,16 @@ export const ProtectedRoute = ({ children, allowedRoles, requiredPermissions }: 
   const location = useLocation();
   const [permissionLoading, setPermissionLoading] = useState(true);
   const [hasAccess, setHasAccess] = useState(false);
+  const [dashboardRoute, setDashboardRoute] = useState<string>("/dashboard");
+
+  // Load dashboard route from database when user changes
+  useEffect(() => {
+    if (user?.id && user?.role) {
+      getDashboardRouteForUser(user.id, user.role).then(route => {
+        setDashboardRoute(route);
+      });
+    }
+  }, [user?.id, user?.role]);
 
   // Determine required permissions for this route
   useEffect(() => {
@@ -167,10 +177,10 @@ export const ProtectedRoute = ({ children, allowedRoles, requiredPermissions }: 
     console.warn("🛡️ ProtectedRoute: Access denied - redirecting", {
       userRole: user.role,
       pathname: location.pathname,
-      redirectingTo: getDashboardRoute(user.role)
+      redirectingTo: dashboardRoute
     });
-    // Redirect to user's appropriate dashboard
-    const dashboardRoute = getDashboardRoute(user.role);
+    
+    // Redirect to user's appropriate dashboard (from database)
     return <Navigate to={dashboardRoute} replace />;
   }
 

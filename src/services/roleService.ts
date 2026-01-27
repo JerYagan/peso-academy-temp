@@ -406,17 +406,41 @@ export const roleService = {
 
   /**
    * Check if user has any of the required permissions
+   * Uses getUserPermissions to get all user permissions, then checks if any match
+   * This works even if permissions are assigned to the role (not directly to user)
    */
   userHasAnyPermission: async (userId: string, permissionIds: string[]): Promise<boolean> => {
     if (permissionIds.length === 0) return true; // No permissions required
 
-    // Check all permissions in parallel
-    const checks = await Promise.all(
-      permissionIds.map(permId => roleService.userHasPermission(userId, permId))
-    );
+    try {
+      // Get all user permissions from database
+      const userPermissions = await roleService.getUserPermissions(userId);
+      
+      console.log("🔍 Checking permissions:", {
+        userId,
+        requiredPermissions: permissionIds,
+        userPermissions,
+      });
 
-    // Return true if user has at least one permission
-    return checks.some(hasPermission => hasPermission === true);
+      // Check if user has any of the required permissions
+      const hasAny = permissionIds.some(permId => userPermissions.includes(permId));
+      
+      console.log("✅ Permission check result:", {
+        userId,
+        hasAny,
+        requiredPermissions: permissionIds,
+        userHasPermissions: userPermissions,
+      });
+
+      return hasAny;
+    } catch (error) {
+      console.error("❌ Error in userHasAnyPermission:", error);
+      // Fallback: try individual permission checks
+      const checks = await Promise.all(
+        permissionIds.map(permId => roleService.userHasPermission(userId, permId))
+      );
+      return checks.some(hasPermission => hasPermission === true);
+    }
   },
 };
 

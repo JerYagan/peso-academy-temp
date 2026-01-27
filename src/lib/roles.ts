@@ -215,15 +215,39 @@ export async function getDashboardRouteAsync(role: UserRole | string): Promise<s
  * Get dashboard route based on user role
  * Uses cache if available, otherwise falls back to hardcoded routes
  * For async database fetching, use getDashboardRouteAsync instead
+ * 
+ * NOTE: This sync version uses cache. For fresh data, use getDashboardRouteAsync()
+ * The cache is refreshed when roles are updated in the database
  */
 export function getDashboardRoute(role: UserRole | string): string {
-  // Check cache first
+  // Check cache first (should be populated on app startup)
   if (dashboardRouteCache.has(role)) {
     return dashboardRouteCache.get(role)!;
   }
 
   // Fallback to hardcoded routes
   return fallbackDashboardRoutes[role] || fallbackDashboardRoutes['trainee'] || '/dashboard';
+}
+
+/**
+ * Get dashboard route for a user (always fetches fresh from database)
+ * This ensures we get the latest dashboard_route from the roles table
+ */
+export async function getDashboardRouteForUser(userId: string, userRole: string): Promise<string> {
+  try {
+    // First try to get the role's dashboard_route from database
+    const dbRole = await roleService.getRoleById(userRole);
+    if (dbRole?.dashboard_route) {
+      // Update cache
+      dashboardRouteCache.set(userRole, dbRole.dashboard_route);
+      return dbRole.dashboard_route;
+    }
+  } catch (error) {
+    console.warn(`Failed to fetch dashboard route for role "${userRole}":`, error);
+  }
+
+  // Fallback to cache or hardcoded routes
+  return getDashboardRoute(userRole);
 }
 
 /**

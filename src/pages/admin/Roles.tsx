@@ -65,6 +65,7 @@ import {
   RoleWithPermissions,
 } from "@/services/roleService";
 import { getAllRoles, getRolePermissions, PERMISSIONS } from "@/lib/roleConfig";
+import { refreshDashboardRoutes } from "@/lib/roles";
 import { toast } from "sonner";
 
 const roleIcons: Record<string, any> = {
@@ -696,6 +697,8 @@ const AdminRoles = () => {
                       roleForm.id,
                       Array.from(selectedPermissions)
                     );
+                    // Refresh dashboard routes cache when role is created
+                    await refreshDashboardRoutes();
                     toast.success(`Role "${roleForm.name}" created successfully`);
                     setIsCreateDialogOpen(false);
                     setRoleForm({
@@ -777,6 +780,8 @@ const AdminRoles = () => {
                       roleForm.id,
                       Array.from(selectedPermissions)
                     );
+                    // Refresh dashboard routes cache when role is updated
+                    await refreshDashboardRoutes();
                     toast.success(`Role "${roleForm.name}" updated successfully`);
                     setIsEditRoleDialogOpen(false);
                     setRoleForm({
@@ -839,6 +844,8 @@ const AdminRoles = () => {
                   try {
                     setSaving(true);
                     await roleService.deleteRole(roleToDelete.id);
+                    // Refresh dashboard routes cache when role is deleted
+                    await refreshDashboardRoutes();
                     toast.success(`Role "${roleToDelete.name}" deleted successfully`);
                     setIsDeleteDialogOpen(false);
                     setRoleToDelete(null);
