@@ -5,7 +5,7 @@ import { ReactNode, useEffect, useState } from "react";
 import { getDashboardRoute, getDashboardRouteForUser } from "@/lib/roles";
 import { Card, CardContent } from "@/components/ui/card";
 import { Loader2 } from "lucide-react";
-import { getRequiredPermissionsForRoute, routeRequiresAuth } from "@/lib/routePermissions";
+import { getRequiredPermissionsForRoute, routeRequiresAuth, routePermissions } from "@/lib/routePermissions";
 import { roleService } from "@/services/roleService";
 
 interface ProtectedRouteProps {
@@ -55,7 +55,16 @@ export const ProtectedRoute = ({ children, allowedRoles, requiredPermissions }: 
           pathname: location.pathname,
           userId: user.id,
           userRole: user.role,
+          userEmail: user.email,
           permissionsToCheck,
+        });
+        
+        // Debug: Also log what route permissions were found
+        const routePerms = getRequiredPermissionsForRoute(location.pathname);
+        console.log("📍 Route permissions mapping:", {
+          pathname: location.pathname,
+          foundPermissions: routePerms,
+          routeExists: routePermissions.find(r => r.path === location.pathname || location.pathname.match(new RegExp(r.path.replace(/:[^/]+/g, "[^/]+"))))
         });
 
         // If no permissions required, check if route requires auth
@@ -76,35 +85,57 @@ export const ProtectedRoute = ({ children, allowedRoles, requiredPermissions }: 
 
         // Check if user has required permissions
         if (permissionsToCheck.length > 0 && user.id) {
-          // Add timeout to prevent infinite loading
-          const timeoutPromise = new Promise<boolean>((resolve) => {
-            setTimeout(() => {
-              console.warn("⏱️ Permission check timeout, using fallback");
-              resolve(false);
-            }, 3000); // 3 second timeout
-          });
+          try {
+            // Add timeout to prevent infinite loading
+            const timeoutPromise = new Promise<boolean>((resolve) => {
+              setTimeout(() => {
+                console.warn("⏱️ Permission check timeout, using fallback");
+                resolve(false);
+              }, 5000); // 5 second timeout (increased from 3)
+            });
 
-          const permissionPromise = roleService.userHasAnyPermission(user.id, permissionsToCheck);
-          
-          const hasPermission = await Promise.race([permissionPromise, timeoutPromise]);
-          
-          console.log("✅ Permission check result:", {
-            hasPermission,
-            permissionsToCheck,
-            userId: user.id,
-            userRole: user.role,
-          });
+            const permissionPromise = roleService.userHasAnyPermission(user.id, permissionsToCheck);
+            
+            const hasPermission = await Promise.race([permissionPromise, timeoutPromise]);
+            
+            console.log("✅ Permission check result:", {
+              hasPermission,
+              permissionsToCheck,
+              userId: user.id,
+              userRole: user.role,
+            });
 
-          if (hasPermission) {
-            setHasAccess(true);
-          } else {
-            // If permission check fails, try fallback to role-based check
-            console.warn("⚠️ Permission check failed, trying role-based fallback");
-            if (allowedRoles && allowedRoles.length > 0) {
+            if (hasPermission) {
+              setHasAccess(true);
+            } else {
+              // If permission check fails, try fallback to role-based check
+              console.warn("⚠️ Permission check failed, trying role-based fallback");
+              if (allowedRoles && allowedRoles.length > 0) {
+                const userRole = user.role;
+                const hasRoleAccess = allowedRoles.includes(userRole as UserRole);
+                console.log("🔄 Role-based fallback:", { userRole, allowedRoles, hasRoleAccess });
+                setHasAccess(hasRoleAccess);
+              } else {
+                // If no allowedRoles fallback, deny access
+                console.warn("🚫 Access denied - no permissions and no role fallback");
+                setHasAccess(false);
+              }
+            }
+          } catch (permError) {
+            console.error("❌ Error in permission check:", permError);
+            // On error, try role-based fallback
+            if (allowedRoles && allowedRoles.length > 0 && user) {
               const userRole = user.role;
-              const hasRoleAccess = allowedRoles.includes(userRole as UserRole);
-              console.log("🔄 Role-based fallback:", { userRole, allowedRoles, hasRoleAccess });
-              setHasAccess(hasRoleAccess);
+              setHasAccess(allowedRoles.includes(userRole as UserRole));
+            } else if (user) {
+              // Admin gets access by default on error
+              const isAdmin = user.role === ("admin" as UserRole);
+              if (isAdmin) {
+                console.warn("⚠️ Admin user - granting access due to permission check error");
+                setHasAccess(true);
+              } else {
+                setHasAccess(false);
+              }
             } else {
               setHasAccess(false);
             }
@@ -124,7 +155,7 @@ export const ProtectedRoute = ({ children, allowedRoles, requiredPermissions }: 
         if (allowedRoles && allowedRoles.length > 0 && user) {
           const userRole = user.role;
           setHasAccess(allowedRoles.includes(userRole as UserRole));
-        } else if (user?.role === "admin") {
+        } else if (user && user.role === "admin") {
           // Admin gets access by default on error
           console.warn("⚠️ Admin user - granting access due to error");
           setHasAccess(true);
@@ -177,11 +208,16 @@ export const ProtectedRoute = ({ children, allowedRoles, requiredPermissions }: 
     console.warn("🛡️ ProtectedRoute: Access denied - redirecting", {
       userRole: user.role,
       pathname: location.pathname,
-      redirectingTo: dashboardRoute
+      redirectingTo: dashboardRoute,
+      hasAccess,
+      permissionLoading
     });
     
+    // Ensure dashboardRoute is valid before redirecting
+    const targetRoute = dashboardRoute && dashboardRoute !== "/dashboard" ? dashboardRoute : "/dashboard";
+    
     // Redirect to user's appropriate dashboard (from database)
-    return <Navigate to={dashboardRoute} replace />;
+    return <Navigate to={targetRoute} replace />;
   }
 
   console.log("🛡️ ProtectedRoute: Access granted, rendering children");

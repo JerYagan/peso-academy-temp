@@ -26,6 +26,7 @@ import { courseService, enrollmentService, moduleService, moduleCompletionServic
 import { Course, Module, Enrollment } from "@/types";
 import { toast } from "sonner";
 import ModuleContentViewer from "@/components/course/ModuleContentViewer";
+import { supabase } from "@/lib/supabase";
 
 const CourseDetail = () => {
   const { id } = useParams<{ id: string }>();

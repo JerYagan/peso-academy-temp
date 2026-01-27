@@ -19,6 +19,7 @@ export interface ContentBlock {
   title?: string; // For quiz blocks
   options?: string[]; // For quiz blocks
   correctAnswer?: number; // For quiz blocks
+  explanation?: string; // For quiz blocks - explanation shown after answering
   videoUrl?: string; // For video blocks
 }
 
@@ -199,6 +200,15 @@ export const ContentBlockComponent = ({
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Explanation (optional)</Label>
+              <Textarea
+                value={block.explanation || ""}
+                onChange={(e) => handleUpdate({ explanation: e.target.value })}
+                placeholder="Explain why this answer is correct..."
+                rows={3}
+              />
             </div>
           </div>
         );

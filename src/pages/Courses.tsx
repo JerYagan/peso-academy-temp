@@ -9,8 +9,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { BookOpen, Search, Award, Clock, Users, Star } from "lucide-react";
-import { dataService } from "@/services/mockData";
+import { BookOpen, Search, Award, Clock, Users, Star, Loader2 } from "lucide-react";
+import { courseService, enrollmentService } from "@/services/supabaseDatabaseService";
 import { Course } from "@/types";
 import { toast } from "sonner";
 
@@ -21,18 +21,43 @@ const Courses = () => {
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
   const [levelFilter, setLevelFilter] = useState<string>("all");
   const [enrolledCourseIds, setEnrolledCourseIds] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [enrolling, setEnrolling] = useState<string | null>(null);
 
   useEffect(() => {
-    const allCourses = dataService.getCourses();
-    setCourses(allCourses);
-    
-    if (user) {
-      const enrollments = dataService.getEnrollments(user.id);
-      setEnrolledCourseIds(enrollments.map((e) => e.courseId));
-    }
+    loadCourses();
+    loadEnrollments();
   }, [user]);
 
-  const handleEnroll = (courseId: string) => {
+  const loadCourses = async () => {
+    setLoading(true);
+    try {
+      const allCourses = await courseService.getCourses();
+      setCourses(allCourses);
+    } catch (error) {
+      console.error("Error loading courses:", error);
+      toast.error("Failed to load courses");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadEnrollments = async () => {
+    if (!user) {
+      setEnrolledCourseIds([]);
+      return;
+    }
+
+    try {
+      const enrollments = await enrollmentService.getEnrollments(user.id);
+      setEnrolledCourseIds(enrollments.map((e) => e.courseId));
+    } catch (error) {
+      console.error("Error loading enrollments:", error);
+      // Don't show error toast for enrollments, just log it
+    }
+  };
+
+  const handleEnroll = async (courseId: string) => {
     if (!user) {
       toast.error("Please login to enroll in courses");
       return;
@@ -43,9 +68,19 @@ const Courses = () => {
       return;
     }
 
-    dataService.enrollInCourse(user.id, courseId);
-    setEnrolledCourseIds([...enrolledCourseIds, courseId]);
-    toast.success("Successfully enrolled in course!");
+    setEnrolling(courseId);
+    try {
+      await enrollmentService.enrollInCourse(user.id, courseId);
+      setEnrolledCourseIds([...enrolledCourseIds, courseId]);
+      toast.success("Successfully enrolled in course!");
+      // Reload courses to update enrollment count
+      await loadCourses();
+    } catch (error) {
+      console.error("Error enrolling in course:", error);
+      toast.error("Failed to enroll in course. Please try again.");
+    } finally {
+      setEnrolling(null);
+    }
   };
 
   const categories = Array.from(new Set(courses.map((c) => c.category)));
@@ -100,10 +135,18 @@ const Courses = () => {
       </div>
 
       {/* Courses Grid */}
-      {filteredCourses.length > 0 ? (
+      {loading ? (
+        <Card>
+          <CardContent className="flex flex-col items-center justify-center py-12">
+            <Loader2 className="w-8 h-8 text-muted-foreground animate-spin mb-4" />
+            <p className="text-muted-foreground">Loading courses...</p>
+          </CardContent>
+        </Card>
+      ) : filteredCourses.length > 0 ? (
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
           {filteredCourses.map((course) => {
             const isEnrolled = enrolledCourseIds.includes(course.id);
+            const isEnrolling = enrolling === course.id;
             return (
               <Card key={course.id} className="flex flex-col">
                 <CardHeader>
@@ -126,20 +169,24 @@ const Courses = () => {
                       </div>
                       <div className="flex items-center gap-1">
                         <Users className="w-4 h-4" />
-                        {course.enrolledCount}
+                        {course.enrolledCount || 0}
                       </div>
-                      <div className="flex items-center gap-1">
-                        <Star className="w-4 h-4 fill-yellow-400 text-yellow-400" />
-                        {course.rating}
+                      {course.rating > 0 && (
+                        <div className="flex items-center gap-1">
+                          <Star className="w-4 h-4 fill-yellow-400 text-yellow-400" />
+                          {course.rating.toFixed(1)}
+                        </div>
+                      )}
+                    </div>
+                    {course.skills && course.skills.length > 0 && (
+                      <div className="flex flex-wrap gap-1">
+                        {course.skills.slice(0, 3).map((skill, idx) => (
+                          <Badge key={idx} variant="secondary" className="text-xs">
+                            {skill}
+                          </Badge>
+                        ))}
                       </div>
-                    </div>
-                    <div className="flex flex-wrap gap-1">
-                      {course.skills.slice(0, 3).map((skill) => (
-                        <Badge key={skill} variant="secondary" className="text-xs">
-                          {skill}
-                        </Badge>
-                      ))}
-                    </div>
+                    )}
                   </div>
                   <div className="mt-auto">
                     {isEnrolled ? (
@@ -150,9 +197,16 @@ const Courses = () => {
                       <Button
                         onClick={() => handleEnroll(course.id)}
                         className="w-full"
-                        disabled={!user}
+                        disabled={!user || isEnrolling}
                       >
-                        Enroll Now
+                        {isEnrolling ? (
+                          <>
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            Enrolling...
+                          </>
+                        ) : (
+                          "Enroll Now"
+                        )}
                       </Button>
                     )}
                   </div>

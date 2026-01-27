@@ -23,7 +23,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -40,15 +40,18 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { X, Plus, GripVertical, Edit, Trash2, Copy, MoreVertical, BookOpen, Eye, FileText } from "lucide-react";
+import { X, Plus, GripVertical, Edit, Trash2, Copy, MoreVertical, BookOpen, Eye, FileText, FileQuestion, Clock, Target, CheckCircle2 } from "lucide-react";
 import { Module, Course } from "@/types";
 import { moduleService } from "@/services/supabaseDatabaseService";
+import { assessmentService, Assessment, AssessmentQuestion } from "@/services/assessmentService";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { RichTextEditor } from "./RichTextEditor";
 import { ContentBlockComponent, ContentBlock, ContentBlockType } from "./ContentBlock";
 import { ModulePreview } from "./ModulePreview";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 
 interface ModuleManagementDialogProps {
   open: boolean;
@@ -205,6 +208,29 @@ export const ModuleManagementDialog = ({
   const [newMaterial, setNewMaterial] = useState("");
   const [loadingModules, setLoadingModules] = useState(false);
   const [previewMode, setPreviewMode] = useState(false);
+  const [activeTab, setActiveTab] = useState<"edit" | "preview" | "assessment">("edit");
+  
+  // Assessment management state
+  const [currentAssessment, setCurrentAssessment] = useState<Assessment | null>(null);
+  const [assessmentQuestions, setAssessmentQuestions] = useState<AssessmentQuestion[]>([]);
+  const [loadingAssessment, setLoadingAssessment] = useState(false);
+  const [assessmentFormData, setAssessmentFormData] = useState({
+    title: "",
+    description: "",
+    timeLimit: undefined as number | undefined,
+    passingScore: 70,
+    maxAttempts: 3,
+    isActive: true,
+  });
+  const [editingQuestion, setEditingQuestion] = useState<AssessmentQuestion | null>(null);
+  const [questionFormData, setQuestionFormData] = useState({
+    question: "",
+    questionType: "multiple_choice" as "multiple_choice" | "true_false" | "short_answer" | "essay",
+    options: [""] as string[],
+    correctAnswer: "",
+    points: 1,
+    explanation: "",
+  });
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -246,6 +272,26 @@ export const ModuleManagementDialog = ({
     setPreviewMode(false);
     setUseRichEditor(true);
     setUseContentBlocks(false);
+    setActiveTab("edit");
+    setCurrentAssessment(null);
+    setAssessmentQuestions([]);
+    setAssessmentFormData({
+      title: "",
+      description: "",
+      timeLimit: undefined,
+      passingScore: 70,
+      maxAttempts: 3,
+      isActive: true,
+    });
+    setEditingQuestion(null);
+    setQuestionFormData({
+      question: "",
+      questionType: "multiple_choice",
+      options: [""],
+      correctAnswer: "",
+      points: 1,
+      explanation: "",
+    });
   };
 
   const handleCreateModule = () => {
@@ -253,7 +299,7 @@ export const ModuleManagementDialog = ({
     setEditingModule(null);
   };
 
-  const handleEditModule = (module: Module) => {
+  const handleEditModule = async (module: Module) => {
     setEditingModule(module);
     setFormData({
       title: module.title,
@@ -282,6 +328,37 @@ export const ModuleManagementDialog = ({
     }
     
     setPreviewMode(false);
+    
+    // Load assessment for this module
+    await loadModuleAssessment(module.id);
+  };
+
+  const loadModuleAssessment = async (moduleId: string) => {
+    setLoadingAssessment(true);
+    try {
+      const assessment = await assessmentService.getAssessmentByModule(moduleId);
+      if (assessment) {
+        setCurrentAssessment(assessment);
+        setAssessmentFormData({
+          title: assessment.title,
+          description: assessment.description || "",
+          timeLimit: assessment.timeLimit,
+          passingScore: assessment.passingScore,
+          maxAttempts: assessment.maxAttempts,
+          isActive: assessment.isActive,
+        });
+        const questions = await assessmentService.getAssessmentQuestions(assessment.id);
+        setAssessmentQuestions(questions);
+      } else {
+        setCurrentAssessment(null);
+        setAssessmentQuestions([]);
+      }
+    } catch (error) {
+      console.error("Error loading assessment:", error);
+      // Don't show error if no assessment exists
+    } finally {
+      setLoadingAssessment(false);
+    }
   };
 
   const handleDuplicateModule = async (module: Module) => {
@@ -346,8 +423,7 @@ export const ModuleManagementDialog = ({
       resetForm();
       loadModules();
       onSuccess?.();
-      // Close dialog after successful save
-      onOpenChange(false);
+      // Don't close dialog - allow users to continue managing modules
     } catch (error) {
       console.error("Error saving module:", error);
       toast.error(editingModule ? "Failed to update module" : "Failed to create module");
@@ -464,6 +540,136 @@ export const ModuleManagementDialog = ({
     }
   };
 
+  // Assessment management functions
+  const handleSaveAssessment = async () => {
+    if (!editingModule) return;
+    if (!assessmentFormData.title.trim()) {
+      toast.error("Please enter an assessment title");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      if (currentAssessment) {
+        await assessmentService.updateAssessment(currentAssessment.id, assessmentFormData);
+        toast.success("Assessment updated successfully");
+      } else {
+        const newAssessment = await assessmentService.createAssessment(editingModule.id, assessmentFormData);
+        setCurrentAssessment(newAssessment);
+        toast.success("Assessment created successfully");
+      }
+      await loadModuleAssessment(editingModule.id);
+    } catch (error) {
+      console.error("Error saving assessment:", error);
+      toast.error("Failed to save assessment");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteAssessment = async () => {
+    if (!currentAssessment) return;
+
+    setLoading(true);
+    try {
+      await assessmentService.deleteAssessment(currentAssessment.id);
+      toast.success("Assessment deleted successfully");
+      setCurrentAssessment(null);
+      setAssessmentQuestions([]);
+      setAssessmentFormData({
+        title: "",
+        description: "",
+        timeLimit: undefined,
+        passingScore: 70,
+        maxAttempts: 3,
+        isActive: true,
+      });
+    } catch (error) {
+      console.error("Error deleting assessment:", error);
+      toast.error("Failed to delete assessment");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSaveQuestion = async () => {
+    if (!currentAssessment) {
+      toast.error("Please create an assessment first");
+      return;
+    }
+    if (!questionFormData.question.trim()) {
+      toast.error("Please enter a question");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      if (editingQuestion) {
+        await assessmentService.updateQuestion(editingQuestion.id, {
+          question: questionFormData.question,
+          questionType: questionFormData.questionType,
+          options: questionFormData.questionType === "multiple_choice" ? questionFormData.options : undefined,
+          correctAnswer: questionFormData.correctAnswer || undefined,
+          points: questionFormData.points,
+          explanation: questionFormData.explanation || undefined,
+        });
+        toast.success("Question updated successfully");
+      } else {
+        await assessmentService.createQuestion(currentAssessment.id, {
+          question: questionFormData.question,
+          questionType: questionFormData.questionType,
+          options: questionFormData.questionType === "multiple_choice" ? questionFormData.options : undefined,
+          correctAnswer: questionFormData.correctAnswer || undefined,
+          points: questionFormData.points,
+          order: assessmentQuestions.length,
+          explanation: questionFormData.explanation || undefined,
+        });
+        toast.success("Question added successfully");
+      }
+      await loadModuleAssessment(editingModule!.id);
+      setEditingQuestion(null);
+      setQuestionFormData({
+        question: "",
+        questionType: "multiple_choice",
+        options: [""],
+        correctAnswer: "",
+        points: 1,
+        explanation: "",
+      });
+    } catch (error) {
+      console.error("Error saving question:", error);
+      toast.error("Failed to save question");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeleteQuestion = async (questionId: string) => {
+    setLoading(true);
+    try {
+      await assessmentService.deleteQuestion(questionId);
+      toast.success("Question deleted successfully");
+      await loadModuleAssessment(editingModule!.id);
+    } catch (error) {
+      console.error("Error deleting question:", error);
+      toast.error("Failed to delete question");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleEditQuestion = (question: AssessmentQuestion) => {
+    setEditingQuestion(question);
+    setQuestionFormData({
+      question: question.question,
+      questionType: question.questionType,
+      options: question.options || [""],
+      correctAnswer: question.correctAnswer || "",
+      points: question.points,
+      explanation: question.explanation || "",
+    });
+  };
+
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
@@ -548,8 +754,8 @@ export const ModuleManagementDialog = ({
               </div>
 
               <ScrollArea className="flex-1">
-                <Tabs value={previewMode ? "preview" : "edit"} onValueChange={(v) => setPreviewMode(v === "preview")}>
-                  <TabsList className="grid w-full grid-cols-2 mb-4">
+                <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "edit" | "preview" | "assessment")}>
+                  <TabsList className={cn("grid w-full mb-4", editingModule ? "grid-cols-3" : "grid-cols-2")}>
                     <TabsTrigger value="edit">
                       <FileText className="w-4 h-4 mr-2" />
                       Edit
@@ -558,6 +764,12 @@ export const ModuleManagementDialog = ({
                       <Eye className="w-4 h-4 mr-2" />
                       Preview
                     </TabsTrigger>
+                    {editingModule && (
+                      <TabsTrigger value="assessment">
+                        <FileQuestion className="w-4 h-4 mr-2" />
+                        Assessment
+                      </TabsTrigger>
+                    )}
                   </TabsList>
 
                   <TabsContent value="edit" className="space-y-4 pr-4 mt-0">
@@ -766,6 +978,394 @@ export const ModuleManagementDialog = ({
                       allModules={modules}
                     />
                   </TabsContent>
+
+                  {editingModule && (
+                    <TabsContent value="assessment" className="pr-4 mt-0 space-y-4">
+                      {/* Assessment Settings */}
+                      <Card>
+                        <CardHeader>
+                          <div className="flex items-center justify-between">
+                            <CardTitle className="text-lg">Assessment Settings</CardTitle>
+                            {currentAssessment && (
+                              <Button
+                                variant="destructive"
+                                size="sm"
+                                onClick={handleDeleteAssessment}
+                                disabled={loading}
+                              >
+                                <Trash2 className="w-4 h-4 mr-2" />
+                                Delete Assessment
+                              </Button>
+                            )}
+                          </div>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                          <div className="space-y-2">
+                            <Label htmlFor="assessment-title">Assessment Title *</Label>
+                            <Input
+                              id="assessment-title"
+                              value={assessmentFormData.title}
+                              onChange={(e) =>
+                                setAssessmentFormData({ ...assessmentFormData, title: e.target.value })
+                              }
+                              placeholder="e.g., Module 1 Quiz"
+                            />
+                          </div>
+
+                          <div className="space-y-2">
+                            <Label htmlFor="assessment-description">Description</Label>
+                            <Textarea
+                              id="assessment-description"
+                              value={assessmentFormData.description}
+                              onChange={(e) =>
+                                setAssessmentFormData({ ...assessmentFormData, description: e.target.value })
+                              }
+                              placeholder="Assessment description..."
+                              rows={2}
+                            />
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-4">
+                            <div className="space-y-2">
+                              <Label htmlFor="time-limit">Time Limit (minutes)</Label>
+                              <Input
+                                id="time-limit"
+                                type="number"
+                                min="0"
+                                value={assessmentFormData.timeLimit || ""}
+                                onChange={(e) =>
+                                  setAssessmentFormData({
+                                    ...assessmentFormData,
+                                    timeLimit: e.target.value ? parseInt(e.target.value) : undefined,
+                                  })
+                                }
+                                placeholder="No limit"
+                              />
+                            </div>
+
+                            <div className="space-y-2">
+                              <Label htmlFor="passing-score">Passing Score (%)</Label>
+                              <Input
+                                id="passing-score"
+                                type="number"
+                                min="0"
+                                max="100"
+                                value={assessmentFormData.passingScore}
+                                onChange={(e) =>
+                                  setAssessmentFormData({
+                                    ...assessmentFormData,
+                                    passingScore: parseInt(e.target.value) || 70,
+                                  })
+                                }
+                              />
+                            </div>
+                          </div>
+
+                          <div className="space-y-2">
+                            <Label htmlFor="max-attempts">Max Attempts</Label>
+                            <Input
+                              id="max-attempts"
+                              type="number"
+                              min="1"
+                              value={assessmentFormData.maxAttempts}
+                              onChange={(e) =>
+                                setAssessmentFormData({
+                                  ...assessmentFormData,
+                                  maxAttempts: parseInt(e.target.value) || 3,
+                                })
+                              }
+                            />
+                          </div>
+
+                          <div className="flex items-center space-x-2">
+                            <Switch
+                              id="is-active"
+                              checked={assessmentFormData.isActive}
+                              onCheckedChange={(checked) =>
+                                setAssessmentFormData({ ...assessmentFormData, isActive: checked })
+                              }
+                            />
+                            <Label htmlFor="is-active" className="cursor-pointer">
+                              Active (visible to students)
+                            </Label>
+                          </div>
+
+                          <Button onClick={handleSaveAssessment} disabled={loading} className="w-full">
+                            {currentAssessment ? "Update Assessment" : "Create Assessment"}
+                          </Button>
+                        </CardContent>
+                      </Card>
+
+                      {/* Questions Section */}
+                      {currentAssessment && (
+                        <Card>
+                          <CardHeader>
+                            <CardTitle className="text-lg">Questions ({assessmentQuestions.length})</CardTitle>
+                          </CardHeader>
+                          <CardContent className="space-y-4">
+                            {/* Question Form */}
+                            <div className="space-y-4 p-4 border rounded-lg bg-muted/30">
+                              <div className="space-y-2">
+                                <Label>Question</Label>
+                                <Textarea
+                                  value={questionFormData.question}
+                                  onChange={(e) =>
+                                    setQuestionFormData({ ...questionFormData, question: e.target.value })
+                                  }
+                                  placeholder="Enter question..."
+                                  rows={2}
+                                />
+                              </div>
+
+                              <div className="grid grid-cols-2 gap-4">
+                                <div className="space-y-2">
+                                  <Label>Question Type</Label>
+                                  <Select
+                                    value={questionFormData.questionType}
+                                    onValueChange={(value: any) => {
+                                      setQuestionFormData({
+                                        ...questionFormData,
+                                        questionType: value,
+                                        options: value === "multiple_choice" ? [""] : [],
+                                        correctAnswer: "",
+                                      });
+                                    }}
+                                  >
+                                    <SelectTrigger>
+                                      <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="multiple_choice">Multiple Choice</SelectItem>
+                                      <SelectItem value="true_false">True/False</SelectItem>
+                                      <SelectItem value="short_answer">Short Answer</SelectItem>
+                                      <SelectItem value="essay">Essay</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+
+                                <div className="space-y-2">
+                                  <Label>Points</Label>
+                                  <Input
+                                    type="number"
+                                    min="1"
+                                    value={questionFormData.points}
+                                    onChange={(e) =>
+                                      setQuestionFormData({
+                                        ...questionFormData,
+                                        points: parseInt(e.target.value) || 1,
+                                      })
+                                    }
+                                  />
+                                </div>
+                              </div>
+
+                              {/* Multiple Choice Options */}
+                              {questionFormData.questionType === "multiple_choice" && (
+                                <div className="space-y-2">
+                                  <Label>Options</Label>
+                                  {questionFormData.options.map((option, idx) => (
+                                    <div key={idx} className="flex gap-2">
+                                      <Input
+                                        value={option}
+                                        onChange={(e) => {
+                                          const newOptions = [...questionFormData.options];
+                                          newOptions[idx] = e.target.value;
+                                          setQuestionFormData({ ...questionFormData, options: newOptions });
+                                        }}
+                                        placeholder={`Option ${idx + 1}`}
+                                      />
+                                      <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => {
+                                          const newOptions = questionFormData.options.filter((_, i) => i !== idx);
+                                          setQuestionFormData({ ...questionFormData, options: newOptions });
+                                        }}
+                                      >
+                                        <X className="w-4 h-4" />
+                                      </Button>
+                                    </div>
+                                  ))}
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => {
+                                      setQuestionFormData({
+                                        ...questionFormData,
+                                        options: [...questionFormData.options, ""],
+                                      });
+                                    }}
+                                  >
+                                    <Plus className="w-4 h-4 mr-1" />
+                                    Add Option
+                                  </Button>
+
+                                  <div className="space-y-2">
+                                    <Label>Correct Answer</Label>
+                                    <Select
+                                      value={questionFormData.correctAnswer}
+                                      onValueChange={(value) =>
+                                        setQuestionFormData({ ...questionFormData, correctAnswer: value })
+                                      }
+                                    >
+                                      <SelectTrigger>
+                                        <SelectValue placeholder="Select correct answer" />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        {questionFormData.options.map((_, idx) => (
+                                          <SelectItem key={idx} value={idx.toString()}>
+                                            Option {idx + 1}
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
+                                    </Select>
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* True/False Options */}
+                              {questionFormData.questionType === "true_false" && (
+                                <div className="space-y-2">
+                                  <Label>Correct Answer</Label>
+                                  <Select
+                                    value={questionFormData.correctAnswer}
+                                    onValueChange={(value) =>
+                                      setQuestionFormData({ ...questionFormData, correctAnswer: value })
+                                    }
+                                  >
+                                    <SelectTrigger>
+                                      <SelectValue placeholder="Select correct answer" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                      <SelectItem value="true">True</SelectItem>
+                                      <SelectItem value="false">False</SelectItem>
+                                    </SelectContent>
+                                  </Select>
+                                </div>
+                              )}
+
+                              {/* Short Answer / Essay */}
+                              {(questionFormData.questionType === "short_answer" ||
+                                questionFormData.questionType === "essay") && (
+                                <div className="space-y-2">
+                                  <Label>Expected Answer (optional, for reference)</Label>
+                                  <Input
+                                    value={questionFormData.correctAnswer}
+                                    onChange={(e) =>
+                                      setQuestionFormData({ ...questionFormData, correctAnswer: e.target.value })
+                                    }
+                                    placeholder="Expected answer (for manual grading)"
+                                  />
+                                </div>
+                              )}
+
+                              <div className="space-y-2">
+                                <Label>Explanation (optional)</Label>
+                                <Textarea
+                                  value={questionFormData.explanation}
+                                  onChange={(e) =>
+                                    setQuestionFormData({ ...questionFormData, explanation: e.target.value })
+                                  }
+                                  placeholder="Explanation shown after answering..."
+                                  rows={2}
+                                />
+                              </div>
+
+                              <div className="flex gap-2">
+                                <Button onClick={handleSaveQuestion} disabled={loading} className="flex-1">
+                                  {editingQuestion ? "Update Question" : "Add Question"}
+                                </Button>
+                                {editingQuestion && (
+                                  <Button
+                                    variant="outline"
+                                    onClick={() => {
+                                      setEditingQuestion(null);
+                                      setQuestionFormData({
+                                        question: "",
+                                        questionType: "multiple_choice",
+                                        options: [""],
+                                        correctAnswer: "",
+                                        points: 1,
+                                        explanation: "",
+                                      });
+                                    }}
+                                  >
+                                    Cancel
+                                  </Button>
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Questions List */}
+                            {assessmentQuestions.length > 0 ? (
+                              <div className="space-y-2">
+                                {assessmentQuestions.map((question, idx) => (
+                                  <Card key={question.id}>
+                                    <CardContent className="p-4">
+                                      <div className="flex items-start justify-between">
+                                        <div className="flex-1">
+                                          <div className="flex items-center gap-2 mb-2">
+                                            <Badge variant="outline">Q{idx + 1}</Badge>
+                                            <Badge variant="secondary">{question.questionType}</Badge>
+                                            <Badge variant="outline">{question.points} pts</Badge>
+                                          </div>
+                                          <p className="font-medium mb-2">{question.question}</p>
+                                          {question.options && question.options.length > 0 && (
+                                            <div className="text-sm text-muted-foreground space-y-1">
+                                              {question.options.map((opt, optIdx) => (
+                                                <div key={optIdx} className="flex items-center gap-2">
+                                                  <span>{optIdx + 1}.</span>
+                                                  <span className={optIdx.toString() === question.correctAnswer ? "font-semibold text-primary" : ""}>
+                                                    {opt}
+                                                  </span>
+                                                  {optIdx.toString() === question.correctAnswer && (
+                                                    <CheckCircle2 className="w-4 h-4 text-primary" />
+                                                  )}
+                                                </div>
+                                              ))}
+                                            </div>
+                                          )}
+                                          {question.explanation && (
+                                            <p className="text-xs text-muted-foreground mt-2">
+                                              <strong>Explanation:</strong> {question.explanation}
+                                            </p>
+                                          )}
+                                        </div>
+                                        <div className="flex gap-1">
+                                          <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={() => handleEditQuestion(question)}
+                                          >
+                                            <Edit className="w-4 h-4" />
+                                          </Button>
+                                          <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={() => handleDeleteQuestion(question.id)}
+                                            className="text-destructive"
+                                          >
+                                            <Trash2 className="w-4 h-4" />
+                                          </Button>
+                                        </div>
+                                      </div>
+                                    </CardContent>
+                                  </Card>
+                                ))}
+                              </div>
+                            ) : (
+                              <div className="text-center py-8 text-muted-foreground border rounded-lg">
+                                <FileQuestion className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                                <p>No questions yet. Add questions above.</p>
+                              </div>
+                            )}
+                          </CardContent>
+                        </Card>
+                      )}
+                    </TabsContent>
+                  )}
                 </Tabs>
               </ScrollArea>
             </div>

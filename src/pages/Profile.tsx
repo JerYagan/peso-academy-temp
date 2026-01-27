@@ -6,14 +6,19 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { User, Save, Award, BookOpen } from "lucide-react";
+import { User, Save, Award, BookOpen, Loader2 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { dataService } from "@/services/mockData";
+import { enrollmentService, certificateService } from "@/services/supabaseDatabaseService";
 import { toast } from "sonner";
+import { Certificate, Enrollment } from "@/types";
 
 const Profile = () => {
   const { user, updateUser } = useAuth();
   const [isEditing, setIsEditing] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [certificates, setCertificates] = useState<Certificate[]>([]);
+  const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
+  const [loadingData, setLoadingData] = useState(true);
   const [formData, setFormData] = useState({
     name: "",
     email: "",
@@ -29,19 +34,48 @@ const Profile = () => {
         phone: user.phone || "",
         address: user.address || "",
       });
+      loadProfileData();
     }
   }, [user]);
 
-  const handleSave = () => {
-    if (user) {
-      updateUser(formData);
-      setIsEditing(false);
-      toast.success("Profile updated successfully!");
+  const loadProfileData = async () => {
+    if (!user) return;
+    
+    setLoadingData(true);
+    try {
+      const [certs, enrolls] = await Promise.all([
+        certificateService.getCertificates(user.id),
+        enrollmentService.getEnrollments(user.id),
+      ]);
+      setCertificates(certs);
+      setEnrollments(enrolls);
+    } catch (error) {
+      console.error("Error loading profile data:", error);
+      toast.error("Failed to load profile data");
+    } finally {
+      setLoadingData(false);
     }
   };
 
-  const certificates = user ? dataService.getCertificates(user.id) : [];
-  const enrollments = user ? dataService.getEnrollments(user.id) : [];
+  const handleSave = async () => {
+    if (!user) return;
+    
+    setLoading(true);
+    try {
+      await updateUser({
+        name: formData.name,
+        phone: formData.phone,
+        address: formData.address,
+      });
+      setIsEditing(false);
+      toast.success("Profile updated successfully!");
+    } catch (error) {
+      console.error("Error updating profile:", error);
+      toast.error("Failed to update profile. Please try again.");
+    } finally {
+      setLoading(false);
+    }
+  };
 
   if (!user) return null;
 
@@ -121,11 +155,20 @@ const Profile = () => {
                   </div>
 
                   <div className="flex gap-2">
-                    <Button onClick={handleSave}>
-                      <Save className="w-4 h-4 mr-2" />
-                      Save Changes
+                    <Button onClick={handleSave} disabled={loading}>
+                      {loading ? (
+                        <>
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          Saving...
+                        </>
+                      ) : (
+                        <>
+                          <Save className="w-4 h-4 mr-2" />
+                          Save Changes
+                        </>
+                      )}
                     </Button>
-                    <Button variant="outline" onClick={() => setIsEditing(false)}>
+                    <Button variant="outline" onClick={() => setIsEditing(false)} disabled={loading}>
                       Cancel
                     </Button>
                   </div>
@@ -151,31 +194,51 @@ const Profile = () => {
               <CardTitle>Statistics</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center">
-                  <BookOpen className="w-6 h-6 text-primary" />
+              {loadingData ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="w-6 h-6 text-muted-foreground animate-spin" />
                 </div>
-                <div>
-                  <p className="text-2xl font-bold">{enrollments.length}</p>
-                  <p className="text-sm text-muted-foreground">Enrolled Courses</p>
-                </div>
-              </div>
+              ) : (
+                <>
+                  <div className="flex items-center gap-3">
+                    <div className="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center">
+                      <BookOpen className="w-6 h-6 text-primary" />
+                    </div>
+                    <div>
+                      <p className="text-2xl font-bold">{enrollments.length}</p>
+                      <p className="text-sm text-muted-foreground">Enrolled Courses</p>
+                    </div>
+                  </div>
 
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-lg bg-accent/10 flex items-center justify-center">
-                  <Award className="w-6 h-6 text-accent" />
-                </div>
-                <div>
-                  <p className="text-2xl font-bold">{certificates.length}</p>
-                  <p className="text-sm text-muted-foreground">Certificates</p>
-                </div>
-              </div>
+                  <div className="flex items-center gap-3">
+                    <div className="w-12 h-12 rounded-lg bg-accent/10 flex items-center justify-center">
+                      <Award className="w-6 h-6 text-accent" />
+                    </div>
+                    <div>
+                      <p className="text-2xl font-bold">{certificates.length}</p>
+                      <p className="text-sm text-muted-foreground">Certificates</p>
+                    </div>
+                  </div>
+                </>
+              )}
             </CardContent>
           </Card>
         </div>
 
         {/* Certificates */}
-        {certificates.length > 0 && (
+        {loadingData ? (
+          <Card>
+            <CardHeader>
+              <CardTitle>My Certificates</CardTitle>
+              <CardDescription>TESDA-accredited certificates you've earned</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="w-6 h-6 text-muted-foreground animate-spin" />
+              </div>
+            </CardContent>
+          </Card>
+        ) : certificates.length > 0 ? (
           <Card>
             <CardHeader>
               <CardTitle>My Certificates</CardTitle>
@@ -203,7 +266,7 @@ const Profile = () => {
               </div>
             </CardContent>
           </Card>
-        )}
+        ) : null}
       </div>
     </DashboardLayout>
   );

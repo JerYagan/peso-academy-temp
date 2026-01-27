@@ -341,27 +341,114 @@ export const roleService = {
     }
 
     try {
+      // Try RPC function first
       const { data, error } = await supabase.rpc('get_user_permissions', {
         user_id: userId
       });
 
       if (error) {
-        console.error("❌ Error fetching user permissions:", error);
+        console.error("❌ Error fetching user permissions via RPC:", error);
         console.error("Error details:", {
           message: error.message,
           details: error.details,
           hint: error.hint,
           code: error.code,
         });
-        return [];
+        
+        // Fallback: Query database directly
+        console.log("🔄 Falling back to direct database query...");
+        return await roleService.getUserPermissionsDirect(userId);
       }
 
       // Extract permission IDs from the result
-      const permissions = (data || []).map((p: any) => p.permission_id || p.id).filter(Boolean);
-      console.log("📋 User permissions fetched:", { userId, count: permissions.length, permissions });
+      // Handle both old format (3 columns) and new format (4 columns with source)
+      const permissions = (data || []).map((p: any) => {
+        // Support both permission_id and id fields, and handle the new source column
+        const permId = p.permission_id || p.id;
+        if (!permId) {
+          console.warn("⚠️ Permission object missing ID:", p);
+        }
+        return permId;
+      }).filter(Boolean);
+      
+      console.log("📋 User permissions fetched:", { 
+        userId, 
+        count: permissions.length, 
+        permissions,
+        rawDataCount: data?.length || 0,
+        rawDataSample: data?.slice(0, 3) // Show first 3 for debugging
+      });
+      
+      if (permissions.length === 0 && data && data.length > 0) {
+        console.error("❌ Failed to extract permission IDs from data:", data);
+      }
+      
       return permissions;
     } catch (error) {
       console.error("❌ Exception fetching user permissions:", error);
+      // Try direct query as last resort
+      try {
+        return await roleService.getUserPermissionsDirect(userId);
+      } catch (fallbackError) {
+        console.error("❌ Direct query also failed:", fallbackError);
+        return [];
+      }
+    }
+  },
+
+  /**
+   * Get user permissions by querying database directly (fallback when RPC fails)
+   * This queries role_permissions based on the user's role
+   */
+  getUserPermissionsDirect: async (userId: string): Promise<string[]> => {
+    if (!supabase) {
+      console.warn("Supabase not initialized");
+      return [];
+    }
+
+    try {
+      // First, get the user's role
+      const { data: userData, error: userError } = await supabase
+        .from('users')
+        .select('role')
+        .eq('id', userId)
+        .single();
+
+      if (userError || !userData) {
+        console.error("❌ Error fetching user role:", userError);
+        return [];
+      }
+
+      const userRole = userData.role;
+      if (!userRole) {
+        console.warn("⚠️ User has no role assigned");
+        return [];
+      }
+
+      // Get permissions for this role from role_permissions table
+      const { data: rolePerms, error: rolePermsError } = await supabase
+        .from('role_permissions')
+        .select('permission_id')
+        .eq('role_id', userRole);
+
+      if (rolePermsError) {
+        console.error("❌ Error fetching role permissions:", rolePermsError);
+        return [];
+      }
+
+      // Extract permission IDs
+      const permissions = (rolePerms || []).map((rp: any) => rp.permission_id).filter(Boolean);
+      
+      console.log("📋 User permissions fetched (direct query):", { 
+        userId, 
+        userRole,
+        count: permissions.length, 
+        permissions
+      });
+
+      return permissions;
+    } catch (error) {
+      console.error("❌ Exception in getUserPermissionsDirect:", error);
       return [];
     }
   },
@@ -383,7 +470,7 @@ export const roleService = {
       });
 
       if (error) {
-        console.error("❌ Error checking user permission:", error);
+        console.error("❌ Error checking user permission via RPC:", error);
         console.error("Error details:", {
           message: error.message,
           details: error.details,
@@ -392,7 +479,13 @@ export const roleService = {
           userId,
           permissionId,
         });
-        return false;
+        
+        // Fallback: Check permissions directly
+        console.log("🔄 Falling back to direct permission check...");
+        const userPermissions = await roleService.getUserPermissionsDirect(userId);
+        const hasPermission = userPermissions.includes(permissionId);
+        console.log("🔍 Permission check (direct):", { userId, permissionId, hasPermission });
+        return hasPermission;
       }
 
       const hasPermission = data === true;
@@ -400,7 +493,14 @@ export const roleService = {
       return hasPermission;
     } catch (error) {
       console.error("❌ Exception checking user permission:", error);
-      return false;
+      // Try direct check as fallback
+      try {
+        const userPermissions = await roleService.getUserPermissionsDirect(userId);
+        return userPermissions.includes(permissionId);
+      } catch (fallbackError) {
+        console.error("❌ Direct permission check also failed:", fallbackError);
+        return false;
+      }
     }
   },
 
@@ -422,24 +522,56 @@ export const roleService = {
         userPermissions,
       });
 
+      // If getUserPermissions returned empty array, it might be an error
+      // Try fallback to individual checks
+      if (userPermissions.length === 0) {
+        console.warn("⚠️ No permissions found, trying individual permission checks as fallback");
+        try {
+          const checks = await Promise.all(
+            permissionIds.map(permId => roleService.userHasPermission(userId, permId))
+          );
+          const hasAny = checks.some(hasPermission => hasPermission === true);
+          console.log("✅ Fallback permission check result:", { hasAny, checks });
+          return hasAny;
+        } catch (fallbackError) {
+          console.error("❌ Fallback permission check also failed:", fallbackError);
+          return false;
+        }
+      }
+
       // Check if user has any of the required permissions
       const hasAny = permissionIds.some(permId => userPermissions.includes(permId));
+      
+      // Detailed matching info for debugging
+      const matches = permissionIds.map(permId => ({
+        required: permId,
+        hasIt: userPermissions.includes(permId)
+      }));
       
       console.log("✅ Permission check result:", {
         userId,
         hasAny,
         requiredPermissions: permissionIds,
         userHasPermissions: userPermissions,
+        matches,
+        matchCount: matches.filter(m => m.hasIt).length
       });
 
       return hasAny;
     } catch (error) {
       console.error("❌ Error in userHasAnyPermission:", error);
       // Fallback: try individual permission checks
-      const checks = await Promise.all(
-        permissionIds.map(permId => roleService.userHasPermission(userId, permId))
-      );
-      return checks.some(hasPermission => hasPermission === true);
+      try {
+        const checks = await Promise.all(
+          permissionIds.map(permId => roleService.userHasPermission(userId, permId))
+        );
+        const hasAny = checks.some(hasPermission => hasPermission === true);
+        console.log("✅ Fallback permission check result:", { hasAny, checks });
+        return hasAny;
+      } catch (fallbackError) {
+        console.error("❌ Fallback permission check also failed:", fallbackError);
+        return false;
+      }
     }
   },
 };

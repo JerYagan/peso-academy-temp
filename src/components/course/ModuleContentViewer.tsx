@@ -1,16 +1,19 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
-import { CheckCircle2, Play, FileText, Upload, FileQuestion, Clock } from "lucide-react";
+import { CheckCircle2, Play, FileText, Upload, FileQuestion, Clock, Type, Code, Video } from "lucide-react";
 import { Module, Enrollment } from "@/types";
 import { supabase } from "@/lib/supabase";
 import VideoPlayer from "./VideoPlayer";
 import DocumentViewer from "./DocumentViewer";
 import AssignmentSubmission from "./AssignmentSubmission";
 import AssessmentInterface from "./AssessmentInterface";
+import { ContentBlock } from "./ContentBlock";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Label } from "@/components/ui/label";
 
 interface ModuleContentViewerProps {
   module: Module;
@@ -28,6 +31,8 @@ const ModuleContentViewer = ({
   const [activeTab, setActiveTab] = useState("content");
   const [timeSpent, setTimeSpent] = useState<number | null>(null);
   const [currentTimeSpent, setCurrentTimeSpent] = useState(0); // Current session time in seconds
+  const [quizAnswers, setQuizAnswers] = useState<Record<string, string>>({}); // Store quiz answers by block ID
+  const [quizResults, setQuizResults] = useState<Record<string, boolean>>({}); // Store quiz results (answered correctly)
 
   const loadTimeSpent = useCallback(async () => {
     if (!supabase) return;
@@ -93,6 +98,185 @@ const ModuleContentViewer = ({
     return url.includes("assessment") || url.includes("quiz") || url.includes("test");
   });
 
+  // Parse content blocks from JSON content
+  const contentBlocks = useMemo(() => {
+    if (!module.content) return [];
+    
+    try {
+      // Try to parse JSON content blocks
+      const parsed = JSON.parse(module.content);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed as ContentBlock[];
+      }
+    } catch {
+      // If not JSON, treat as HTML/text content
+      return [
+        {
+          id: "1",
+          type: "text" as const,
+          content: module.content,
+        },
+      ];
+    }
+    return [];
+  }, [module.content]);
+
+  const renderContentBlock = (block: ContentBlock, index: number) => {
+    switch (block.type) {
+      case "text":
+        return (
+          <div
+            key={block.id || index}
+            className="prose prose-sm max-w-none dark:prose-invert"
+            dangerouslySetInnerHTML={{ __html: block.content }}
+          />
+        );
+
+      case "code":
+        return (
+          <div key={block.id || index} className="space-y-2">
+            {block.language && (
+              <Badge variant="outline" className="mb-2">
+                {block.language}
+              </Badge>
+            )}
+            <pre className="bg-muted p-4 rounded-lg overflow-x-auto">
+              <code className={`language-${block.language || "plaintext"}`}>
+                {block.content}
+              </code>
+            </pre>
+          </div>
+        );
+
+      case "video":
+        if (block.videoUrl) {
+          return (
+            <div key={block.id || index} className="space-y-2">
+              {block.content && (
+                <p className="text-sm text-muted-foreground">{block.content}</p>
+              )}
+              <VideoPlayer 
+                url={block.videoUrl} 
+                enrollmentId={enrollment.id}
+                moduleId={module.id}
+              />
+            </div>
+          );
+        }
+        return null;
+
+      case "quiz":
+        const blockId = block.id || `quiz-${index}`;
+        const userAnswer = quizAnswers[blockId];
+        const hasAnswered = userAnswer !== undefined;
+        const isCorrect = hasAnswered && quizResults[blockId];
+        const correctAnswerIndex = block.correctAnswer?.toString();
+        
+        return (
+          <Card key={blockId} className="border-2">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <FileQuestion className="w-5 h-5" />
+                Quiz Question
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div>
+                <Label className="text-base font-semibold">{block.title || "Question"}</Label>
+              </div>
+              {block.options && block.options.length > 0 && (
+                <RadioGroup 
+                  disabled={hasAnswered}
+                  value={userAnswer || ""}
+                  onValueChange={(value) => {
+                    if (!hasAnswered) {
+                      setQuizAnswers(prev => ({ ...prev, [blockId]: value }));
+                      const correct = value === correctAnswerIndex;
+                      setQuizResults(prev => ({ ...prev, [blockId]: correct }));
+                    }
+                  }}
+                >
+                  {block.options.map((option, optIdx) => {
+                    const optionValue = optIdx.toString();
+                    const isSelected = userAnswer === optionValue;
+                    const isCorrectOption = optionValue === correctAnswerIndex;
+                    const showCorrect = hasAnswered && isCorrectOption;
+                    const showIncorrect = hasAnswered && isSelected && !isCorrectOption;
+                    
+                    return (
+                      <div key={optIdx} className="flex items-center space-x-2">
+                        <RadioGroupItem 
+                          value={optionValue} 
+                          id={`${blockId}-option-${optIdx}`} 
+                        />
+                        <Label
+                          htmlFor={`${blockId}-option-${optIdx}`}
+                          className={`cursor-pointer flex-1 ${
+                            showCorrect
+                              ? "font-semibold text-green-600 dark:text-green-400"
+                              : showIncorrect
+                              ? "font-semibold text-red-600 dark:text-red-400"
+                              : isSelected
+                              ? "font-semibold"
+                              : ""
+                          }`}
+                        >
+                          {option}
+                        </Label>
+                        {showCorrect && (
+                          <Badge variant="default" className="ml-2 bg-green-600">
+                            Correct
+                          </Badge>
+                        )}
+                        {showIncorrect && (
+                          <Badge variant="destructive" className="ml-2">
+                            Incorrect
+                          </Badge>
+                        )}
+                      </div>
+                    );
+                  })}
+                </RadioGroup>
+              )}
+              {hasAnswered && (
+                <div className={`mt-4 p-3 rounded-lg ${
+                  isCorrect 
+                    ? "bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800" 
+                    : "bg-red-50 dark:bg-red-950 border border-red-200 dark:border-red-800"
+                }`}>
+                  <p className={`text-sm font-medium mb-1 ${
+                    isCorrect 
+                      ? "text-green-800 dark:text-green-200" 
+                      : "text-red-800 dark:text-red-200"
+                  }`}>
+                    {isCorrect ? "✓ Correct!" : "✗ Incorrect"}
+                  </p>
+                  {block.explanation && (
+                    <p className={`text-sm ${
+                      isCorrect 
+                        ? "text-green-700 dark:text-green-300" 
+                        : "text-red-700 dark:text-red-300"
+                    }`}>
+                      {block.explanation}
+                    </p>
+                  )}
+                </div>
+              )}
+              {!hasAnswered && block.explanation && (
+                <div className="mt-4 p-3 bg-muted rounded-lg">
+                  <p className="text-sm font-medium mb-1">Hint:</p>
+                  <p className="text-sm text-muted-foreground">{block.explanation}</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        );
+
+      default:
+        return null;
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Module Header */}
@@ -137,21 +321,53 @@ const ModuleContentViewer = ({
 
         {/* Content Tab */}
         <TabsContent value="content" className="space-y-4">
-          <Card>
-            <CardHeader>
-              <CardTitle>Module Content</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {module.content ? (
+          {contentBlocks.length > 0 ? (
+            <div className="space-y-4">
+              {contentBlocks.map((block, idx) => (
+                <Card key={block.id || idx}>
+                  <CardHeader>
+                    <div className="flex items-center gap-2">
+                      {block.type === "text" && <Type className="w-4 h-4 text-muted-foreground" />}
+                      {block.type === "code" && <Code className="w-4 h-4 text-muted-foreground" />}
+                      {block.type === "video" && <Video className="w-4 h-4 text-muted-foreground" />}
+                      {block.type === "quiz" && <FileQuestion className="w-4 h-4 text-muted-foreground" />}
+                      <CardTitle className="text-lg capitalize">
+                        {block.type === "quiz" ? block.title || "Quiz Question" : `${block.type} Block`}
+                      </CardTitle>
+                      {block.type === "code" && block.language && (
+                        <Badge variant="outline" className="ml-2">
+                          {block.language}
+                        </Badge>
+                      )}
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    {renderContentBlock(block, idx)}
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          ) : module.content ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Module Content</CardTitle>
+              </CardHeader>
+              <CardContent>
                 <div
                   className="prose prose-sm max-w-none dark:prose-invert"
                   dangerouslySetInnerHTML={{ __html: module.content }}
                 />
-              ) : (
-                <p className="text-muted-foreground">No content available for this module.</p>
-              )}
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
+          ) : (
+            <Card>
+              <CardContent className="pt-6">
+                <p className="text-muted-foreground text-center py-8">
+                  No content available for this module.
+                </p>
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
 
         {/* Videos Tab */}

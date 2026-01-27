@@ -323,5 +323,268 @@ export const assessmentService = {
 
     return { score, passed };
   },
+
+  /**
+   * Create a new assessment
+   */
+  createAssessment: async (
+    moduleId: string,
+    assessment: {
+      title: string;
+      description?: string;
+      timeLimit?: number;
+      passingScore: number;
+      maxAttempts: number;
+    }
+  ): Promise<Assessment> => {
+    if (!supabase) {
+      throw new Error("Supabase not initialized");
+    }
+
+    const { data, error } = await supabase
+      .from("assessments")
+      .insert({
+        module_id: moduleId,
+        title: assessment.title,
+        description: assessment.description || null,
+        time_limit: assessment.timeLimit || null,
+        passing_score: assessment.passingScore,
+        max_attempts: assessment.maxAttempts,
+        is_active: true,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .select()
+      .single();
+
+    if (error) {
+      handleSupabaseError(error);
+      throw error;
+    }
+
+    return {
+      id: data.id,
+      moduleId: data.module_id,
+      title: data.title,
+      description: data.description || undefined,
+      timeLimit: data.time_limit || undefined,
+      passingScore: data.passing_score,
+      maxAttempts: data.max_attempts,
+      isActive: data.is_active,
+      createdAt: data.created_at,
+      updatedAt: data.updated_at,
+    };
+  },
+
+  /**
+   * Update an assessment
+   */
+  updateAssessment: async (
+    assessmentId: string,
+    updates: {
+      title?: string;
+      description?: string;
+      timeLimit?: number;
+      passingScore?: number;
+      maxAttempts?: number;
+      isActive?: boolean;
+    }
+  ): Promise<Assessment> => {
+    if (!supabase) {
+      throw new Error("Supabase not initialized");
+    }
+
+    const updateData: any = {
+      updated_at: new Date().toISOString(),
+    };
+
+    if (updates.title !== undefined) updateData.title = updates.title;
+    if (updates.description !== undefined) updateData.description = updates.description || null;
+    if (updates.timeLimit !== undefined) updateData.time_limit = updates.timeLimit || null;
+    if (updates.passingScore !== undefined) updateData.passing_score = updates.passingScore;
+    if (updates.maxAttempts !== undefined) updateData.max_attempts = updates.maxAttempts;
+    if (updates.isActive !== undefined) updateData.is_active = updates.isActive;
+
+    const { data, error } = await supabase
+      .from("assessments")
+      .update(updateData)
+      .eq("id", assessmentId)
+      .select()
+      .single();
+
+    if (error) {
+      handleSupabaseError(error);
+      throw error;
+    }
+
+    return {
+      id: data.id,
+      moduleId: data.module_id,
+      title: data.title,
+      description: data.description || undefined,
+      timeLimit: data.time_limit || undefined,
+      passingScore: data.passing_score,
+      maxAttempts: data.max_attempts,
+      isActive: data.is_active,
+      createdAt: data.created_at,
+      updatedAt: data.updated_at,
+    };
+  },
+
+  /**
+   * Delete an assessment
+   */
+  deleteAssessment: async (assessmentId: string): Promise<void> => {
+    if (!supabase) {
+      throw new Error("Supabase not initialized");
+    }
+
+    const { error } = await supabase.from("assessments").delete().eq("id", assessmentId);
+
+    if (error) {
+      handleSupabaseError(error);
+      throw error;
+    }
+  },
+
+  /**
+   * Create an assessment question
+   */
+  createQuestion: async (
+    assessmentId: string,
+    question: {
+      question: string;
+      questionType: "multiple_choice" | "true_false" | "short_answer" | "essay";
+      options?: string[];
+      correctAnswer?: string;
+      points: number;
+      order: number;
+      explanation?: string;
+    }
+  ): Promise<AssessmentQuestion> => {
+    if (!supabase) {
+      throw new Error("Supabase not initialized");
+    }
+
+    const { data, error } = await supabase
+      .from("assessment_questions")
+      .insert({
+        assessment_id: assessmentId,
+        question: question.question,
+        question_type: question.questionType,
+        options: question.options ? JSON.stringify(question.options) : null,
+        correct_answer: question.correctAnswer || null,
+        points: question.points,
+        order: question.order,
+        explanation: question.explanation || null,
+        created_at: new Date().toISOString(),
+      })
+      .select()
+      .single();
+
+    if (error) {
+      handleSupabaseError(error);
+      throw error;
+    }
+
+    return {
+      id: data.id,
+      assessmentId: data.assessment_id,
+      question: data.question,
+      questionType: data.question_type,
+      options: data.options ? (Array.isArray(data.options) ? data.options : JSON.parse(data.options)) : undefined,
+      correctAnswer: data.correct_answer || undefined,
+      points: data.points,
+      order: data.order,
+      explanation: data.explanation || undefined,
+    };
+  },
+
+  /**
+   * Update an assessment question
+   */
+  updateQuestion: async (
+    questionId: string,
+    updates: {
+      question?: string;
+      questionType?: "multiple_choice" | "true_false" | "short_answer" | "essay";
+      options?: string[];
+      correctAnswer?: string;
+      points?: number;
+      order?: number;
+      explanation?: string;
+    }
+  ): Promise<AssessmentQuestion> => {
+    if (!supabase) {
+      throw new Error("Supabase not initialized");
+    }
+
+    const updateData: any = {};
+    if (updates.question !== undefined) updateData.question = updates.question;
+    if (updates.questionType !== undefined) updateData.question_type = updates.questionType;
+    if (updates.options !== undefined) updateData.options = updates.options ? JSON.stringify(updates.options) : null;
+    if (updates.correctAnswer !== undefined) updateData.correct_answer = updates.correctAnswer || null;
+    if (updates.points !== undefined) updateData.points = updates.points;
+    if (updates.order !== undefined) updateData.order = updates.order;
+    if (updates.explanation !== undefined) updateData.explanation = updates.explanation || null;
+
+    const { data, error } = await supabase
+      .from("assessment_questions")
+      .update(updateData)
+      .eq("id", questionId)
+      .select()
+      .single();
+
+    if (error) {
+      handleSupabaseError(error);
+      throw error;
+    }
+
+    return {
+      id: data.id,
+      assessmentId: data.assessment_id,
+      question: data.question,
+      questionType: data.question_type,
+      options: data.options ? (Array.isArray(data.options) ? data.options : JSON.parse(data.options)) : undefined,
+      correctAnswer: data.correct_answer || undefined,
+      points: data.points,
+      order: data.order,
+      explanation: data.explanation || undefined,
+    };
+  },
+
+  /**
+   * Delete an assessment question
+   */
+  deleteQuestion: async (questionId: string): Promise<void> => {
+    if (!supabase) {
+      throw new Error("Supabase not initialized");
+    }
+
+    const { error } = await supabase.from("assessment_questions").delete().eq("id", questionId);
+
+    if (error) {
+      handleSupabaseError(error);
+      throw error;
+    }
+  },
+
+  /**
+   * Reorder questions
+   */
+  reorderQuestions: async (questionOrders: { id: string; order: number }[]): Promise<void> => {
+    if (!supabase) {
+      throw new Error("Supabase not initialized");
+    }
+
+    for (const { id, order } of questionOrders) {
+      const { error } = await supabase.from("assessment_questions").update({ order }).eq("id", id);
+
+      if (error) {
+        handleSupabaseError(error);
+        throw error;
+      }
+    }
+  },
 };
 

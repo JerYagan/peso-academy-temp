@@ -2,115 +2,133 @@ import { useAuth } from "@/contexts/AuthContext";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { BookOpen, Users, Award, Briefcase, TrendingUp, ArrowRight, Shield, FileText, FileSpreadsheet } from "lucide-react";
+import { BookOpen, Users, Award, Briefcase, TrendingUp, ArrowRight, Shield, FileText, FileSpreadsheet, Loader2 } from "lucide-react";
 import { Link } from "react-router-dom";
-import { dataService } from "@/services/mockData";
+import { enrollmentService, certificateService, courseService } from "@/services/supabaseDatabaseService";
+import { dataService } from "@/services/mockData"; // TODO: Replace with Supabase services for admin/training officer dashboards
 import { useEffect, useState } from "react";
+import { Course, Enrollment } from "@/types";
+import { toast } from "sonner";
+import { User } from "@/types/auth";
 
-const Dashboard = () => {
-  const { user } = useAuth();
-  const [stats, setStats] = useState({
-    enrolledCourses: 0,
-    completedCourses: 0,
-    certificates: 0,
-    jobsApplied: 0,
-  });
+interface TraineeDashboardProps {
+  user: User;
+  stats: {
+    enrolledCourses: number;
+    completedCourses: number;
+    certificates: number;
+    jobsApplied: number;
+  };
+}
+
+const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
+  const [myCourses, setMyCourses] = useState<Array<Course & { enrollment: Enrollment }>>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (user) {
-      const enrollments = dataService.getEnrollments(user.id);
-      const certificates = dataService.getCertificates(user.id);
-      setStats({
-        enrolledCourses: enrollments.length,
-        completedCourses: enrollments.filter((e) => e.status === "completed").length,
-        certificates: certificates.length,
-        jobsApplied: 0, // TODO: Implement job applications
-      });
-    }
+    loadMyCourses();
   }, [user]);
 
-  if (!user) return null;
+  const loadMyCourses = async () => {
+    if (!user) return;
+    
+    setLoading(true);
+    try {
+      const enrollments = await enrollmentService.getEnrollments(user.id);
+      const allCourses = await courseService.getCourses();
+      
+      const coursesWithEnrollments = enrollments
+        .map((e) => {
+          const course = allCourses.find((c) => c.id === e.courseId);
+          return course ? { ...course, enrollment: e } : null;
+        })
+        .filter((c): c is Course & { enrollment: Enrollment } => c !== null)
+        .slice(0, 3);
+      
+      setMyCourses(coursesWithEnrollments);
+    } catch (error) {
+      console.error("Error loading trainee courses:", error);
+      toast.error("Failed to load courses");
+    } finally {
+      setLoading(false);
+    }
+  };
 
-  // Trainee Dashboard (replaces old "jobseeker" role)
-  if (user.role === "trainee") {
-    const enrollments = dataService.getEnrollments(user.id);
-    const certificates = dataService.getCertificates(user.id);
-    const courses = dataService.getCourses();
-    const myCourses = enrollments
-      .map((e) => {
-        const course = courses.find((c) => c.id === e.courseId);
-        return course ? { ...course, enrollment: e } : null;
-      })
-      .filter(Boolean)
-      .slice(0, 3);
+  return (
+    <DashboardLayout>
+      <div className="space-y-8">
+        <div>
+          <h1 className="text-3xl font-bold">Welcome back, {user.name}!</h1>
+          <p className="text-muted-foreground mt-2">Continue your learning journey</p>
+        </div>
 
-    return (
-      <DashboardLayout>
-        <div className="space-y-8">
-          <div>
-            <h1 className="text-3xl font-bold">Welcome back, {user.name}!</h1>
-            <p className="text-muted-foreground mt-2">Continue your learning journey</p>
+        {/* Stats */}
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Enrolled Courses</CardTitle>
+              <BookOpen className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{stats.enrolledCourses}</div>
+              <p className="text-xs text-muted-foreground">Active enrollments</p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Completed</CardTitle>
+              <Award className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{stats.completedCourses}</div>
+              <p className="text-xs text-muted-foreground">Courses finished</p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Certificates</CardTitle>
+              <Award className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{stats.certificates}</div>
+              <p className="text-xs text-muted-foreground">TESDA certificates</p>
+            </CardContent>
+          </Card>
+
+          {/* Job Matches card hidden - Future Phase */}
+          {/* <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Job Matches</CardTitle>
+              <Briefcase className="h-4 w-4 text-muted-foreground" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">-</div>
+              <p className="text-xs text-muted-foreground">Available positions</p>
+            </CardContent>
+          </Card> */}
+        </div>
+
+        {/* My Courses */}
+        <div>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-2xl font-bold">My Courses</h2>
+            <Button asChild variant="outline">
+              <Link to="/courses">View All</Link>
+            </Button>
           </div>
-
-          {/* Stats */}
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          {loading ? (
             <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Enrolled Courses</CardTitle>
-                <BookOpen className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{stats.enrolledCourses}</div>
-                <p className="text-xs text-muted-foreground">Active enrollments</p>
+              <CardContent className="flex flex-col items-center justify-center py-12">
+                <Loader2 className="w-8 h-8 text-muted-foreground animate-spin mb-4" />
+                <p className="text-muted-foreground">Loading courses...</p>
               </CardContent>
             </Card>
-
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Completed</CardTitle>
-                <Award className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{stats.completedCourses}</div>
-                <p className="text-xs text-muted-foreground">Courses finished</p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Certificates</CardTitle>
-                <Award className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{stats.certificates}</div>
-                <p className="text-xs text-muted-foreground">TESDA certificates</p>
-              </CardContent>
-            </Card>
-
-            {/* Job Matches card hidden - Future Phase */}
-            {/* <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Job Matches</CardTitle>
-                <Briefcase className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">-</div>
-                <p className="text-xs text-muted-foreground">Available positions</p>
-              </CardContent>
-            </Card> */}
-          </div>
-
-          {/* My Courses */}
-          <div>
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-2xl font-bold">My Courses</h2>
-              <Button asChild variant="outline">
-                <Link to="/courses">View All</Link>
-              </Button>
-            </div>
+          ) : (
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
               {myCourses.length > 0 ? (
-                myCourses.map((course: any) => (
+                myCourses.map((course) => (
                   <Card key={course.id}>
                     <CardHeader>
                       <CardTitle className="line-clamp-2">{course.title}</CardTitle>
@@ -147,10 +165,50 @@ const Dashboard = () => {
                 </Card>
               )}
             </div>
-          </div>
+          )}
         </div>
-      </DashboardLayout>
-    );
+      </div>
+    </DashboardLayout>
+  );
+};
+
+const Dashboard = () => {
+  const { user } = useAuth();
+  const [stats, setStats] = useState({
+    enrolledCourses: 0,
+    completedCourses: 0,
+    certificates: 0,
+    jobsApplied: 0,
+  });
+
+  useEffect(() => {
+    if (user) {
+      loadStats();
+    }
+  }, [user]);
+
+  const loadStats = async () => {
+    if (!user) return;
+    
+    try {
+      const enrollments = await enrollmentService.getEnrollments(user.id);
+      const certificates = await certificateService.getCertificates(user.id);
+      setStats({
+        enrolledCourses: enrollments.length,
+        completedCourses: enrollments.filter((e) => e.status === "completed").length,
+        certificates: certificates.length,
+        jobsApplied: 0, // TODO: Implement job applications
+      });
+    } catch (error) {
+      console.error("Error loading dashboard stats:", error);
+    }
+  };
+
+  if (!user) return null;
+
+  // Trainee Dashboard (replaces old "jobseeker" role)
+  if (user.role === "trainee") {
+    return <TraineeDashboard user={user} stats={stats} />;
   }
 
   // Admin Dashboard

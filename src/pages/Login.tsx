@@ -129,10 +129,10 @@ const Login = () => {
             <div className="mt-4 p-4 bg-muted rounded-lg">
               <p className="text-xs font-semibold text-foreground mb-2">Demo Credentials:</p>
               <div className="text-xs text-muted-foreground space-y-1">
-                <p><strong>Job Seeker:</strong> jobseeker@peso.academy / password123</p>
-                <p><strong>Admin:</strong> admin@peso.academy / admin123</p>
-                <p><strong>Trainer:</strong> trainer@peso.academy / trainer123</p>
-                <p><strong>Employer:</strong> employer@peso.academy / employer123</p>
+                <p><strong>Trainee:</strong> trainee@gmail.com / trainee123</p>
+                <p><strong>Admin:</strong> admin@peso.academy / admin@peso.academy</p>
+                <p><strong>Trainer Officer:</strong> trainer@peso.academy / trainer123</p>
+                <p><strong>Validator:</strong> validator@gmail.com / validator123</p>
               </div>
             </div>
           </div>
