@@ -187,20 +187,30 @@ const TrainerLearners = () => {
       const learnersData: LearnerData[] = [];
       
       for (const learnerId of uniqueLearnerIds) {
-        const userData = await userService.getUserById(learnerId);
-        if (userData) {
-          const userEnrollments = myEnrollments.filter((e) => e.userId === learnerId);
-          learnersData.push({
-            ...userData,
-            enrollments: userEnrollments,
-          });
-          console.log("Added learner:", {
-            id: userData.id,
-            email: userData.email,
-            enrollmentsCount: userEnrollments.length
-          });
-        } else {
-          console.warn("User data not found for learner ID:", learnerId);
+        try {
+          const userData = await userService.getUserById(learnerId);
+          if (userData) {
+            const userEnrollments = myEnrollments.filter((e) => e.userId === learnerId);
+            learnersData.push({
+              ...userData,
+              enrollments: userEnrollments,
+            });
+            console.log("Added learner:", {
+              id: userData.id,
+              email: userData.email,
+              enrollmentsCount: userEnrollments.length
+            });
+          } else {
+            console.warn("User data not found or not accessible for learner ID:", learnerId);
+            // Still add enrollment data even if user profile is missing
+            const userEnrollments = myEnrollments.filter((e) => e.userId === learnerId);
+            if (userEnrollments.length > 0) {
+              console.warn(`Found ${userEnrollments.length} enrollment(s) for missing user ${learnerId}`);
+            }
+          }
+        } catch (error) {
+          console.error(`Error fetching user ${learnerId}:`, error);
+          // Continue with other users even if one fails
         }
       }
 

@@ -1,10 +1,10 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { BookOpen, Code, Video, FileQuestion, Type } from "lucide-react";
 import { Module } from "@/types";
 import { ContentBlock } from "./ContentBlock";
+import DocumentViewer from "./DocumentViewer";
 import { useMemo } from "react";
 
 interface ModulePreviewProps {
@@ -15,6 +15,7 @@ interface ModulePreviewProps {
     materials: string[];
     prerequisites: string[];
     order: number;
+    module_document?: string;
   };
   allModules?: Module[];
 }
@@ -69,6 +70,17 @@ export const ModulePreview = ({ module, allModules = [] }: ModulePreviewProps) =
           </div>
         </CardHeader>
         <CardContent>
+          {/* Module Document (uploaded PDF/PPTX) - primary content */}
+          {module.module_document && (
+            <div className="mb-6">
+              <h4 className="font-semibold mb-2 flex items-center gap-2">
+                <BookOpen className="w-4 h-4" />
+                Module Document
+              </h4>
+              <DocumentViewer url={module.module_document} title={module.title} />
+            </div>
+          )}
+
           {/* Content Blocks Preview */}
           {contentBlocks.length > 0 ? (
             <div className="space-y-4">
@@ -146,12 +158,12 @@ export const ModulePreview = ({ module, allModules = [] }: ModulePreviewProps) =
                 </div>
               ))}
             </div>
-          ) : (
+          ) : !module.module_document ? (
             <div className="text-center py-8 text-muted-foreground">
               <BookOpen className="w-12 h-12 mx-auto mb-2 opacity-50" />
-              <p>No content blocks yet</p>
+              <p>No content blocks or document yet</p>
             </div>
-          )}
+          ) : null}
 
           {/* Materials */}
           {module.materials.length > 0 && (

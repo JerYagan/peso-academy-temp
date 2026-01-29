@@ -8,6 +8,7 @@ export interface Course {
   instructor: string;
   instructorId: string;
   thumbnail?: string;
+  courseDocument?: string; // URL to uploaded PDF/PPTX document
   isTESDAAccredited: boolean;
   skills: string[];
   enrolledCount: number;
@@ -35,6 +36,7 @@ export interface Module {
   content?: string;
   materials: string[]; // Array of file URLs or material references
   prerequisites: string[]; // Array of module IDs that must be completed first
+  module_document?: string; // URL to the module document (PDF/PPTX)
   created_at: string;
 }
 

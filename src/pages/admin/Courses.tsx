@@ -15,19 +15,18 @@ import {
 import { BookOpen, Plus, Users, Award, Edit, Trash2, Settings } from "lucide-react";
 import { courseService } from "@/services/supabaseDatabaseService";
 import { CourseCreateEditDialog } from "@/components/course/CourseCreateEditDialog";
-import { ModuleManagementDialog } from "@/components/course/ModuleManagementDialog";
+import { useNavigate } from "react-router-dom";
 import { useState, useEffect } from "react";
 import { Course } from "@/types";
 import { toast } from "sonner";
 
 const AdminCourses = () => {
+  const navigate = useNavigate();
   const [courses, setCourses] = useState<Course[]>([]);
   const [loading, setLoading] = useState(true);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [editCourse, setEditCourse] = useState<Course | null>(null);
   const [deleteCourseId, setDeleteCourseId] = useState<string | null>(null);
-  const [moduleDialogOpen, setModuleDialogOpen] = useState(false);
-  const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
 
   useEffect(() => {
     loadCourses();
@@ -61,8 +60,7 @@ const AdminCourses = () => {
   };
 
   const handleManageModules = (course: Course) => {
-    setSelectedCourse(course);
-    setModuleDialogOpen(true);
+    navigate(`/admin/courses/${course.id}/modules`);
   };
 
   return (
@@ -175,18 +173,6 @@ const AdminCourses = () => {
         }}
       />
 
-      {/* Module Management Dialog */}
-      {selectedCourse && (
-        <ModuleManagementDialog
-          open={moduleDialogOpen}
-          onOpenChange={(open) => {
-            setModuleDialogOpen(open);
-            if (!open) setSelectedCourse(null);
-          }}
-          course={selectedCourse}
-          onSuccess={loadCourses}
-        />
-      )}
 
       {/* Delete Confirmation Dialog */}
       <AlertDialog open={!!deleteCourseId} onOpenChange={(open) => !open && setDeleteCourseId(null)}>

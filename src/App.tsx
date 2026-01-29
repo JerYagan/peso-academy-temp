@@ -25,6 +25,7 @@ import AdminEnrollments from "./pages/admin/Enrollments";
 import AdminReports from "./pages/admin/Reports";
 import TrainerCourses from "./pages/trainer/Courses";
 import TrainerLearners from "./pages/trainer/Learners";
+import ManageModules from "./pages/trainer/ManageModules";
 import ValidatorDashboard from "./pages/validator/Dashboard";
 import ValidatorSubmissions from "./pages/validator/Submissions";
 import SubmissionReview from "./pages/validator/SubmissionReview";
@@ -127,6 +128,14 @@ const App = () => (
               }
             />
             <Route
+              path="/admin/courses/:courseId/modules"
+              element={
+                <ProtectedRoute>
+                  <ManageModules />
+                </ProtectedRoute>
+              }
+            />
+            <Route
               path="/admin/jobs"
               element={
                 <ProtectedRoute>
@@ -181,6 +190,14 @@ const App = () => (
               element={
                 <ProtectedRoute>
                   <TrainerLearners />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/trainer/courses/:courseId/modules"
+              element={
+                <ProtectedRoute>
+                  <ManageModules />
                 </ProtectedRoute>
               }
             />

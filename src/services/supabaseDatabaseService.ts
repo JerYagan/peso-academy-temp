@@ -43,6 +43,7 @@ export const courseService = {
         instructor: "", // Will be populated via join if needed
         instructorId: course.instructor_id,
         thumbnail: course.thumbnail || undefined,
+        courseDocument: course.course_document || undefined,
         isTESDAAccredited: course.is_tesda_accredited,
         skills: course.skills,
         enrolledCount: course.enrolled_count,
@@ -79,6 +80,7 @@ export const courseService = {
       instructor: "", // Will be populated via join if needed
       instructorId: data.instructor_id,
       thumbnail: data.thumbnail || undefined,
+      courseDocument: data.course_document || undefined,
       isTESDAAccredited: data.is_tesda_accredited,
       skills: data.skills,
       enrolledCount: data.enrolled_count,
@@ -101,6 +103,7 @@ export const courseService = {
         duration: course.duration,
         instructor_id: course.instructorId,
         thumbnail: course.thumbnail || null,
+        course_document: course.courseDocument || null,
         is_tesda_accredited: course.isTESDAAccredited,
         skills: course.skills,
         enrolled_count: 0,
@@ -127,6 +130,7 @@ export const courseService = {
       instructor: course.instructor,
       instructorId: data.instructor_id,
       thumbnail: data.thumbnail || undefined,
+      courseDocument: data.course_document || undefined,
       isTESDAAccredited: data.is_tesda_accredited,
       skills: data.skills,
       enrolledCount: data.enrolled_count,
@@ -150,6 +154,7 @@ export const courseService = {
     if (updates.duration !== undefined) updateData.duration = updates.duration;
     if (updates.instructorId !== undefined) updateData.instructor_id = updates.instructorId;
     if (updates.thumbnail !== undefined) updateData.thumbnail = updates.thumbnail;
+    if (updates.courseDocument !== undefined) updateData.course_document = updates.courseDocument;
     if (updates.isTESDAAccredited !== undefined) updateData.is_tesda_accredited = updates.isTESDAAccredited;
     if (updates.skills !== undefined) updateData.skills = updates.skills;
 
@@ -175,6 +180,7 @@ export const courseService = {
       instructor: updates.instructor || "",
       instructorId: data.instructor_id,
       thumbnail: data.thumbnail || undefined,
+      courseDocument: data.course_document || undefined,
       isTESDAAccredited: data.is_tesda_accredited,
       skills: data.skills,
       enrolledCount: data.enrolled_count,
@@ -209,7 +215,7 @@ export const moduleService = {
 
     const { data, error } = await supabase
       .from("modules")
-      .select("*")
+      .select("*, module_document")
       .eq("course_id", courseId)
       .order("order", { ascending: true });
 
@@ -228,6 +234,7 @@ export const moduleService = {
         content: module.content || undefined,
         materials: module.materials || [],
         prerequisites: module.prerequisites || [],
+        module_document: module.module_document || undefined,
         created_at: module.created_at,
       })) || []
     );
@@ -301,6 +308,7 @@ export const moduleService = {
         content: module.content || null,
         materials: module.materials || [],
         prerequisites: module.prerequisites || [],
+        module_document: (module as any).module_document || null,
         created_at: new Date().toISOString(),
       })
       .select()
@@ -320,6 +328,7 @@ export const moduleService = {
       content: data.content || undefined,
       materials: data.materials || [],
       prerequisites: data.prerequisites || [],
+      module_document: data.module_document || undefined,
       created_at: data.created_at,
     };
   },
@@ -338,6 +347,7 @@ export const moduleService = {
     if (updates.description !== undefined) updateData.description = updates.description;
     if (updates.order !== undefined) updateData.order = updates.order;
     if (updates.content !== undefined) updateData.content = updates.content;
+    if (updates.module_document !== undefined) updateData.module_document = updates.module_document;
     if (updates.materials !== undefined) updateData.materials = updates.materials;
     if (updates.prerequisites !== undefined) updateData.prerequisites = updates.prerequisites;
 
@@ -362,6 +372,7 @@ export const moduleService = {
       content: data.content || undefined,
       materials: data.materials || [],
       prerequisites: data.prerequisites || [],
+      module_document: data.module_document || undefined,
       created_at: data.created_at,
     };
   },
@@ -637,20 +648,81 @@ export const enrollmentService = {
    * Get enrollments (optionally filtered by user ID)
    */
   getEnrollments: async (userId?: string): Promise<Enrollment[]> => {
-    let query = supabase.from("enrollments").select("*").order("enrolled_at", { ascending: false });
-
-    if (userId) {
-      query = query.eq("user_id", userId);
-    }
-
-    const { data, error } = await query;
-
-    if (error) {
-      handleSupabaseError(error);
+    if (!supabase) {
+      console.error("Supabase client not initialized");
       return [];
     }
 
-    return (
+    // Get current authenticated user
+    const { data: { user: authUser }, error: authError } = await supabase.auth.getUser();
+    
+    console.log("=== ENROLLMENT DEBUG ===");
+    console.log("Auth user ID (auth.uid()):", authUser?.id);
+    console.log("Requested userId filter:", userId);
+    console.log("Auth user email:", authUser?.email);
+    console.log("Auth error:", authError);
+
+    if (authError || !authUser) {
+      console.error("User not authenticated:", authError);
+      console.log("=== END ENROLLMENT DEBUG ===");
+      return [];
+    }
+
+    // Get user role to determine query strategy
+    const roleFromMetadata = authUser.user_metadata?.role || 'trainee';
+    const isTrainerOrAdmin = ['training_officer', 'admin', 'trainer', 'spd'].includes(roleFromMetadata);
+    
+    console.log("User role:", roleFromMetadata);
+    console.log("Is trainer/admin:", isTrainerOrAdmin);
+
+    // Build query - RLS policies will handle filtering:
+    // - For trainees: RLS filters by auth.uid() = user_id
+    // - For trainers/admins: RLS allows viewing enrollments for their courses
+    let query = supabase.from("enrollments").select("*");
+
+    // Only filter by user_id if:
+    // 1. userId is explicitly provided (for specific user lookup)
+    // 2. User is a trainee (not trainer/admin)
+    if (userId) {
+      // Explicit userId provided - use it (but verify it matches auth.uid() for trainees)
+      if (!isTrainerOrAdmin && userId !== authUser.id) {
+        console.warn("Warning: Trainee requested different userId. Using auth.uid() instead.");
+        query = query.eq("user_id", authUser.id);
+      } else {
+        query = query.eq("user_id", userId);
+      }
+      console.log("Filtering by explicit user_id:", userId);
+    } else if (!isTrainerOrAdmin) {
+      // Trainee without explicit userId - filter by their own ID
+      query = query.eq("user_id", authUser.id);
+      console.log("Trainee - filtering by own user_id:", authUser.id);
+    } else {
+      // Trainer/Admin without explicit userId - let RLS handle filtering
+      // Don't add user_id filter, RLS will show enrollments for their courses
+      console.log("Trainer/Admin - letting RLS handle filtering (no user_id filter)");
+    }
+
+    query = query.order("enrolled_at", { ascending: false });
+
+    const { data, error } = await query;
+
+    console.log("Query result - data count:", data?.length || 0);
+    console.log("Query result - error:", error);
+    console.log("Raw data:", data);
+
+    if (error) {
+      console.error("Enrollment query error details:", {
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+        code: error.code,
+      });
+      handleSupabaseError(error);
+      console.log("=== END ENROLLMENT DEBUG ===");
+      return [];
+    }
+
+    const mappedEnrollments = (
       data?.map((enrollment) => ({
         id: enrollment.id,
         userId: enrollment.user_id,
@@ -662,6 +734,11 @@ export const enrollmentService = {
         certificateId: enrollment.certificate_id || undefined,
       })) || []
     );
+
+    console.log("Mapped enrollments:", mappedEnrollments);
+    console.log("=== END ENROLLMENT DEBUG ===");
+
+    return mappedEnrollments;
   },
 
   /**
@@ -1321,9 +1398,15 @@ export const userService = {
       .from("users")
       .select("*")
       .eq("id", userId)
-      .single();
+      .maybeSingle(); // Use maybeSingle() instead of single() to handle 0 rows gracefully
 
     if (error) {
+      // Check if error is "no rows" (PGRST116) - this is expected if user doesn't exist
+      if (error.code === 'PGRST116') {
+        console.warn(`User not found or not accessible: ${userId}`);
+        return null;
+      }
+      console.error(`Error fetching user ${userId}:`, error);
       handleSupabaseError(error);
       return null;
     }

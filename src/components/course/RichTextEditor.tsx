@@ -105,6 +105,7 @@ export const RichTextEditor = ({ content, onChange, placeholder, className }: Ri
           "prose-img:rounded-lg prose-img:shadow-md",
           className
         ),
+        "data-placeholder": placeholder || "Start typing your content here... e.g., Introduction to JavaScript",
       },
     },
   });
@@ -128,7 +129,7 @@ export const RichTextEditor = ({ content, onChange, placeholder, className }: Ri
   };
 
   return (
-    <div className="border rounded-lg overflow-hidden">
+    <div className={cn("border rounded-lg overflow-hidden w-full min-w-0", className)}>
       {/* Toolbar */}
       <div className="border-b bg-muted/50 p-2 flex flex-wrap items-center gap-1">
         <Toggle
@@ -238,10 +239,17 @@ export const RichTextEditor = ({ content, onChange, placeholder, className }: Ri
       </div>
 
       {/* Editor Content */}
-      <div className="min-h-[300px] max-h-[600px] overflow-y-auto">
+      <div className="min-h-[300px] max-h-[600px] overflow-y-auto relative">
         <EditorContent editor={editor} />
         {!content && placeholder && (
-          <div className="absolute top-4 left-4 text-muted-foreground pointer-events-none">
+          <div 
+            className="absolute top-4 left-4 text-muted-foreground pointer-events-none select-none"
+            style={{ 
+              zIndex: 1,
+              whiteSpace: 'pre-wrap',
+              wordWrap: 'break-word'
+            }}
+          >
             {placeholder}
           </div>
         )}

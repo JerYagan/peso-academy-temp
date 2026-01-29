@@ -15,7 +15,7 @@ import {
 import { BookOpen, Plus, Users, Award, Edit, Trash2, Settings } from "lucide-react";
 import { courseService, enrollmentService } from "@/services/supabaseDatabaseService";
 import { CourseCreateEditDialog } from "@/components/course/CourseCreateEditDialog";
-import { ModuleManagementDialog } from "@/components/course/ModuleManagementDialog";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useState, useEffect } from "react";
 import { Course, Enrollment } from "@/types";
@@ -23,14 +23,13 @@ import { toast } from "sonner";
 
 const TrainerCourses = () => {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [courses, setCourses] = useState<Course[]>([]);
   const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
   const [loading, setLoading] = useState(true);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [editCourse, setEditCourse] = useState<Course | null>(null);
   const [deleteCourseId, setDeleteCourseId] = useState<string | null>(null);
-  const [moduleDialogOpen, setModuleDialogOpen] = useState(false);
-  const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
 
   useEffect(() => {
     if (user) {
@@ -77,8 +76,7 @@ const TrainerCourses = () => {
   };
 
   const handleManageModules = (course: Course) => {
-    setSelectedCourse(course);
-    setModuleDialogOpen(true);
+    navigate(`/trainer/courses/${course.id}/modules`);
   };
 
   const getEnrollmentCount = (courseId: string) => {
@@ -193,18 +191,6 @@ const TrainerCourses = () => {
         }}
       />
 
-      {/* Module Management Dialog */}
-      {selectedCourse && (
-        <ModuleManagementDialog
-          open={moduleDialogOpen}
-          onOpenChange={(open) => {
-            setModuleDialogOpen(open);
-            if (!open) setSelectedCourse(null);
-          }}
-          course={selectedCourse}
-          onSuccess={loadCourses}
-        />
-      )}
 
       {/* Delete Confirmation Dialog */}
       <AlertDialog open={!!deleteCourseId} onOpenChange={(open) => !open && setDeleteCourseId(null)}>

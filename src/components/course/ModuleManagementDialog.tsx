@@ -892,7 +892,7 @@ export const ModuleManagementDialog = ({
                         <RichTextEditor
                           content={formData.content}
                           onChange={(content) => setFormData({ ...formData, content })}
-                          placeholder="Start typing your content here..."
+                          placeholder="Start typing your content here... e.g., Introduction to JavaScript"
                         />
                       )}
                     </div>

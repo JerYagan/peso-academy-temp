@@ -155,6 +155,15 @@
   .animate-scale-in {
     animation: scaleIn 0.4s ease-out forwards;
   }
+
+  /* Ensure focus rings appear outside borders for inputs and textareas */
+  /* Override Tailwind's ring to ensure it appears outside the border */
+  textarea:focus-visible,
+  input:focus-visible {
+    --tw-ring-offset-shadow: 0 0 0 2px hsl(var(--background));
+    --tw-ring-shadow: 0 0 0 calc(2px + 2px) hsl(var(--ring));
+    box-shadow: var(--tw-ring-offset-shadow), var(--tw-ring-shadow), var(--tw-shadow, 0 0 #0000);
+  }
 }
 
 @keyframes float {

@@ -26,6 +26,7 @@ import { courseService, enrollmentService, moduleService, moduleCompletionServic
 import { Course, Module, Enrollment } from "@/types";
 import { toast } from "sonner";
 import ModuleContentViewer from "@/components/course/ModuleContentViewer";
+import DocumentViewer from "@/components/course/DocumentViewer";
 import { supabase } from "@/lib/supabase";
 
 const CourseDetail = () => {
@@ -292,7 +293,24 @@ const CourseDetail = () => {
 
           {/* Module Content Area */}
           <div className="lg:col-span-3">
-            {selectedModule ? (
+            {course.courseDocument ? (
+              // Show course document if available
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <FileText className="w-5 h-5" />
+                    Course Document
+                  </CardTitle>
+                  <CardDescription>
+                    {course.title} - Course Material
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <DocumentViewer url={course.courseDocument} title={course.title} />
+                </CardContent>
+              </Card>
+            ) : selectedModule ? (
+              // Show module content if no course document
               <ModuleContentViewer
                 module={selectedModule}
                 enrollment={enrollment}
@@ -303,7 +321,11 @@ const CourseDetail = () => {
               <Card>
                 <CardContent className="flex flex-col items-center justify-center py-12">
                   <BookOpen className="w-16 h-16 text-muted-foreground mb-4" />
-                  <p className="text-muted-foreground">Select a module to start learning</p>
+                  <p className="text-muted-foreground">
+                    {modules.length > 0 
+                      ? "Select a module to start learning" 
+                      : "No course content available"}
+                  </p>
                 </CardContent>
               </Card>
             )}

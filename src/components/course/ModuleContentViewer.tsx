@@ -321,6 +321,22 @@ const ModuleContentViewer = ({
 
         {/* Content Tab */}
         <TabsContent value="content" className="space-y-4">
+          {/* Module Document (uploaded PDF/PPTX) - primary content */}
+          {module.module_document && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <FileText className="w-5 h-5" />
+                  Module Document
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <DocumentViewer url={module.module_document} title={module.title} />
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Content blocks or rich text content */}
           {contentBlocks.length > 0 ? (
             <div className="space-y-4">
               {contentBlocks.map((block, idx) => (
@@ -359,7 +375,7 @@ const ModuleContentViewer = ({
                 />
               </CardContent>
             </Card>
-          ) : (
+          ) : !module.module_document ? (
             <Card>
               <CardContent className="pt-6">
                 <p className="text-muted-foreground text-center py-8">
@@ -367,7 +383,7 @@ const ModuleContentViewer = ({
                 </p>
               </CardContent>
             </Card>
-          )}
+          ) : null}
         </TabsContent>
 
         {/* Videos Tab */}
