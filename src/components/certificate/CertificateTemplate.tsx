@@ -206,7 +206,7 @@ const CertificateTemplate = ({
         </div>
       </div>
 
-      {/* TESDA Badge (if TESDA accredited) */}
+      {/* TESDA Badge (if TESDA supported) */}
       <div
         style={{
           position: "absolute",
@@ -228,7 +228,7 @@ const CertificateTemplate = ({
       >
         TESDA
         <br />
-        Accredited
+        Supported
       </div>
     </div>
   );

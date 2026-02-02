@@ -16,8 +16,8 @@ const Footer = () => {
               </span>
             </a>
             <p className="text-muted-foreground text-sm leading-relaxed">
-              Empowering Filipino workers with free skills training, 
-              certifications, and job matching services.
+              Empowering Filipino workers with free skills training 
+              and certifications through our learning management platform.
             </p>
             <div className="flex gap-4">
               <a href="#" className="w-10 h-10 rounded-lg bg-background/10 flex items-center justify-center hover:bg-background/20 transition-colors text-foreground">
@@ -42,8 +42,6 @@ const Footer = () => {
               <li><a href="#" className="hover:text-foreground transition-colors">Courses</a></li>
               <li><a href="#" className="hover:text-foreground transition-colors">Skills Assessment</a></li>
               <li><a href="#" className="hover:text-foreground transition-colors">Certifications</a></li>
-              <li><a href="#" className="hover:text-foreground transition-colors">Job Matching</a></li>
-              <li><a href="#" className="hover:text-foreground transition-colors">Career Guidance</a></li>
             </ul>
           </div>
           

@@ -21,12 +21,12 @@ const CTASection = () => {
           </div>
           
           <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-primary-foreground mb-6">
-            Ready to Transform Your Career?
+            Ready to Start Learning?
           </h2>
           
           <p className="text-lg md:text-xl text-primary-foreground/80 mb-10 max-w-2xl mx-auto">
-            Join thousands of Filipinos who have upskilled, earned certifications, 
-            and found meaningful employment through PESO Academy.
+            Join thousands of Filipinos who have upskilled and earned certifications 
+            through PESO Academy&apos;s free training and learning management.
           </p>
           
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
@@ -50,8 +50,6 @@ const CTASection = () => {
               <span className="text-primary-foreground/80 font-semibold">TESDA</span>
               <span className="text-primary-foreground/40">•</span>
               <span className="text-primary-foreground/80 font-semibold">LGU Partners</span>
-              <span className="text-primary-foreground/40">•</span>
-              <span className="text-primary-foreground/80 font-semibold">JobStart Philippines</span>
             </div>
           </div>
         </div>
