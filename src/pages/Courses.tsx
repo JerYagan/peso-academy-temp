@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import DashboardLayout from "@/components/DashboardLayout";
 import Header from "@/components/Header";
@@ -16,6 +16,7 @@ import { toast } from "sonner";
 
 const Courses = () => {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [courses, setCourses] = useState<Course[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<string>("all");
@@ -57,11 +58,16 @@ const Courses = () => {
     }
   };
 
-  const handleEnroll = async (courseId: string) => {
+  const handleEnrollClick = (course: Course) => {
     if (!user) {
-      toast.error("Please login to enroll in courses");
+      navigate(`/signup?redirect=${encodeURIComponent(`/courses/${course.id}`)}`);
       return;
     }
+    handleEnroll(course.id);
+  };
+
+  const handleEnroll = async (courseId: string) => {
+    if (!user) return;
 
     if (enrolledCourseIds.includes(courseId)) {
       toast.info("You are already enrolled in this course");
@@ -195,9 +201,9 @@ const Courses = () => {
                       </Button>
                     ) : (
                       <Button
-                        onClick={() => handleEnroll(course.id)}
+                        onClick={() => handleEnrollClick(course)}
                         className="w-full"
-                        disabled={!user || isEnrolling}
+                        disabled={isEnrolling}
                       >
                         {isEnrolling ? (
                           <>

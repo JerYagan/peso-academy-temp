@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import { useNavigate, useSearchParams, Link } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,17 +21,23 @@ const SignUp = () => {
   const [signupSuccess, setSignupSuccess] = useState(false);
   const { signup, user, isAuthenticated } = useAuth();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const redirectTo = searchParams.get("redirect");
   
   const availableRoles = getPublicSignupRoles();
 
   // Navigate after successful signup when user is available
   useEffect(() => {
     if (signupSuccess && isAuthenticated && user) {
-      const dashboardRoute = getDashboardRoute(user.role);
-      navigate(dashboardRoute);
+      if (redirectTo && redirectTo.startsWith("/")) {
+        navigate(redirectTo);
+      } else {
+        const dashboardRoute = getDashboardRoute(user.role);
+        navigate(dashboardRoute);
+      }
       setSignupSuccess(false);
     }
-  }, [signupSuccess, isAuthenticated, user, navigate]);
+  }, [signupSuccess, isAuthenticated, user, navigate, redirectTo]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
