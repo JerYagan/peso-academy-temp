@@ -347,28 +347,32 @@ const ManageModules = () => {
     setEditingModule(null);
   };
 
+  const ACCEPTED_MODULE_FILE_TYPES = [
+    "application/pdf",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "video/mp4",
+    "video/webm",
+    "image/jpeg",
+    "image/png",
+    "image/webp",
+    "image/gif",
+  ];
+  const ACCEPTED_MODULE_FILE_EXT = [".pdf", ".pptx", ".mp4", ".webm", ".jpg", ".jpeg", ".png", ".webp", ".gif"];
+
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
-    // Validate file type
-    const validTypes = ["application/pdf", "application/vnd.openxmlformats-officedocument.presentationml.presentation"];
-    const validExtensions = [".pdf", ".pptx"];
-    const fileExtension = file.name.toLowerCase().substring(file.name.lastIndexOf("."));
-
-    if (!validTypes.includes(file.type) && !validExtensions.includes(fileExtension)) {
-      toast.error("Please upload a PDF or PPTX file");
+    const ext = file.name.toLowerCase().substring(file.name.lastIndexOf("."));
+    if (!ACCEPTED_MODULE_FILE_TYPES.includes(file.type) && !ACCEPTED_MODULE_FILE_EXT.includes(ext)) {
+      toast.error("Please upload a file (PDF/PPTX), video (MP4/WebM), or image (JPG/PNG/WebP/GIF)");
       return;
     }
-
-    // Validate file size (max 50MB)
-    if (file.size > 50 * 1024 * 1024) {
-      toast.error("File size must be less than 50MB");
+    if (file.size > 100 * 1024 * 1024) {
+      toast.error("File size must be less than 100MB");
       return;
     }
-
     setSelectedFile(file);
-    setCurrentDocumentUrl(null); // Clear current document URL when new file is selected
+    setCurrentDocumentUrl(null);
   };
 
   const handleEditModule = async (module: Module) => {
@@ -441,6 +445,24 @@ const ManageModules = () => {
     }
   };
 
+  const uploadModuleDocumentToStorage = async (file: File, folder: string): Promise<string> => {
+    if (!supabase || !user) throw new Error("Supabase or user not initialized");
+    const fileExt = file.name.split(".").pop();
+    const fileName = `${folder}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}.${fileExt}`;
+    const filePath = `modules/${user.id}/${fileName}`;
+    const { error: uploadError } = await supabase.storage
+      .from("course-materials")
+      .upload(filePath, file, { cacheControl: "3600", upsert: false });
+    if (uploadError) {
+      const msg = uploadError.message?.toLowerCase().includes("bucket not found")
+        ? "Storage bucket 'course-materials' not found. Create it in Supabase: Dashboard → Storage → New bucket → name: course-materials (see STORAGE_SETUP.md)."
+        : uploadError.message;
+      throw new Error(msg);
+    }
+    const { data: urlData } = supabase.storage.from("course-materials").getPublicUrl(filePath);
+    return urlData.publicUrl;
+  };
+
   const handleSaveModule = async () => {
     if (!courseId) return;
 
@@ -450,6 +472,24 @@ const ManageModules = () => {
     }
 
     setLoading(true);
+    let documentUrl: string | null | undefined = currentDocumentUrl ?? undefined;
+    if (selectedFile) {
+      setUploadingDocument(true);
+      try {
+        documentUrl = await uploadModuleDocumentToStorage(selectedFile, "doc");
+      } catch (error: any) {
+        console.error("Upload error:", error);
+        toast.error(error.message || "Failed to upload file");
+        setLoading(false);
+        setUploadingDocument(false);
+        return;
+      } finally {
+        setUploadingDocument(false);
+      }
+    } else if (!currentDocumentUrl && !selectedFile && editingModule) {
+      documentUrl = null;
+    }
+
     try {
       let contentToSave = formData.content;
       
@@ -464,6 +504,7 @@ const ManageModules = () => {
           content: contentToSave,
           materials: formData.materials,
           prerequisites: formData.prerequisites,
+          ...(documentUrl !== undefined && { module_document: documentUrl }),
         });
         toast.success("Module updated successfully");
       } else {
@@ -476,6 +517,7 @@ const ManageModules = () => {
           content: contentToSave,
           materials: formData.materials,
           prerequisites: formData.prerequisites,
+          module_document: documentUrl ?? undefined,
         });
         toast.success("Module created successfully");
       }
@@ -517,14 +559,15 @@ const ManageModules = () => {
     try {
       const nextOrder = modules.length > 0 ? Math.max(...modules.map((m) => m.order)) + 1 : 1;
       await moduleService.createModule({
-        course_id: courseId,
-        title: `${module.title} (Copy)`,
-        description: module.description,
-        order: nextOrder,
-        content: module.content || "",
-        materials: [...module.materials],
-        prerequisites: [...module.prerequisites],
-      });
+          course_id: courseId,
+          title: `${module.title} (Copy)`,
+          description: module.description,
+          order: nextOrder,
+          content: module.content || "",
+          materials: [...module.materials],
+          prerequisites: [...module.prerequisites],
+          module_document: module.module_document ?? undefined,
+        });
       toast.success("Module duplicated successfully");
       await loadModules();
     } catch (error) {
@@ -961,13 +1004,13 @@ const ManageModules = () => {
 
                       {/* Module Document Upload */}
                       <div className="space-y-2 w-full min-w-0">
-                        <Label htmlFor="moduleDocument">Module Document (PDF/PPTX)</Label>
+                        <Label htmlFor="moduleDocument">Module Document (file, video, or image)</Label>
                         <div className="space-y-2">
                           <div className="flex items-center gap-2">
                             <Input
                               id="moduleDocument"
                               type="file"
-                              accept=".pdf,.pptx,application/pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation"
+                              accept=".pdf,.pptx,.mp4,.webm,.jpg,.jpeg,.png,.webp,.gif,application/pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation,video/mp4,video/webm,image/jpeg,image/png,image/webp,image/gif"
                               onChange={handleFileSelect}
                               className="flex-1 min-w-0"
                               disabled={uploadingDocument}

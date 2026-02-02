@@ -1,6 +1,8 @@
 # Supabase Storage Setup Guide
 
-This guide explains how to set up Supabase Storage buckets for the PESO Academy application.
+This guide explains how to set up **Supabase Storage** buckets. Storage is part of Supabase; buckets are just containers (like folders). You create them once in the Supabase Dashboard.
+
+**If you see "Bucket not found"** when uploading course or module files, create the `course-materials` bucket (see section 2 below).
 
 ## Required Storage Buckets
 
@@ -73,37 +75,45 @@ This bucket stores assignment submissions uploaded by learners.
        └── {timestamp}-{random}.{ext}
    ```
 
-### 2. Course Materials Bucket (Optional)
+### 2. Course Materials Bucket (Required for course/module uploads)
 
-If you want to store course materials (videos, documents) in Supabase Storage:
+Course and module documents (PDF, video, images) are stored in Supabase Storage. Create this bucket so uploads work:
 
 1. **Create the Bucket:**
-   - Name: `course-materials`
-   - Public: `Yes` (for easy access)
-   - File size limit: `100 MB` (adjust based on needs)
+   - In Supabase Dashboard go to **Storage** → **Buckets** → **New bucket**
+   - Name: `course-materials` (exact name)
+   - Public: `Yes` (so document/video URLs work for learners)
+   - File size limit: `100 MB` (or as needed)
 
 2. **Set Up Storage Policies:**
+
+   Your app stores roles in **auth metadata** (not in `public.users`). Use `public.get_user_role()` in policies. Run in **SQL Editor**:
 
    ```sql
    -- Allow authenticated users to view course materials
    CREATE POLICY "Users can view course materials"
-   ON storage.objects FOR SELECT
-   TO authenticated
+   ON storage.objects FOR SELECT TO authenticated
    USING (bucket_id = 'course-materials');
 
-   -- Allow trainers/admins to upload materials
+   -- Allow training officers and admins to upload (role from auth metadata)
    CREATE POLICY "Trainers can upload course materials"
-   ON storage.objects FOR INSERT
-   TO authenticated
+   ON storage.objects FOR INSERT TO authenticated
    WITH CHECK (
-     bucket_id = 'course-materials' AND
-     EXISTS (
-       SELECT 1 FROM public.users
-       WHERE users.id = auth.uid()
-       AND users.role IN ('trainer', 'admin', 'spd')
-     )
+     bucket_id = 'course-materials'
+     AND public.get_user_role() IN ('training_officer', 'admin')
    );
+
+   -- Optional: allow update/delete for same roles
+   CREATE POLICY "Trainers can update course materials"
+   ON storage.objects FOR UPDATE TO authenticated
+   USING (bucket_id = 'course-materials' AND public.get_user_role() IN ('training_officer', 'admin'));
+
+   CREATE POLICY "Trainers can delete course materials"
+   ON storage.objects FOR DELETE TO authenticated
+   USING (bucket_id = 'course-materials' AND public.get_user_role() IN ('training_officer', 'admin'));
    ```
+
+   If you use a migration (e.g. `022_add_course_materials_storage_policies.sql`), apply it instead of running the above manually.
 
 ### 3. User Avatars Bucket (Optional)
 
