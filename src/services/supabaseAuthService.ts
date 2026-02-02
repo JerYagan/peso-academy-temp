@@ -413,6 +413,74 @@ export const supabaseAuthService = {
   },
 
   /**
+   * Sign in with Google (OAuth). Redirects the browser to Google; after callback,
+   * the session is established and onAuthStateChange fires.
+   */
+  signInWithGoogle: async (redirectTo?: string): Promise<{ url: string | null; error: Error | null }> => {
+    if (!supabase) {
+      return { url: null, error: new Error("Supabase client not initialized") };
+    }
+    try {
+      const redirectUrl = redirectTo ?? `${window.location.origin}${window.location.pathname || "/"}`;
+      const { data, error } = await supabase.auth.signInWithOAuth({
+        provider: "google",
+        options: {
+          redirectTo: redirectUrl,
+          queryParams: {
+            access_type: "offline",
+            prompt: "consent",
+          },
+        },
+      });
+      if (error) return { url: null, error };
+      return { url: data?.url ?? null, error: null };
+    } catch (error) {
+      return {
+        url: null,
+        error: error instanceof Error ? error : new Error("Unknown error occurred"),
+      };
+    }
+  },
+
+  /**
+   * Ensure a user signed in via Google has role 'trainee' and name set in metadata.
+   * Call this after session is established (e.g. on auth state change) for Google users.
+   */
+  ensureGoogleUserMetadata: async (): Promise<{ error: Error | null }> => {
+    if (!supabase) return { error: new Error("Supabase client not initialized") };
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return { error: null };
+
+      const provider = user.app_metadata?.provider ?? user.identities?.[0]?.provider;
+      if (provider !== "google") return { error: null };
+
+      const meta = user.user_metadata ?? {};
+      const displayName =
+        meta.full_name ?? meta.name ?? (user.email ? user.email.split("@")[0] : "User");
+      const role = meta.role;
+      const validRoles = ["admin", "training_officer", "validator", "trainee"];
+      const needsRole = !role || !validRoles.includes(role);
+      const needsName = !meta.name && !meta.full_name;
+
+      if (!needsRole && !needsName) return { error: null };
+
+      const updates: Record<string, string> = {};
+      if (needsRole) updates.role = "trainee";
+      if (needsName) updates.name = displayName;
+
+      const { error } = await supabase.auth.updateUser({
+        data: { ...meta, ...updates },
+      });
+      return { error: error || null };
+    } catch (error) {
+      return {
+        error: error instanceof Error ? error : new Error("Unknown error occurred"),
+      };
+    }
+  },
+
+  /**
    * Sign out the current user
    */
   logout: async (): Promise<{ error: Error | null }> => {
