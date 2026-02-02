@@ -7,6 +7,7 @@ import { User as SupabaseUser } from "@supabase/supabase-js";
 
 interface AuthContextType extends AuthState {
   login: (email: string, password: string) => Promise<{ success: boolean; error?: string; user?: User | null }>;
+  loginWithGoogle: (redirectTo?: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => Promise<void>;
   signup: (email: string, password: string, name: string, role: UserRole) => Promise<{ success: boolean; error?: string; user?: User | null }>;
   updateUser: (user: Partial<User>) => Promise<void>;
@@ -24,10 +25,16 @@ const createUserFromSupabaseUser = (supabaseUser: SupabaseUser): User => {
   const validRoles: UserRole[] = ["admin", "training_officer", "validator", "trainee"];
   const userRole = validRoles.includes(roleFromMetadata) ? roleFromMetadata : 'trainee';
   
+  // Full name: from Google (full_name) or custom name or email prefix
+  const displayName =
+    supabaseUser.user_metadata?.full_name ??
+    supabaseUser.user_metadata?.name ??
+    supabaseUser.email!.split("@")[0];
+
   return {
     id: supabaseUser.id,
     email: supabaseUser.email!,
-    name: supabaseUser.user_metadata?.name || supabaseUser.email!.split("@")[0],
+    name: displayName,
     role: userRole,
     createdAt: supabaseUser.created_at || new Date().toISOString(),
   };
@@ -52,20 +59,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Helper function to update state from Supabase user
     const updateStateFromSupabaseUser = (supabaseUser: SupabaseUser | null) => {
       if (!isMounted) return;
-      
       if (supabaseUser) {
+        // Ensure Google OAuth users have trainee role and name in metadata (fire-and-forget)
+        supabaseAuthService.ensureGoogleUserMetadata().then(({ error }) => {
+          if (error) console.warn("ensureGoogleUserMetadata:", error);
+        });
         setAuthUser(supabaseUser);
         const user = createUserFromSupabaseUser(supabaseUser);
-        setAuthState({
-          user,
-          isAuthenticated: true,
-        });
+        setAuthState({ user, isAuthenticated: true });
       } else {
         setAuthUser(null);
-        setAuthState({
-          user: null,
-          isAuthenticated: false,
-        });
+        setAuthState({ user: null, isAuthenticated: false });
       }
       setLoading(false);
     };
@@ -78,7 +82,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     // Listen for auth changes (like payroll-pal does - SIMPLE!)
     try {
-      const authStateChangeResult = supabaseAuthService.onAuthStateChange((user, supabaseUser) => {
+      const authStateChangeResult = supabaseAuthService.onAuthStateChange((_user, supabaseUser) => {
         if (!isMounted) return;
         updateStateFromSupabaseUser(supabaseUser);
       });
@@ -103,6 +107,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     };
   }, []);
+
+  const loginWithGoogle = async (
+    redirectTo?: string
+  ): Promise<{ success: boolean; error?: string }> => {
+    try {
+      const { url, error } = await supabaseAuthService.signInWithGoogle(redirectTo);
+      if (error) {
+        return { success: false, error: error.message };
+      }
+      if (url) {
+        window.location.href = url;
+        return { success: true };
+      }
+      return { success: false, error: "Could not start Google sign-in" };
+    } catch (error) {
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : "Unknown error occurred",
+      };
+    }
+  };
 
   const login = async (
     email: string,
@@ -258,6 +283,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       value={{
         ...authState,
         login,
+        loginWithGoogle,
         logout,
         signup,
         updateUser,
