@@ -1,11 +1,11 @@
-import { UserPlus, ClipboardList, GraduationCap, Briefcase } from "lucide-react";
+import { UserPlus, ClipboardList, GraduationCap } from "lucide-react";
 
 const steps = [
   {
     number: "01",
     icon: UserPlus,
     title: "Register & Build Profile",
-    description: "Sign up with your PESO ID or create a new account. Complete your skills profile, education, and career interests.",
+    description: "Sign up with your PESO ID or create a new account. Complete your skills profile and education.",
   },
   {
     number: "02",
@@ -17,13 +17,7 @@ const steps = [
     number: "03",
     icon: GraduationCap,
     title: "Learn & Get Certified",
-    description: "Follow personalized learning pathways, complete courses, and earn TESDA-accredited certifications.",
-  },
-  {
-    number: "04",
-    icon: Briefcase,
-    title: "Match & Get Hired",
-    description: "Get matched with relevant job opportunities from PESO and partner employers based on your new skills.",
+    description: "Follow learning pathways, complete courses, and earn TESDA-supported certifications.",
   },
 ];
 
@@ -42,10 +36,10 @@ const HowItWorksSection = () => {
           </span>
           <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-foreground mb-6">
             Your Path to{" "}
-            <span className="text-gradient">Employment</span>
+            <span className="text-gradient">Learning</span>
           </h2>
           <p className="text-lg text-muted-foreground">
-            Follow our proven 4-step process to transform your skills and land your dream job.
+            Follow our 3-step process to build your skills and earn certifications through quality training.
           </p>
         </div>
         
@@ -54,7 +48,7 @@ const HowItWorksSection = () => {
           {/* Connection Line */}
           <div className="hidden lg:block absolute top-1/2 left-0 right-0 h-0.5 bg-gradient-to-r from-primary via-accent to-primary opacity-20 -translate-y-1/2" />
           
-          <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-8">
+          <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
             {steps.map((step, index) => (
               <div key={step.number} className="relative">
                 {/* Step Card */}

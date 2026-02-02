@@ -444,7 +444,7 @@ export const reportingService = {
             : 0;
       });
 
-      // Get TESDA accredited courses
+      // Get TESDA supported courses
       const tesdaCourses = enrollments.filter(
         (e) => (e.courses as any)?.is_tesda_accredited === true
       );

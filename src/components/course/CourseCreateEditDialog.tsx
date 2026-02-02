@@ -358,7 +358,7 @@ export const CourseCreateEditDialog = ({
               }
             />
             <Label htmlFor="tesda" className="cursor-pointer">
-              TESDA Accredited
+              TESDA Supported
             </Label>
           </div>
 

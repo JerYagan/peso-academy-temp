@@ -2,10 +2,6 @@ import {
   ClipboardCheck, 
   BookOpen, 
   Award, 
-  Briefcase, 
-  Brain, 
-  TrendingUp,
-  Target,
   Shield
 } from "lucide-react";
 
@@ -23,33 +19,9 @@ const features = [
     color: "bg-accent/10 text-accent",
   },
   {
-    icon: Brain,
-    title: "Smart Recommendations",
-    description: "AI-powered course suggestions based on your skills gap and local job market demand.",
-    color: "bg-primary/10 text-primary",
-  },
-  {
     icon: Award,
     title: "Digital Certifications",
-    description: "Earn TESDA-accredited certificates and digital badges to showcase your achievements.",
-    color: "bg-accent/10 text-accent",
-  },
-  {
-    icon: Briefcase,
-    title: "Job Matching",
-    description: "Get matched with PESO job postings that align with your newly acquired skills.",
-    color: "bg-primary/10 text-primary",
-  },
-  {
-    icon: TrendingUp,
-    title: "Career Guidance",
-    description: "Access resume builders, interview prep, and personalized career roadmaps.",
-    color: "bg-accent/10 text-accent",
-  },
-  {
-    icon: Target,
-    title: "Personalized Pathways",
-    description: "Follow customized learning journeys designed for your career goals and industry.",
+    description: "Earn TESDA-supported certificates and digital badges to showcase your achievements.",
     color: "bg-primary/10 text-primary",
   },
   {
@@ -76,13 +48,13 @@ const FeaturesSection = () => {
             <span className="text-gradient">Succeed</span>
           </h2>
           <p className="text-lg text-muted-foreground">
-            From skills assessment to job placement, PESO Academy provides a complete 
-            ecosystem for your professional development journey.
+            From skills assessment to certification, PESO Academy provides a complete 
+            training and learning management ecosystem for your development.
           </p>
         </div>
         
         {/* Features Grid */}
-        <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 max-w-4xl mx-auto">
           {features.map((feature, index) => (
             <div
               key={feature.title}

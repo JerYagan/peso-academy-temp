@@ -908,7 +908,7 @@ const Reports = () => {
                           70
                         );
                         pdf.text(
-                          `TESDA Accredited: ${complianceReport.tesdaAccreditedTrainings}`,
+                          `TESDA Supported: ${complianceReport.tesdaAccreditedTrainings}`,
                           20,
                           80
                         );
@@ -1008,7 +1008,7 @@ const Reports = () => {
                       </Card>
                       <Card>
                         <CardHeader className="pb-2">
-                          <CardTitle className="text-sm font-medium">TESDA Accredited</CardTitle>
+                          <CardTitle className="text-sm font-medium">TESDA Supported</CardTitle>
                         </CardHeader>
                         <CardContent>
                           <div className="text-2xl font-bold">
