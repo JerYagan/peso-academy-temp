@@ -39,6 +39,7 @@ const CourseDetail = () => {
   const [selectedModule, setSelectedModule] = useState<Module | null>(null);
   const [completedModuleIds, setCompletedModuleIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
+  const [enrolling, setEnrolling] = useState(false);
 
   useEffect(() => {
     if (id) {
@@ -47,11 +48,11 @@ const CourseDetail = () => {
   }, [id, user]);
 
   const loadCourseData = async () => {
-    if (!id || !user) return;
+    if (!id) return;
 
     setLoading(true);
     try {
-      // Load course
+      // Load course (allow for guests to see 404, but content requires user)
       const courseData = await courseService.getCourse(id);
       if (!courseData) {
         toast.error("Course not found");
@@ -60,17 +61,24 @@ const CourseDetail = () => {
       }
       setCourse(courseData);
 
-      // Load modules
+      // Load modules (for description / sidebar)
       const modulesData = await moduleService.getModulesByCourse(id);
       setModules(modulesData);
+
+      if (!user) {
+        setEnrollment(null);
+        setLoading(false);
+        return;
+      }
 
       // Load enrollment
       const enrollments = await enrollmentService.getEnrollments(user.id);
       const userEnrollment = enrollments.find((e) => e.courseId === id);
       
       if (!userEnrollment) {
-        toast.error("You are not enrolled in this course");
-        navigate("/courses");
+        setEnrollment(null);
+        setSelectedModule(modulesData.length > 0 ? modulesData[0] : null);
+        setLoading(false);
         return;
       }
 
@@ -80,20 +88,13 @@ const CourseDetail = () => {
       const completed = await moduleCompletionService.getCompletedModules(userEnrollment.id);
       setCompletedModuleIds(completed);
       
-      // Load module time tracking data
       if (supabase) {
-        const { data: completions } = await supabase
+        await supabase
           .from("module_completions")
           .select("module_id, time_spent")
           .eq("enrollment_id", userEnrollment.id);
-        
-        // Store time spent data (we'll use this later for display)
-        if (completions) {
-          // Time tracking data is available in completions
-        }
       }
 
-      // Set first module as selected if available
       if (modulesData.length > 0) {
         setSelectedModule(modulesData[0]);
       }
@@ -143,6 +144,21 @@ const CourseDetail = () => {
     return module.prerequisites.every((prereqId) => completedModuleIds.includes(prereqId));
   };
 
+  const handleEnrollInCourse = async () => {
+    if (!id || !user) return;
+    setEnrolling(true);
+    try {
+      await enrollmentService.enrollInCourse(user.id, id);
+      toast.success("You are now enrolled!");
+      await loadCourseData();
+    } catch (error) {
+      console.error("Error enrolling:", error);
+      toast.error("Failed to enroll. Please try again.");
+    } finally {
+      setEnrolling(false);
+    }
+  };
+
   if (loading) {
     return (
       <DashboardLayout>
@@ -156,18 +172,84 @@ const CourseDetail = () => {
     );
   }
 
-  if (!course || !enrollment) {
+  if (!course) {
     return (
       <DashboardLayout>
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12">
             <BookOpen className="w-16 h-16 text-muted-foreground mb-4" />
-            <p className="text-muted-foreground">Course not found or you are not enrolled</p>
+            <p className="text-muted-foreground">Course not found</p>
             <Button asChild className="mt-4">
               <Link to="/courses">Back to Courses</Link>
             </Button>
           </CardContent>
         </Card>
+      </DashboardLayout>
+    );
+  }
+
+  // Course description view: not enrolled (guest or logged-in)
+  if (!enrollment) {
+    const signupUrl = `/signup?redirect=${encodeURIComponent(`/courses/${id}`)}`;
+    return (
+      <DashboardLayout>
+        <div className="space-y-6">
+          <Button variant="ghost" size="sm" asChild>
+            <Link to="/courses">
+              <ChevronRight className="w-4 h-4 rotate-180 mr-1" />
+              Back to Courses
+            </Link>
+          </Button>
+          <Card>
+            <CardHeader>
+              <h1 className="text-3xl font-bold">{course.title}</h1>
+              <CardDescription>{course.description}</CardDescription>
+              <div className="flex flex-wrap items-center gap-4 pt-2">
+                <Badge variant={course.isTESDAAccredited ? "default" : "secondary"}>
+                  {course.isTESDAAccredited && <Award className="w-3 h-3 mr-1" />}
+                  {course.category}
+                </Badge>
+                <Badge variant="outline">{course.level}</Badge>
+                <span className="flex items-center gap-1 text-sm text-muted-foreground">
+                  <Clock className="w-4 h-4" />
+                  {course.duration}h
+                </span>
+                <span className="flex items-center gap-1 text-sm text-muted-foreground">
+                  <Users className="w-4 h-4" />
+                  {course.enrolledCount ?? 0} enrolled
+                </span>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {modules.length > 0 && (
+                <div>
+                  <h3 className="font-semibold mb-2">Modules ({modules.length})</h3>
+                  <ul className="space-y-2 text-sm text-muted-foreground">
+                    {modules.map((m, i) => (
+                      <li key={m.id}>
+                        {i + 1}. {m.title}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              <div className="flex flex-wrap gap-3">
+                {user ? (
+                  <Button onClick={handleEnrollInCourse} disabled={enrolling}>
+                    {enrolling ? "Enrolling..." : "Enroll in this course"}
+                  </Button>
+                ) : (
+                  <Button asChild>
+                    <Link to={signupUrl}>Create Account to Enroll</Link>
+                  </Button>
+                )}
+                <Button variant="outline" asChild>
+                  <Link to="/courses">Back to Course Catalog</Link>
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
       </DashboardLayout>
     );
   }
