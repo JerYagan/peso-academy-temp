@@ -14,7 +14,7 @@ import { getPublicSignupRoles, getDashboardRoute, defaultRoleDisplayNames, type 
 const SignUp = () => {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [password, setPassword] = useState("");``
   const [showPassword, setShowPassword] = useState(false);
   const [role, setRole] = useState<UserRole>("trainee");
   const [error, setError] = useState("");
