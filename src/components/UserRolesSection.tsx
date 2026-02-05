@@ -3,21 +3,22 @@ import { Users, Building2, GraduationCap, Briefcase, ArrowRight } from "lucide-r
 import { Link } from "react-router-dom";
 
 const roles = [
-  {
-    icon: Users,
-    title: "Job Seekers",
-    subtitle: "Students, Graduates & Career Shifters",
-    description: "Access free training, build your skills portfolio, and earn certifications through structured learning.",
-    features: ["Free courses & certifications", "Skills assessment", "Learning management"],
-    cta: "Start Learning",
-    gradient: "from-primary to-primary/80",
-  },
+  // {
+  //   icon: Users,
+  //   title: "Job Seekers",
+  //   subtitle: "Students, Graduates & Career Shifters",
+  //   description: "Access free training, build your skills portfolio, and earn certifications through structured learning.",
+  //   features: ["Free courses & certifications", "Skills assessment", "Learning management"],
+  //   cta: "Start Learning",
+  //   gradient: "from-primary to-primary/80",
+  // },
   {
     icon: Building2,
     title: "PESO Staff",
     subtitle: "Administrators & Managers",
     description: "Manage users, monitor training outcomes, and generate compliance reports for DOLE and LGUs.",
-    features: ["User management", "Analytics dashboard", "Compliance reports", "Program oversight"],
+    // features: ["User management", "Analytics dashboard", "Compliance reports", "Program oversight"],
+    features: [],
     cta: "Admin Portal",
     gradient: "from-accent to-accent/80",
   },
@@ -26,19 +27,20 @@ const roles = [
     title: "Trainers",
     subtitle: "TESDA, Universities & NGOs",
     description: "Create and manage training content, track learner progress, and contribute to workforce development in your community.",
-    features: ["Content management", "Learner analytics", "Certification issuance", "Partner dashboard"],
+    // features: ["Content management", "Learner analytics", "Certification issuance", "Partner dashboard"],
+    features: [],
     cta: "Trainer Portal",
     gradient: "from-primary to-primary/80",
   },
-  {
-    icon: Briefcase,
-    title: "Employers",
-    subtitle: "Hiring Partners",
-    description: "Access a pool of skill-verified candidates, suggest training needs, and find workers who match your requirements.",
-    features: ["Skill-ready candidates", "Training suggestions", "Direct hiring", "Workforce insights"],
-    cta: "Partner With Us",
-    gradient: "from-accent to-accent/80",
-  },
+  // {
+  //   icon: Briefcase,
+  //   title: "Employers",
+  //   subtitle: "Hiring Partners",
+  //   description: "Access a pool of skill-verified candidates, suggest training needs, and find workers who match your requirements.",
+  //   features: ["Skill-ready candidates", "Training suggestions", "Direct hiring", "Workforce insights"],
+  //   cta: "Partner With Us",
+  //   gradient: "from-accent to-accent/80",
+  // },
 ];
 
 const UserRolesSection = () => {
