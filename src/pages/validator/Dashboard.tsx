@@ -13,7 +13,8 @@ import {
   Eye,
   CheckCircle,
   XCircle as XCircleIcon,
-  RefreshCw
+  RefreshCw,
+  Users
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { validatorService } from "@/services/validatorService";
@@ -106,7 +107,19 @@ const ValidatorDashboard = () => {
     }
   };
 
-  if (!user) return null;
+  // Never return null — show loading so the page is never blank
+  if (!user) {
+    return (
+      <DashboardLayout>
+        <div className="flex items-center justify-center min-h-[40vh]">
+          <div className="text-center">
+            <RefreshCw className="h-8 w-8 animate-spin text-muted-foreground mx-auto mb-2" />
+            <p className="text-muted-foreground">Loading...</p>
+          </div>
+        </div>
+      </DashboardLayout>
+    );
+  }
 
   return (
     <DashboardLayout>
@@ -115,7 +128,7 @@ const ValidatorDashboard = () => {
         <div>
           <h1 className="text-3xl font-bold">Validator Dashboard</h1>
           <p className="text-muted-foreground mt-2">
-            Review and validate training completions and submissions
+            Check trainee assessments, give comments/feedback on outputs, and view trainee progress
           </p>
         </div>
 
@@ -203,9 +216,15 @@ const ValidatorDashboard = () => {
               </Link>
             </Button>
             <Button asChild variant="outline" className="justify-start">
-              <Link to="/validator/validations">
+              <Link to="/validator/submissions">
                 <CheckCircle2 className="mr-2 h-4 w-4" />
                 Validation History
+              </Link>
+            </Button>
+            <Button asChild variant="outline" className="justify-start">
+              <Link to="/trainer/learners">
+                <Users className="mr-2 h-4 w-4" />
+                View Trainee Progress
               </Link>
             </Button>
           </CardContent>
@@ -288,7 +307,7 @@ const ValidatorDashboard = () => {
                   <CardDescription>Your recent validation activity</CardDescription>
                 </div>
                 <Button asChild variant="outline" size="sm">
-                  <Link to="/validator/validations">
+                  <Link to="/validator/submissions">
                     View All <ArrowRight className="ml-2 h-4 w-4" />
                   </Link>
                 </Button>

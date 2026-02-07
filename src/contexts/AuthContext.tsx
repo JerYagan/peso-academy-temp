@@ -21,7 +21,8 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 // Helper function to create user from Supabase user (moved outside component)
 const createUserFromSupabaseUser = (supabaseUser: SupabaseUser): User => {
-  const roleFromMetadata = supabaseUser.user_metadata?.role || 'trainee';
+  const rawRole = supabaseUser.user_metadata?.role || 'trainee';
+  const roleFromMetadata = typeof rawRole === 'string' ? rawRole.toLowerCase().trim() : 'trainee';
   const validRoles: UserRole[] = ["admin", "training_officer", "validator", "trainee"];
   const userRole = validRoles.includes(roleFromMetadata) ? roleFromMetadata : 'trainee';
   
