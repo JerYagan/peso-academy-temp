@@ -581,7 +581,9 @@ const AdminRoles = () => {
               <div className="space-y-4">
                 <ScrollArea className="h-[500px] pr-4">
                   <div className="space-y-6">
-                    {Object.entries(permissionsByCategory).map(([category, categoryPermissions]) => (
+                    {Object.entries(permissionsByCategory)
+                      .filter(([category]) => category !== "jobs")
+                      .map(([category, categoryPermissions]) => (
                       <div key={category}>
                         <h4 className="font-semibold mb-3 capitalize">{category} Permissions</h4>
                         <div className="space-y-3">
@@ -1050,7 +1052,9 @@ const RoleForm = ({
         </div>
         <ScrollArea className="h-[300px] pr-4">
           <div className="space-y-6">
-            {Object.entries(permissionsByCategory).map(([category, categoryPermissions]) => (
+            {Object.entries(permissionsByCategory)
+              .filter(([category]) => category !== "jobs")
+              .map(([category, categoryPermissions]) => (
               <div key={category}>
                 <h4 className="font-semibold mb-3 capitalize">{category} Permissions</h4>
                 <div className="space-y-3">
