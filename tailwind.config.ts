@@ -17,6 +17,11 @@ export default {
         sans: ['Manrope', 'system-ui', 'sans-serif'],
       },
       colors: {
+        /* System palette - use for one-off styling */
+        navy: "#2B2D5E",
+        red: "#DC143C",
+        blue: "#0066CC",
+        yellow: "#FFD700",
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",
