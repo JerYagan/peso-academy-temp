@@ -188,7 +188,7 @@ const App = () => (
             <Route
               path="/trainer/learners"
               element={
-                <ProtectedRoute>
+                <ProtectedRoute allowedRoles={["training_officer", "trainer", "validator"]}>
                   <TrainerLearners />
                 </ProtectedRoute>
               }
@@ -202,11 +202,11 @@ const App = () => (
               }
             />
             
-            {/* Validator Routes - Permissions checked dynamically */}
+            {/* Validator Routes - allowedRoles fallback so validator always sees UI */}
             <Route
               path="/validator/dashboard"
               element={
-                <ProtectedRoute>
+                <ProtectedRoute allowedRoles={["validator"]}>
                   <ValidatorDashboard />
                 </ProtectedRoute>
               }
@@ -214,7 +214,7 @@ const App = () => (
             <Route
               path="/validator/submissions"
               element={
-                <ProtectedRoute>
+                <ProtectedRoute allowedRoles={["validator"]}>
                   <ValidatorSubmissions />
                 </ProtectedRoute>
               }
@@ -222,7 +222,7 @@ const App = () => (
             <Route
               path="/validator/submissions/:id"
               element={
-                <ProtectedRoute>
+                <ProtectedRoute allowedRoles={["validator"]}>
                   <SubmissionReview />
                 </ProtectedRoute>
               }

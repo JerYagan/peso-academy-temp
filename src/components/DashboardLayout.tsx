@@ -57,7 +57,8 @@ const DashboardLayout = ({ children }: DashboardLayoutProps) => {
       case "validator":
         return [
           { path: "/validator/dashboard", label: "Validator Dashboard", icon: BarChart3 },
-          { path: "/validator/submissions", label: "Submissions", icon: FileText },
+          { path: "/validator/submissions", label: "Check Assessments", icon: FileText },
+          { path: "/trainer/learners", label: "Trainee Progress", icon: Users },
           { path: "/profile", label: "Profile", icon: User },
         ];
       default:
