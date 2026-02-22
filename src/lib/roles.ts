@@ -25,7 +25,6 @@ export interface RolePermissions {
   canManageCourses: boolean;
   canManageTraining: boolean;
   canValidate: boolean;
-  canPostJobs: boolean;
   canViewReports: boolean;
   canManageSettings: boolean;
 }
@@ -36,7 +35,6 @@ export const rolePermissions: Record<UserRole, RolePermissions> = {
     canManageCourses: true,
     canManageTraining: true,
     canValidate: true,
-    canPostJobs: true,
     canViewReports: true,
     canManageSettings: true,
   },
@@ -45,7 +43,6 @@ export const rolePermissions: Record<UserRole, RolePermissions> = {
     canManageCourses: true,
     canManageTraining: true,
     canValidate: false,
-    canPostJobs: true,
     canViewReports: true,
     canManageSettings: false,
   },
@@ -54,7 +51,6 @@ export const rolePermissions: Record<UserRole, RolePermissions> = {
     canManageCourses: false,
     canManageTraining: false,
     canValidate: true,
-    canPostJobs: false,
     canViewReports: true,
     canManageSettings: false,
   },
@@ -63,7 +59,6 @@ export const rolePermissions: Record<UserRole, RolePermissions> = {
     canManageCourses: false,
     canManageTraining: false,
     canValidate: false,
-    canPostJobs: false,
     canViewReports: false,
     canManageSettings: false,
   },
@@ -148,7 +143,7 @@ const fallbackDashboardRoutes: Record<string, string> = {
   'trainer': '/trainer/courses',
   'spd': '/trainer/courses',
   'validator': '/validator/dashboard',
-  'employer': '/employer/jobs',
+  'employer': '/dashboard',
   'trainee': '/dashboard',
   'jobseeker': '/dashboard',
 };

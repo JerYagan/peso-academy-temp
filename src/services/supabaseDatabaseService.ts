@@ -1,5 +1,5 @@
 import { supabase, handleSupabaseError } from "@/lib/supabase";
-import { Course, Enrollment, Job, Certificate, Module } from "@/types";
+import { Course, Enrollment, Certificate, Module } from "@/types";
 import { User } from "@/types/auth";
 import { notificationHelpers } from "@/services/notificationService";
 
@@ -1216,113 +1216,6 @@ export const certificateService = {
       certificateNumber: data.certificate_number,
       certificateType: data.certificate_type,
       verificationCode: data.verification_code,
-    };
-  },
-};
-
-// Job operations
-export const jobService = {
-  /**
-   * Get all jobs
-   */
-  getJobs: async (): Promise<Job[]> => {
-    const { data, error } = await supabase
-      .from("jobs")
-      .select("*")
-      .order("posted_at", { ascending: false });
-
-    if (error) {
-      handleSupabaseError(error);
-      return [];
-    }
-
-    return (
-      data?.map((job) => ({
-        id: job.id,
-        title: job.title,
-        company: job.company,
-        location: job.location,
-        type: job.type,
-        salary: job.salary || undefined,
-        description: job.description,
-        requirements: job.requirements,
-        skills: job.skills,
-        postedBy: job.posted_by,
-        postedAt: job.posted_at,
-        status: job.status,
-      })) || []
-    );
-  },
-
-  /**
-   * Get a single job by ID
-   */
-  getJob: async (id: string): Promise<Job | null> => {
-    const { data, error } = await supabase.from("jobs").select("*").eq("id", id).single();
-
-    if (error) {
-      handleSupabaseError(error);
-      return null;
-    }
-
-    if (!data) return null;
-
-    return {
-      id: data.id,
-      title: data.title,
-      company: data.company,
-      location: data.location,
-      type: data.type,
-      salary: data.salary || undefined,
-      description: data.description,
-      requirements: data.requirements,
-      skills: data.skills,
-      postedBy: data.posted_by,
-      postedAt: data.posted_at,
-      status: data.status,
-    };
-  },
-
-  /**
-   * Create a new job posting
-   */
-  createJob: async (job: Omit<Job, "id" | "postedAt">): Promise<Job> => {
-    const { data, error } = await supabase
-      .from("jobs")
-      .insert({
-        title: job.title,
-        company: job.company,
-        location: job.location,
-        type: job.type,
-        salary: job.salary || null,
-        description: job.description,
-        requirements: job.requirements,
-        skills: job.skills,
-        posted_by: job.postedBy,
-        posted_at: new Date().toISOString(),
-        status: job.status || "open",
-      })
-      .select()
-      .single();
-
-    if (error) {
-      handleSupabaseError(error);
-      throw error;
-    }
-
-    return {
-      id: data.id,
-      title: data.title,
-      company: data.company,
-      location: data.location,
-      type: data.type,
-      salary: data.salary || undefined,
-      description: data.description,
-      requirements: data.requirements,
-      skills: data.skills,
-      postedBy: data.posted_by,
-      postedAt: data.posted_at,
-      status: data.status,
     };
   },
 };

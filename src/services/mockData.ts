@@ -1,4 +1,4 @@
-import { Course, Enrollment, Job, Certificate } from "@/types";
+import { Course, Enrollment, Certificate } from "@/types";
 
 // Mock Courses
 export const mockCourses: Course[] = [
@@ -94,52 +94,6 @@ export const mockCourses: Course[] = [
   },
 ];
 
-// Mock Jobs
-export const mockJobs: Job[] = [
-  {
-    id: "1",
-    title: "Customer Service Representative",
-    company: "ABC Company",
-    location: "Manila",
-    type: "Full-time",
-    salary: "₱18,000 - ₱25,000",
-    description: "We are looking for a friendly and professional customer service representative to handle customer inquiries and support.",
-    requirements: ["High school diploma", "Good communication skills", "Customer service experience preferred"],
-    skills: ["Communication", "Customer Service", "Problem Solving"],
-    postedBy: "4",
-    postedAt: "2024-03-01",
-    status: "open",
-  },
-  {
-    id: "2",
-    title: "Data Entry Specialist",
-    company: "XYZ Corporation",
-    location: "Makati",
-    type: "Full-time",
-    salary: "₱15,000 - ₱20,000",
-    description: "Entry-level position for data entry specialist with good typing speed and attention to detail.",
-    requirements: ["High school diploma", "Typing speed 40+ WPM", "Basic computer skills"],
-    skills: ["Data Entry", "Office Administration", "Organization"],
-    postedBy: "4",
-    postedAt: "2024-03-05",
-    status: "open",
-  },
-  {
-    id: "3",
-    title: "Junior Web Developer",
-    company: "Tech Solutions Inc.",
-    location: "BGC, Taguig",
-    type: "Full-time",
-    salary: "₱30,000 - ₱40,000",
-    description: "Join our development team to build modern web applications. Training provided for motivated candidates.",
-    requirements: ["Basic web development knowledge", "Willingness to learn", "Portfolio preferred"],
-    skills: ["HTML", "CSS", "JavaScript", "Web Development"],
-    postedBy: "4",
-    postedAt: "2024-03-10",
-    status: "open",
-  },
-];
-
 // Mock Enrollments (for user ID 1 - jobseeker)
 export const mockEnrollments: Enrollment[] = [
   {
@@ -176,7 +130,6 @@ export const mockCertificates: Certificate[] = [
 
 // Storage keys
 const COURSES_KEY = "peso_academy_courses";
-const JOBS_KEY = "peso_academy_jobs";
 const ENROLLMENTS_KEY = "peso_academy_enrollments";
 const CERTIFICATES_KEY = "peso_academy_certificates";
 
@@ -184,9 +137,6 @@ const CERTIFICATES_KEY = "peso_academy_certificates";
 export const initializeMockData = () => {
   if (!localStorage.getItem(COURSES_KEY)) {
     localStorage.setItem(COURSES_KEY, JSON.stringify(mockCourses));
-  }
-  if (!localStorage.getItem(JOBS_KEY)) {
-    localStorage.setItem(JOBS_KEY, JSON.stringify(mockJobs));
   }
   if (!localStorage.getItem(ENROLLMENTS_KEY)) {
     localStorage.setItem(ENROLLMENTS_KEY, JSON.stringify(mockEnrollments));
@@ -207,17 +157,6 @@ export const dataService = {
   getCourse: (id: string): Course | undefined => {
     const courses = dataService.getCourses();
     return courses.find((c) => c.id === id);
-  },
-
-  getJobs: (): Job[] => {
-    initializeMockData();
-    const stored = localStorage.getItem(JOBS_KEY);
-    return stored ? JSON.parse(stored) : mockJobs;
-  },
-
-  getJob: (id: string): Job | undefined => {
-    const jobs = dataService.getJobs();
-    return jobs.find((j) => j.id === id);
   },
 
   getEnrollments: (userId?: string): Enrollment[] => {
@@ -271,18 +210,6 @@ export const dataService = {
     certificates.push(newCertificate);
     localStorage.setItem(CERTIFICATES_KEY, JSON.stringify(certificates));
     return newCertificate;
-  },
-
-  createJob: (job: Omit<Job, "id" | "postedAt">): Job => {
-    const jobs = dataService.getJobs();
-    const newJob: Job = {
-      ...job,
-      id: Date.now().toString(),
-      postedAt: new Date().toISOString(),
-    };
-    jobs.push(newJob);
-    localStorage.setItem(JOBS_KEY, JSON.stringify(jobs));
-    return newJob;
   },
 
   createCourse: (course: Omit<Course, "id" | "createdAt" | "enrolledCount" | "rating">): Course => {
