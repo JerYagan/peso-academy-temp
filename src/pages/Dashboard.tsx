@@ -2,7 +2,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { BookOpen, Users, Award, Briefcase, TrendingUp, ArrowRight, Shield, FileText, FileSpreadsheet, Loader2 } from "lucide-react";
+import { BookOpen, Users, Award, TrendingUp, ArrowRight, Shield, FileText, FileSpreadsheet, Loader2 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { enrollmentService, certificateService, courseService } from "@/services/supabaseDatabaseService";
 import { dataService } from "@/services/mockData"; // TODO: Replace with Supabase services for admin/training officer dashboards
@@ -17,7 +17,6 @@ interface TraineeDashboardProps {
     enrolledCourses: number;
     completedCourses: number;
     certificates: number;
-    jobsApplied: number;
   };
 }
 
@@ -93,7 +92,7 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{stats.certificates}</div>
-              <p className="text-xs text-muted-foreground">TESDA certificates</p>
+              <p className="text-xs text-muted-foreground">Certifications earned</p>
             </CardContent>
           </Card>
 
@@ -178,7 +177,6 @@ const Dashboard = () => {
     enrolledCourses: 0,
     completedCourses: 0,
     certificates: 0,
-    jobsApplied: 0,
   });
 
   useEffect(() => {
@@ -197,7 +195,6 @@ const Dashboard = () => {
         enrolledCourses: enrollments.length,
         completedCourses: enrollments.filter((e) => e.status === "completed").length,
         certificates: certificates.length,
-        jobsApplied: 0, // TODO: Implement job applications
       });
     } catch (error) {
       console.error("Error loading dashboard stats:", error);
@@ -214,7 +211,6 @@ const Dashboard = () => {
   // Admin Dashboard
   if (user.role === "admin") {
     const courses = dataService.getCourses();
-    const jobs = dataService.getJobs();
     const enrollments = dataService.getEnrollments();
     const totalUsers = 4; // Mock data
 
@@ -260,16 +256,6 @@ const Dashboard = () => {
               </CardContent>
             </Card>
 
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Job Postings</CardTitle>
-                <Briefcase className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{jobs.length}</div>
-                <p className="text-xs text-muted-foreground">Active jobs</p>
-              </CardContent>
-            </Card>
           </div>
 
           <div className="grid gap-4 md:grid-cols-2">
@@ -288,12 +274,6 @@ const Dashboard = () => {
                   <Link to="/admin/courses">
                     <BookOpen className="mr-2 h-4 w-4" />
                     Manage Courses
-                  </Link>
-                </Button>
-                <Button asChild className="w-full justify-start" variant="outline">
-                  <Link to="/admin/jobs">
-                    <Briefcase className="mr-2 h-4 w-4" />
-                    Manage Jobs
                   </Link>
                 </Button>
                 <Button asChild className="w-full justify-start" variant="outline">

@@ -2,7 +2,7 @@ import { ReactNode } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
-import { GraduationCap, LogOut, User, BookOpen, Settings, BarChart3, Users, FileText, FileSpreadsheet } from "lucide-react";
+import { GraduationCap, LogOut, User, BookOpen, Settings, BarChart3, Users, FileText, FileSpreadsheet, Award } from "lucide-react";
 import NotificationCenter from "./NotificationCenter";
 import {
   DropdownMenu,
@@ -35,7 +35,7 @@ const DashboardLayout = ({ children }: DashboardLayoutProps) => {
         return [
           { path: "/dashboard", label: "My Dashboard", icon: BarChart3 },
           { path: "/courses", label: "Browse Courses", icon: BookOpen },
-          // { path: "/jobs", label: "Job Matching", icon: Briefcase }, // Hidden - Future Phase
+          { path: "/certificates", label: "Certifications", icon: Award },
           { path: "/profile", label: "Profile", icon: User },
         ];
       case "admin":
