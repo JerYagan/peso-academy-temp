@@ -40,21 +40,6 @@ export interface Module {
   created_at: string;
 }
 
-export interface Job {
-  id: string;
-  title: string;
-  company: string;
-  location: string;
-  type: "Full-time" | "Part-time" | "Contract";
-  salary?: string;
-  description: string;
-  requirements: string[];
-  skills: string[];
-  postedBy: string; // employer ID
-  postedAt: string;
-  status: "open" | "closed";
-}
-
 export interface Certificate {
   id: string;
   userId: string;

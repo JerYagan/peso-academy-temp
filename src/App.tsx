@@ -14,11 +14,9 @@ import Courses from "./pages/Courses";
 import CourseDetail from "./pages/CourseDetail";
 import Certificates from "./pages/Certificates";
 import VerifyCertificate from "./pages/VerifyCertificate";
-import Jobs from "./pages/Jobs";
 import Profile from "./pages/Profile";
 import AdminUsers from "./pages/admin/Users";
 import AdminCourses from "./pages/admin/Courses";
-import AdminJobs from "./pages/admin/Jobs";
 import AdminRoles from "./pages/admin/Roles";
 import AdminAuditLogs from "./pages/admin/AuditLogs";
 import AdminEnrollments from "./pages/admin/Enrollments";
@@ -30,8 +28,6 @@ import ValidatorDashboard from "./pages/validator/Dashboard";
 import ValidatorSubmissions from "./pages/validator/Submissions";
 import SubmissionReview from "./pages/validator/SubmissionReview";
 import ProgressDashboard from "./pages/ProgressDashboard";
-import EmployerJobs from "./pages/employer/Jobs";
-import EmployerCandidates from "./pages/employer/Candidates";
 import NotFound from "./pages/NotFound";
 import { initializeMockData } from "@/services/mockData";
 import { initializeDashboardRoutes } from "@/lib/roles";
@@ -90,8 +86,6 @@ const App = () => (
                 </ProtectedRoute>
               }
             />
-            <Route path="/jobs" element={<Jobs />} />
-            
             {/* Protected Routes */}
             <Route
               path="/dashboard"
@@ -132,14 +126,6 @@ const App = () => (
               element={
                 <ProtectedRoute>
                   <ManageModules />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/admin/jobs"
-              element={
-                <ProtectedRoute>
-                  <AdminJobs />
                 </ProtectedRoute>
               }
             />
@@ -232,24 +218,6 @@ const App = () => (
               element={
                 <ProtectedRoute>
                   <ProgressDashboard />
-                </ProtectedRoute>
-              }
-            />
-            
-            {/* Employer Routes - Permissions checked dynamically */}
-            <Route
-              path="/employer/jobs"
-              element={
-                <ProtectedRoute>
-                  <EmployerJobs />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/employer/candidates"
-              element={
-                <ProtectedRoute>
-                  <EmployerCandidates />
                 </ProtectedRoute>
               }
             />

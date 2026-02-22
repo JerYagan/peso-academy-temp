@@ -100,33 +100,6 @@ export const PERMISSIONS: Record<string, RolePermission> = {
     description: "Issue completion certificates",
   },
 
-  // Job Management
-  "jobs.view": {
-    id: "jobs.view",
-    name: "View Jobs",
-    description: "View job listings",
-  },
-  "jobs.create": {
-    id: "jobs.create",
-    name: "Post Jobs",
-    description: "Create job postings",
-  },
-  "jobs.update": {
-    id: "jobs.update",
-    name: "Update Jobs",
-    description: "Edit job postings",
-  },
-  "jobs.delete": {
-    id: "jobs.delete",
-    name: "Delete Jobs",
-    description: "Delete job postings",
-  },
-  "jobs.apply": {
-    id: "jobs.apply",
-    name: "Apply to Jobs",
-    description: "Apply for job positions",
-  },
-
   // Reporting
   "reports.view": {
     id: "reports.view",
@@ -275,7 +248,7 @@ export const ROLE_CONFIGS: Record<UserRole, RoleConfig> = {
       "jobs.delete",
       "reports.view",
     ],
-    dashboardRoute: "/employer/jobs",
+    dashboardRoute: "/dashboard",
     canSignup: true,
     metadata: {
       level: "basic",
@@ -293,8 +266,6 @@ export const ROLE_CONFIGS: Record<UserRole, RoleConfig> = {
     permissions: [
       "courses.view",
       "courses.enroll",
-      "jobs.view",
-      "jobs.apply",
     ],
     dashboardRoute: "/dashboard",
     canSignup: true,

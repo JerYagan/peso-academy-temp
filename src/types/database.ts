@@ -260,73 +260,6 @@ export interface Database {
           verification_code?: string
         }
       }
-      jobs: {
-        Row: {
-          id: string
-          title: string
-          company: string
-          location: string
-          type: 'Full-time' | 'Part-time' | 'Contract'
-          salary?: string | null
-          description: string
-          requirements: string[]
-          skills: string[]
-          posted_by: string
-          posted_at: string
-          status: 'open' | 'closed'
-        }
-        Insert: {
-          id?: string
-          title: string
-          company: string
-          location: string
-          type: 'Full-time' | 'Part-time' | 'Contract'
-          salary?: string | null
-          description: string
-          requirements: string[]
-          skills: string[]
-          posted_by: string
-          posted_at?: string
-          status?: 'open' | 'closed'
-        }
-        Update: {
-          id?: string
-          title?: string
-          company?: string
-          location?: string
-          type?: 'Full-time' | 'Part-time' | 'Contract'
-          salary?: string | null
-          description?: string
-          requirements?: string[]
-          skills?: string[]
-          posted_by?: string
-          posted_at?: string
-          status?: 'open' | 'closed'
-        }
-      }
-      job_applications: {
-        Row: {
-          id: string
-          job_id: string
-          user_id: string
-          applied_at: string
-          status: 'pending' | 'reviewed' | 'accepted' | 'rejected'
-        }
-        Insert: {
-          id?: string
-          job_id: string
-          user_id: string
-          applied_at?: string
-          status?: 'pending' | 'reviewed' | 'accepted' | 'rejected'
-        }
-        Update: {
-          id?: string
-          job_id?: string
-          user_id?: string
-          applied_at?: string
-          status?: 'pending' | 'reviewed' | 'accepted' | 'rejected'
-        }
-      }
       notifications: {
         Row: {
           id: string
@@ -366,9 +299,6 @@ export interface Database {
       enrollment_status: 'enrolled' | 'in-progress' | 'completed' | 'dropped'
       submission_status: 'pending' | 'approved' | 'rejected' | 'revision_requested'
       certificate_type: 'completion' | 'participation'
-      job_type: 'Full-time' | 'Part-time' | 'Contract'
-      job_status: 'open' | 'closed'
-      application_status: 'pending' | 'reviewed' | 'accepted' | 'rejected'
     }
   }
 }

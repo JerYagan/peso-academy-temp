@@ -21,7 +21,6 @@ export const routePermissions: RoutePermissionConfig[] = [
   { path: "/login", requiredPermissions: [] },
   { path: "/signup", requiredPermissions: [] },
   { path: "/courses", requiredPermissions: [] },
-  { path: "/jobs", requiredPermissions: [] },
   { path: "/verify-certificate", requiredPermissions: [] },
 
   // Protected routes (require authentication only)
@@ -34,7 +33,6 @@ export const routePermissions: RoutePermissionConfig[] = [
   // Admin routes - require ANY related permission (if you can create/update/delete, you can access the dashboard)
   { path: "/admin/users", requiredPermissions: ["users.view", "users.create", "users.update", "users.delete", "users.manage_roles"] },
   { path: "/admin/courses", requiredPermissions: ["courses.view", "courses.create", "courses.update", "courses.delete"] },
-  { path: "/admin/jobs", requiredPermissions: ["jobs.view", "jobs.create", "jobs.update", "jobs.delete"] },
   { path: "/admin/roles", requiredPermissions: ["users.manage_roles", "users.view"] },
   { path: "/admin/audit-logs", requiredPermissions: ["system.audit"] },
   { path: "/admin/enrollments", requiredPermissions: ["training.manage", "courses.view"] },
@@ -48,10 +46,6 @@ export const routePermissions: RoutePermissionConfig[] = [
   { path: "/validator/dashboard", requiredPermissions: ["training.validate", "training.certify"] },
   { path: "/validator/submissions", requiredPermissions: ["training.validate", "training.certify"] },
   { path: "/validator/submissions/:id", requiredPermissions: ["training.validate", "training.certify"] },
-
-  // Employer routes - if you can view, create, update, or delete jobs, you can access
-  { path: "/employer/jobs", requiredPermissions: ["jobs.view", "jobs.create", "jobs.update", "jobs.delete"] },
-  { path: "/employer/candidates", requiredPermissions: ["jobs.view", "jobs.create"] },
 ];
 
 /**
