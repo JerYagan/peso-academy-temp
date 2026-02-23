@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
-import { CheckCircle2, Play, FileText, Upload, FileQuestion, Clock, Type, Code, Video } from "lucide-react";
+import { CheckCircle2, Play, FileText, Upload, FileQuestion, Clock, Code, Video } from "lucide-react";
 import { Module, Enrollment } from "@/types";
 import { supabase } from "@/lib/supabase";
 import VideoPlayer from "./VideoPlayer";
@@ -121,16 +121,55 @@ const ModuleContentViewer = ({
     return [];
   }, [module.content]);
 
+  // Get first heading (h1/h2/h3) text from HTML for use as section title
+  const getFirstHeadingFromHtml = (html: string): string | null => {
+    if (!html?.trim()) return null;
+    try {
+      const div = document.createElement("div");
+      div.innerHTML = html;
+      const heading = div.querySelector("h1, h2, h3");
+      return heading?.textContent?.trim() || null;
+    } catch {
+      return null;
+    }
+  };
+
+  // Remove first h1/h2/h3 from HTML to avoid duplicating it when we show it as header
+  const stripFirstHeadingFromHtml = (html: string): string => {
+    if (!html?.trim()) return html;
+    try {
+      const div = document.createElement("div");
+      div.innerHTML = html;
+      const heading = div.querySelector("h1, h2, h3");
+      if (heading) heading.remove();
+      return div.innerHTML;
+    } catch {
+      return html;
+    }
+  };
+
   const renderContentBlock = (block: ContentBlock, index: number) => {
-    switch (block.type) {
-      case "text":
+    const blockType = (block.type?.toLowerCase?.() ?? block.type) as ContentBlock["type"];
+    switch (blockType) {
+      case "text": {
+        const headerText = block.title || getFirstHeadingFromHtml(block.content) || null;
+        const contentHtml = headerText && getFirstHeadingFromHtml(block.content)
+          ? stripFirstHeadingFromHtml(block.content)
+          : block.content;
         return (
-          <div
-            key={block.id || index}
-            className="prose prose-sm max-w-none dark:prose-invert"
-            dangerouslySetInnerHTML={{ __html: block.content }}
-          />
+          <div key={block.id || index} className="space-y-3">
+            {headerText && (
+              <h2 className="text-xl font-semibold tracking-tight scroll-mt-20">
+                {headerText}
+              </h2>
+            )}
+            <div
+              className="prose prose-sm max-w-none dark:prose-invert"
+              dangerouslySetInnerHTML={{ __html: contentHtml }}
+            />
+          </div>
         );
+      }
 
       case "code":
         return (
@@ -339,29 +378,35 @@ const ModuleContentViewer = ({
           {/* Content blocks or rich text content */}
           {contentBlocks.length > 0 ? (
             <div className="space-y-4">
-              {contentBlocks.map((block, idx) => (
-                <Card key={block.id || idx}>
-                  <CardHeader>
-                    <div className="flex items-center gap-2">
-                      {block.type === "text" && <Type className="w-4 h-4 text-muted-foreground" />}
-                      {block.type === "code" && <Code className="w-4 h-4 text-muted-foreground" />}
-                      {block.type === "video" && <Video className="w-4 h-4 text-muted-foreground" />}
-                      {block.type === "quiz" && <FileQuestion className="w-4 h-4 text-muted-foreground" />}
-                      <CardTitle className="text-lg capitalize">
-                        {block.type === "quiz" ? block.title || "Quiz Question" : `${block.type} Block`}
-                      </CardTitle>
-                      {block.type === "code" && block.language && (
-                        <Badge variant="outline" className="ml-2">
-                          {block.language}
-                        </Badge>
-                      )}
-                    </div>
-                  </CardHeader>
-                  <CardContent>
+              {contentBlocks.map((block, idx) =>
+                (block.type?.toLowerCase?.() ?? block.type) === "text" ? (
+                  /* Text blocks: show content only, no "Text Block" label for trainees */
+                  <div key={block.id || idx} className="contents">
                     {renderContentBlock(block, idx)}
-                  </CardContent>
-                </Card>
-              ))}
+                  </div>
+                ) : (
+                  <Card key={block.id || idx}>
+                    <CardHeader>
+                      <div className="flex items-center gap-2">
+                        {block.type === "code" && <Code className="w-4 h-4 text-muted-foreground" />}
+                        {block.type === "video" && <Video className="w-4 h-4 text-muted-foreground" />}
+                        {block.type === "quiz" && <FileQuestion className="w-4 h-4 text-muted-foreground" />}
+                        <CardTitle className="text-lg capitalize">
+                          {block.type === "quiz" ? block.title || "Quiz Question" : `${block.type} Block`}
+                        </CardTitle>
+                        {block.type === "code" && block.language && (
+                          <Badge variant="outline" className="ml-2">
+                            {block.language}
+                          </Badge>
+                        )}
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      {renderContentBlock(block, idx)}
+                    </CardContent>
+                  </Card>
+                )
+              )}
             </div>
           ) : module.content ? (
             <Card>
