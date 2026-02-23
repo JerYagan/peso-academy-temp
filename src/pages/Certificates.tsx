@@ -1,31 +1,22 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
+import { Link } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import DashboardLayout from "@/components/DashboardLayout";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Download, Award, Calendar, FileText, Shield, Eye } from "lucide-react";
+import { Download, Award, Calendar, ExternalLink, ImageIcon } from "lucide-react";
 import { certificateService } from "@/services/supabaseDatabaseService";
 import { downloadCertificatePDF } from "@/services/certificatePdfService";
 import { Certificate } from "@/types";
 import { format } from "date-fns";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
-import CertificateTemplate from "@/components/certificate/CertificateTemplate";
 
 const Certificates = () => {
   const { user } = useAuth();
   const [certificates, setCertificates] = useState<Certificate[]>([]);
   const [loading, setLoading] = useState(true);
   const [userNames, setUserNames] = useState<Record<string, string>>({});
-  const [previewCertificate, setPreviewCertificate] = useState<Certificate | null>(null);
 
   useEffect(() => {
     if (user) {
@@ -41,7 +32,6 @@ const Certificates = () => {
       const certs = await certificateService.getCertificates(user.id);
       setCertificates(certs);
 
-      // Load user names for certificates
       if (supabase && certs.length > 0) {
         const userIds = [...new Set(certs.map((c) => c.userId))];
         const { data: usersData } = await supabase
@@ -65,9 +55,15 @@ const Certificates = () => {
     }
   };
 
+  const thisMonthCount = useMemo(() => {
+    const now = new Date();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    return certificates.filter((c) => new Date(c.issuedAt) >= startOfMonth).length;
+  }, [certificates]);
+
   const handleDownload = async (certificate: Certificate) => {
     const userName = userNames[certificate.userId] || user?.name || "User";
-    
+
     try {
       await downloadCertificatePDF({
         userName,
@@ -102,77 +98,114 @@ const Certificates = () => {
       <div className="space-y-6">
         {/* Header */}
         <div className="space-y-2">
-          <div className="flex items-center gap-3">
-            <Award className="w-8 h-8 text-primary" />
-            <h1 className="text-3xl font-bold">My Certificates</h1>
-          </div>
+          <h1 className="text-3xl font-bold">My Certificates</h1>
           <p className="text-muted-foreground">
-            View and download your course completion certificates
+            View and download your earned certificates
           </p>
         </div>
 
-        {/* Certificates List */}
+        {/* Summary cards */}
+        <div className="grid gap-4 md:grid-cols-2">
+          <Card className="border-primary/20 bg-primary/5">
+            <CardContent className="pt-6">
+              <div className="flex items-center gap-4">
+                <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary/10">
+                  <Award className="h-6 w-6 text-primary" />
+                </div>
+                <div>
+                  <p className="text-2xl font-bold">{certificates.length}</p>
+                  <p className="text-sm text-muted-foreground">Total Certificates</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+          <Card className="border-green-200 dark:border-green-900/30 bg-green-50/50 dark:bg-green-950/20">
+            <CardContent className="pt-6">
+              <div className="flex items-center gap-4">
+                <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-green-100 dark:bg-green-900/30">
+                  <Calendar className="h-6 w-6 text-green-700 dark:text-green-400" />
+                </div>
+                <div>
+                  <p className="text-2xl font-bold">{thisMonthCount}</p>
+                  <p className="text-sm text-muted-foreground">This Month</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* Certificate list */}
         {certificates.length > 0 ? (
-          <div className="grid gap-6 md:grid-cols-2">
+          <div className="space-y-4">
             {certificates.map((certificate) => (
-              <Card key={certificate.id} className="hover:shadow-lg transition-shadow">
-                <CardHeader>
-                  <div className="flex items-start justify-between">
-                    <div className="space-y-1">
-                      <CardTitle className="text-xl">{certificate.courseTitle}</CardTitle>
-                      <CardDescription>
-                        {certificate.certificateType === "completion"
-                          ? "Certificate of Completion"
-                          : "Certificate of Participation"}
-                      </CardDescription>
+              <Card key={certificate.id} className="overflow-hidden">
+                <CardContent className="p-0">
+                  <div className="flex flex-col sm:flex-row">
+                    {/* Thumbnail */}
+                    <div className="sm:w-48 shrink-0 bg-muted">
+                      {certificate.courseThumbnail ? (
+                        <img
+                          src={certificate.courseThumbnail}
+                          alt=""
+                          className="h-40 w-full object-cover sm:h-full sm:min-h-[180px]"
+                        />
+                      ) : (
+                        <div className="flex h-40 w-full items-center justify-center sm:h-full sm:min-h-[180px]">
+                          <ImageIcon className="h-12 w-12 text-muted-foreground" />
+                        </div>
+                      )}
                     </div>
-                    <Badge variant="default" className="gap-1">
-                      <Award className="w-3 h-3" />
-                      Verified
-                    </Badge>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="space-y-2 text-sm">
-                    <div className="flex items-center gap-2 text-muted-foreground">
-                      <FileText className="w-4 h-4" />
-                      <span className="font-mono text-xs">
-                        {certificate.certificateNumber}
-                      </span>
-                    </div>
-                    <div className="flex items-center gap-2 text-muted-foreground">
-                      <Calendar className="w-4 h-4" />
-                      <span>
-                        Issued on {format(new Date(certificate.issuedAt), "MMMM dd, yyyy")}
-                      </span>
-                    </div>
-                    {certificate.verificationCode && (
-                      <div className="flex items-center gap-2 text-muted-foreground">
-                        <Shield className="w-4 h-4" />
-                        <span className="font-mono text-xs">
-                          {certificate.verificationCode}
+
+                    <div className="flex flex-1 flex-col p-4 sm:p-6">
+                      <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                          <h2 className="text-xl font-bold">{certificate.courseTitle}</h2>
+                          {certificate.courseCategory && (
+                            <p className="text-sm text-primary font-medium mt-0.5">
+                              {certificate.courseCategory}
+                            </p>
+                          )}
+                        </div>
+                        <span className="shrink-0 rounded-md bg-green-100 px-3 py-1 text-sm font-medium text-green-800 dark:bg-green-900/40 dark:text-green-300">
+                          Excellent
                         </span>
                       </div>
-                    )}
-                  </div>
 
-                  <div className="pt-4 border-t flex gap-2">
-                    <Button
-                      onClick={() => setPreviewCertificate(certificate)}
-                      className="flex-1 gap-2"
-                      variant="outline"
-                    >
-                      <Eye className="w-4 h-4" />
-                      Preview
-                    </Button>
-                    <Button
-                      onClick={() => handleDownload(certificate)}
-                      className="flex-1 gap-2"
-                      variant="default"
-                    >
-                      <Download className="w-4 h-4" />
-                      Download
-                    </Button>
+                      <div className="mt-4 grid gap-2 text-sm sm:grid-cols-3">
+                        <div>
+                          <span className="text-muted-foreground">Certificate ID:</span>
+                          <p className="font-mono font-medium">{certificate.certificateNumber}</p>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground">Issue Date:</span>
+                          <p className="font-medium">
+                            {format(new Date(certificate.issuedAt), "MMMM d, yyyy")}
+                          </p>
+                        </div>
+                        <div>
+                          <span className="text-muted-foreground">Completed On:</span>
+                          <p className="font-medium">
+                            {format(new Date(certificate.issuedAt), "MMMM d, yyyy")}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        <Button
+                          onClick={() => handleDownload(certificate)}
+                          className="gap-2"
+                        >
+                          <Download className="h-4 w-4" />
+                          Download PDF
+                        </Button>
+                        <Button variant="outline" className="gap-2" asChild>
+                          <Link to={`/certificates/view/${certificate.id}`}>
+                            <ExternalLink className="h-4 w-4" />
+                            View Certificate
+                          </Link>
+                        </Button>
+                      </div>
+                    </div>
                   </div>
                 </CardContent>
               </Card>
@@ -181,7 +214,7 @@ const Certificates = () => {
         ) : (
           <Card>
             <CardContent className="flex flex-col items-center justify-center py-12">
-              <Award className="w-16 h-16 text-muted-foreground mb-4" />
+              <Award className="h-16 w-16 text-muted-foreground mb-4" />
               <p className="text-muted-foreground text-center mb-2">
                 You don't have any certificates yet
               </p>
@@ -191,55 +224,9 @@ const Certificates = () => {
             </CardContent>
           </Card>
         )}
-
-        {/* Certificate Preview Dialog */}
-        <Dialog open={!!previewCertificate} onOpenChange={() => setPreviewCertificate(null)}>
-          <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>Certificate Preview</DialogTitle>
-              <DialogDescription>
-                {previewCertificate?.certificateType === "completion"
-                  ? "Certificate of Completion"
-                  : "Certificate of Participation"}
-              </DialogDescription>
-            </DialogHeader>
-            {previewCertificate && (
-              <div className="flex flex-col items-center space-y-4">
-                <div className="w-full flex justify-center bg-muted p-4 rounded-lg">
-                  <CertificateTemplate
-                    userName={userNames[previewCertificate.userId] || user?.name || "User"}
-                    courseTitle={previewCertificate.courseTitle}
-                    certificateNumber={previewCertificate.certificateNumber}
-                    issuedDate={previewCertificate.issuedAt}
-                    certificateType={previewCertificate.certificateType || "completion"}
-                    verificationCode={previewCertificate.verificationCode}
-                  />
-                </div>
-                <div className="flex gap-2 w-full">
-                  <Button
-                    onClick={() => previewCertificate && handleDownload(previewCertificate)}
-                    className="flex-1 gap-2"
-                    variant="default"
-                  >
-                    <Download className="w-4 h-4" />
-                    Download PDF
-                  </Button>
-                  <Button
-                    onClick={() => setPreviewCertificate(null)}
-                    className="flex-1"
-                    variant="outline"
-                  >
-                    Close
-                  </Button>
-                </div>
-              </div>
-            )}
-          </DialogContent>
-        </Dialog>
       </div>
     </DashboardLayout>
   );
 };
 
 export default Certificates;
-

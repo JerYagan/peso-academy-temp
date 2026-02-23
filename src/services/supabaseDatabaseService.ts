@@ -1060,7 +1060,7 @@ export const certificateService = {
   getCertificates: async (userId?: string): Promise<Certificate[]> => {
     let query = supabase
       .from("certificates")
-      .select("*, courses(title)")
+      .select("*, courses(title, category, thumbnail)")
       .order("issued_at", { ascending: false });
 
     if (userId) {
@@ -1075,16 +1075,21 @@ export const certificateService = {
     }
 
     return (
-      data?.map((cert) => ({
-        id: cert.id,
-        userId: cert.user_id,
-        courseId: cert.course_id,
-        courseTitle: (cert.courses as any)?.title || "",
-        issuedAt: cert.issued_at,
-        certificateNumber: cert.certificate_number,
-        certificateType: cert.certificate_type,
-        verificationCode: cert.verification_code,
-      })) || []
+      data?.map((cert) => {
+        const course = cert.courses as { title?: string; category?: string; thumbnail?: string } | null;
+        return {
+          id: cert.id,
+          userId: cert.user_id,
+          courseId: cert.course_id,
+          courseTitle: course?.title || "",
+          issuedAt: cert.issued_at,
+          certificateNumber: cert.certificate_number,
+          certificateType: cert.certificate_type,
+          verificationCode: cert.verification_code,
+          courseCategory: course?.category,
+          courseThumbnail: course?.thumbnail,
+        };
+      }) || []
     );
   },
 
@@ -1143,6 +1148,33 @@ export const certificateService = {
     }
 
     return certificate;
+  },
+
+  /**
+   * Get a single certificate by ID (for viewing)
+   */
+  getCertificateById: async (id: string, userId?: string): Promise<Certificate | null> => {
+    if (!supabase) return null;
+    let query = supabase
+      .from("certificates")
+      .select("*, courses(title, category, thumbnail)")
+      .eq("id", id);
+    if (userId) query = query.eq("user_id", userId);
+    const { data, error } = await query.single();
+    if (error || !data) return null;
+    const course = data.courses as { title?: string; category?: string; thumbnail?: string } | null;
+    return {
+      id: data.id,
+      userId: data.user_id,
+      courseId: data.course_id,
+      courseTitle: course?.title || "",
+      issuedAt: data.issued_at,
+      certificateNumber: data.certificate_number,
+      certificateType: data.certificate_type,
+      verificationCode: data.verification_code,
+      courseCategory: course?.category,
+      courseThumbnail: course?.thumbnail,
+    };
   },
 
   /**
