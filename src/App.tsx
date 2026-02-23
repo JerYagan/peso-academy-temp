@@ -13,6 +13,7 @@ import Dashboard from "./pages/Dashboard";
 import Courses from "./pages/Courses";
 import CourseDetail from "./pages/CourseDetail";
 import Certificates from "./pages/Certificates";
+import CertificateView from "./pages/CertificateView";
 import VerifyCertificate from "./pages/VerifyCertificate";
 import Profile from "./pages/Profile";
 import AdminUsers from "./pages/admin/Users";
@@ -83,6 +84,14 @@ const App = () => (
               element={
                 <ProtectedRoute>
                   <Certificates />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/certificates/view/:id"
+              element={
+                <ProtectedRoute>
+                  <CertificateView />
                 </ProtectedRoute>
               }
             />

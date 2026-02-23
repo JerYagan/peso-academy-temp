@@ -49,6 +49,10 @@ export interface Certificate {
   certificateNumber: string;
   certificateType?: "completion" | "participation";
   verificationCode?: string;
+  /** Course category for display (e.g. "AI & Data Science") */
+  courseCategory?: string;
+  /** Course thumbnail URL for certificate card */
+  courseThumbnail?: string;
 }
 
 export interface Submission {
