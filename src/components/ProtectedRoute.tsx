@@ -205,6 +205,21 @@ export const ProtectedRoute = ({ children, allowedRoles, requiredPermissions }: 
 
   // Check if user has access
   if (!hasAccess) {
+    // Admin is creating a user: session may briefly switch to new user. Don't redirect; show loading until session is restored.
+    const adminCreatingUser = typeof window !== "undefined" && location.pathname.startsWith("/admin") && sessionStorage.getItem("admin_creating_user") === "1";
+    if (adminCreatingUser) {
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-muted/30">
+          <Card className="max-w-sm">
+            <CardContent className="pt-6 flex flex-col items-center gap-4">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+              <p className="text-sm text-muted-foreground text-center">Restoring your session...</p>
+            </CardContent>
+          </Card>
+        </div>
+      );
+    }
+
     console.warn("🛡️ ProtectedRoute: Access denied - redirecting", {
       userRole: user.role,
       pathname: location.pathname,

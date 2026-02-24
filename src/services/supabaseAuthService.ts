@@ -262,6 +262,19 @@ export const supabaseAuthService = {
         }
       }
 
+      // Ensure role in users table matches the one we set in auth (trigger may have defaulted to trainee)
+      if (profileData && profileData.role !== role) {
+        const { error: updateRoleError } = await supabase
+          .from("users")
+          .update({ role, updated_at: new Date().toISOString() })
+          .eq("id", authData.user.id);
+        if (updateRoleError) {
+          console.warn("Could not sync role to users table:", updateRoleError);
+        } else {
+          profileData = { ...profileData, role };
+        }
+      }
+
       // If we still don't have profile data, create a minimal user object from auth data
       // This allows the user to log in, and the profile can be created on first access
       if (!profileData) {
