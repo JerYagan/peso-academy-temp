@@ -302,7 +302,9 @@ const AdminUsers = () => {
       rolesLoading
     });
     setEditingUser(user);
-    setSelectedRole(user.role);
+    // Only admin and training_officer are assignable; default to training_officer if current role isn't one of them
+    const assignable = user.role === "admin" || user.role === "training_officer";
+    setSelectedRole(assignable ? user.role : "training_officer");
     setIsRoleDialogOpen(true);
   };
 
@@ -448,6 +450,11 @@ const AdminUsers = () => {
     // Fallback to default display names
     return defaultRoleDisplayNames[roleId as UserRole] || roleId;
   };
+
+  // Only Administrator and Training Officer can be assigned in Change Role dialog
+  const assignableRolesForChange = allRoles.filter(
+    (r) => r === "admin" || r === "training_officer"
+  );
 
   // Account status for list (extend with last_activity when available for "Inactive X months ago")
   const getAccountStatusLabel = (_createdAt: string): string => {
@@ -671,15 +678,17 @@ const AdminUsers = () => {
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-2">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => openRoleDialog(user)}
-                              className="gap-2"
-                            >
-                              <Shield className="w-4 h-4" />
-                              Change Role
-                            </Button>
+                            {user.role !== "trainee" && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => openRoleDialog(user)}
+                                className="gap-2"
+                              >
+                                <Shield className="w-4 h-4" />
+                                Change Role
+                              </Button>
+                            )}
                             <Button
                               variant="outline"
                               size="sm"
@@ -745,19 +754,15 @@ const AdminUsers = () => {
                     <SelectTrigger id="role">
                       <SelectValue placeholder="Select a role" />
                     </SelectTrigger>
-                    <SelectContent key={`role-content-${allRoles.length}`}>
-                      {allRoles.length === 0 ? (
+                    <SelectContent key={`role-content-${assignableRolesForChange.length}`}>
+                      {assignableRolesForChange.length === 0 ? (
                         <SelectItem value="" disabled>No roles available</SelectItem>
                       ) : (
-                        allRoles.map((role) => {
-                          const displayName = getRoleDisplayName(role);
-                          console.log("📋 Rendering role option:", { role, displayName, totalRoles: allRoles.length });
-                          return (
-                            <SelectItem key={role} value={role}>
-                              {displayName}
-                            </SelectItem>
-                          );
-                        })
+                        assignableRolesForChange.map((role) => (
+                          <SelectItem key={role} value={role}>
+                            {getRoleDisplayName(role)}
+                          </SelectItem>
+                        ))
                       )}
                     </SelectContent>
                   </Select>
