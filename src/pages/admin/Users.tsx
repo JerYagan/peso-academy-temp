@@ -39,6 +39,9 @@ import { useNavigate } from "react-router-dom";
 import { supabaseAuthService } from "@/services/supabaseAuthService";
 import { roleService, DatabaseRole } from "@/services/roleService";
 
+// Roles shown in User Management: only admin, trainer, trainee (validator/SPD/training_officer optional or removed later)
+const USER_MANAGEMENT_ROLES: UserRole[] = ["admin", "trainer", "trainee", "training_officer"];
+
 const AdminUsers = () => {
   const { user: currentUser, loading: authLoading } = useAuth();
   const navigate = useNavigate();
@@ -424,12 +427,13 @@ const AdminUsers = () => {
     }, {} as Record<UserRole, number>),
   };
 
-  // Get roles dynamically from database, fallback to default if empty
-  // Map database role IDs to UserRole type (allows any string from database)
-  // IMPORTANT: Only use fallback if roles have finished loading AND are still empty
+  // Get roles dynamically from database, fallback to User Management roles if empty
   const allRoles: string[] = availableRoles.length > 0
     ? availableRoles.map(r => r.id)
-    : ['admin', 'training_officer', 'validator', 'trainee']; // Fallback if no roles loaded
+    : [...USER_MANAGEMENT_ROLES];
+
+  // Only show admin, trainer, trainee in cards and filters (validator/SPD/training_officer not shown)
+  const displayRoles = USER_MANAGEMENT_ROLES;
   
   // Debug: Log roles for troubleshooting (log when roles change)
   useEffect(() => {
@@ -447,14 +451,12 @@ const AdminUsers = () => {
   const getRoleDisplayName = (roleId: string): string => {
     const dbRole = availableRoles.find(r => r.id === roleId);
     if (dbRole) return dbRole.name;
-    // Fallback to default display names
+    if (roleId === "trainer") return "Trainer";
     return defaultRoleDisplayNames[roleId as UserRole] || roleId;
   };
 
-  // Only Administrator and Training Officer can be assigned in Change Role dialog
-  const assignableRolesForChange = allRoles.filter(
-    (r) => r === "admin" || r === "training_officer"
-  );
+  // Roles that can be assigned when creating or changing a user (admin, trainer, trainee only)
+  const assignableRolesForChange = displayRoles;
 
   // Account status for list (extend with last_activity when available for "Inactive X months ago")
   const getAccountStatusLabel = (_createdAt: string): string => {
@@ -533,7 +535,7 @@ const AdminUsers = () => {
             </CardContent>
           </Card>
 
-          {allRoles.map((role) => (
+          {displayRoles.map((role) => (
             <Card key={role}>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium">{getRoleDisplayName(role)}</CardTitle>
@@ -570,7 +572,7 @@ const AdminUsers = () => {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Roles</SelectItem>
-                  {allRoles.map((role) => (
+                  {displayRoles.map((role) => (
                     <SelectItem key={role} value={role}>
                       {getRoleDisplayName(role)}
                     </SelectItem>
@@ -852,7 +854,7 @@ const AdminUsers = () => {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {allRoles.map((role) => (
+                    {assignableRolesForChange.map((role) => (
                       <SelectItem key={role} value={role}>
                         {getRoleDisplayName(role)}
                       </SelectItem>
