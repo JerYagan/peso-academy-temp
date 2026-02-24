@@ -358,8 +358,10 @@ const AdminUsers = () => {
 
     try {
       setCreating(true);
+      // Prevent redirect to new user's dashboard while admin session is being restored
+      if (typeof window !== "undefined") sessionStorage.setItem("admin_creating_user", "1");
       console.log("Starting user creation for:", newUser.email);
-      
+
       const result = await supabaseAuthService.signup(
         newUser.email,
         newUser.password,
@@ -375,21 +377,21 @@ const AdminUsers = () => {
       });
 
       if (result.error) {
+        // Log full error to console only; do not expose stack or details to the user
         console.error("User creation error:", result.error);
-        console.error("Full error object:", JSON.stringify(result.error, null, 2));
-        // Show more detailed error message
-        const errorMsg = result.error.message || "Failed to create user";
-        toast.error(errorMsg, {
-          description: result.error instanceof Error ? result.error.stack : undefined,
-          duration: 5000,
-        });
+        if (result.error instanceof Error && result.error.stack) {
+          console.error("Stack:", result.error.stack);
+        }
+        const userMessage = result.error.message || "Failed to create user. Please try again.";
+        toast.error(userMessage);
         setCreating(false);
+        if (typeof window !== "undefined") sessionStorage.removeItem("admin_creating_user");
         return;
       }
 
       if (result.user) {
         console.log("User created successfully:", result.user.id);
-        toast.success(`User "${newUser.name}" created successfully`);
+        toast.success(`Account created successfully for ${newUser.name}. They can sign in with the email and password you provided.`);
         setIsCreateDialogOpen(false);
         setNewUser({
           name: "",
@@ -399,6 +401,7 @@ const AdminUsers = () => {
         });
         loadUsers();
         setCreating(false);
+        if (typeof window !== "undefined") sessionStorage.removeItem("admin_creating_user");
         return;
       }
 
@@ -406,10 +409,14 @@ const AdminUsers = () => {
       console.warn("User creation returned no error but also no user:", result);
       toast.error("User creation completed but no user data was returned. Please refresh and check if the user was created.");
       setCreating(false);
+      if (typeof window !== "undefined") sessionStorage.removeItem("admin_creating_user");
     } catch (error) {
+      // Log full error to console only
       console.error("Error creating user:", error);
-      toast.error("Failed to create user");
+      if (error instanceof Error && error.stack) console.error("Stack:", error.stack);
+      toast.error("Failed to create user. Please try again.");
       setCreating(false);
+      if (typeof window !== "undefined") sessionStorage.removeItem("admin_creating_user");
     }
   };
 
