@@ -656,6 +656,27 @@ export const supabaseAuthService = {
   },
 
   /**
+   * Update password for the currently signed-in user.
+   * Caller should verify current password (e.g. via signInWithPassword) before calling this.
+   */
+  updatePassword: async (newPassword: string): Promise<{ error: Error | null }> => {
+    if (!supabase) {
+      return { error: new Error("Supabase client not initialized") };
+    }
+    if (!newPassword || newPassword.length < 6) {
+      return { error: new Error("Password must be at least 6 characters") };
+    }
+    try {
+      const { error } = await supabase.auth.updateUser({ password: newPassword });
+      return { error: error ? error : null };
+    } catch (error) {
+      return {
+        error: error instanceof Error ? error : new Error("Unknown error occurred"),
+      };
+    }
+  },
+
+  /**
    * Reset password (sends password reset email)
    */
   resetPassword: async (email: string): Promise<{ error: Error | null }> => {

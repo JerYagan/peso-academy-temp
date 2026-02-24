@@ -4,7 +4,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Download, Award, Calendar, ExternalLink, ImageIcon } from "lucide-react";
+import { Download, Award, Calendar, ExternalLink, ImageIcon, Link2 } from "lucide-react";
 import { certificateService } from "@/services/supabaseDatabaseService";
 import { downloadCertificatePDF } from "@/services/certificatePdfService";
 import { Certificate } from "@/types";
@@ -78,6 +78,19 @@ const Certificates = () => {
       console.error("Error downloading certificate:", error);
       toast.error("Failed to download certificate");
     }
+  };
+
+  const copyVerificationLink = (certificate: Certificate) => {
+    const code = certificate.verificationCode?.trim();
+    if (!code) {
+      toast.error("No verification code available for this certificate");
+      return;
+    }
+    const url = `${window.location.origin}/verify-certificate?code=${encodeURIComponent(code)}`;
+    navigator.clipboard.writeText(url).then(
+      () => toast.success("Verification link copied to clipboard"),
+      () => toast.error("Failed to copy link")
+    );
   };
 
   if (loading) {
@@ -204,6 +217,16 @@ const Certificates = () => {
                             View Certificate
                           </Link>
                         </Button>
+                        {certificate.verificationCode && (
+                          <Button
+                            variant="outline"
+                            className="gap-2"
+                            onClick={() => copyVerificationLink(certificate)}
+                          >
+                            <Link2 className="h-4 w-4" />
+                            Copy verification link
+                          </Button>
+                        )}
                       </div>
                     </div>
                   </div>

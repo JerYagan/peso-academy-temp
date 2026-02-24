@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, Download, Loader2 } from "lucide-react";
+import { ArrowLeft, Download, Loader2, Link2 } from "lucide-react";
 import { certificateService } from "@/services/supabaseDatabaseService";
 import { downloadCertificatePDF } from "@/services/certificatePdfService";
 import { Certificate } from "@/types";
@@ -65,6 +65,19 @@ const CertificateView = () => {
     }
   };
 
+  const copyVerificationLink = () => {
+    const code = certificate?.verificationCode?.trim();
+    if (!code) {
+      toast.error("No verification code available");
+      return;
+    }
+    const url = `${window.location.origin}/verify-certificate?code=${encodeURIComponent(code)}`;
+    navigator.clipboard.writeText(url).then(
+      () => toast.success("Verification link copied to clipboard"),
+      () => toast.error("Failed to copy link")
+    );
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-muted/30">
@@ -93,6 +106,12 @@ const CertificateView = () => {
             <Download className="h-4 w-4" />
             Download PDF
           </Button>
+          {certificate.verificationCode && (
+            <Button variant="outline" onClick={copyVerificationLink} className="gap-2">
+              <Link2 className="h-4 w-4" />
+              Copy verification link
+            </Button>
+          )}
         </div>
       </div>
 

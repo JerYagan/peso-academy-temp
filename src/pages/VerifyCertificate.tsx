@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,14 +16,16 @@ import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 
 const VerifyCertificate = () => {
+  const [searchParams] = useSearchParams();
   const [verificationCode, setVerificationCode] = useState("");
   const [certificate, setCertificate] = useState<Certificate | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [userName, setUserName] = useState<string>("");
 
-  const handleVerify = async () => {
-    if (!verificationCode.trim()) {
+  const doVerify = async (code: string) => {
+    const trimmed = code.trim();
+    if (!trimmed) {
       setError("Please enter a verification code");
       return;
     }
@@ -32,21 +35,20 @@ const VerifyCertificate = () => {
     setCertificate(null);
 
     try {
-      const cert = await certificateService.getCertificateByVerificationCode(verificationCode);
-      
+      const cert = await certificateService.getCertificateByVerificationCode(trimmed);
+
       if (!cert) {
         setError("Certificate not found. Please check your verification code.");
         return;
       }
 
-      // Get user name for certificate display
       if (supabase) {
         const { data: userData } = await supabase
           .from("users")
           .select("name")
           .eq("id", cert.userId)
           .single();
-        
+
         if (userData) {
           setUserName(userData.name);
         }
@@ -60,6 +62,16 @@ const VerifyCertificate = () => {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    const codeFromUrl = searchParams.get("code");
+    if (codeFromUrl) {
+      setVerificationCode(codeFromUrl);
+      doVerify(codeFromUrl);
+    }
+  }, [searchParams]);
+
+  const handleVerify = () => doVerify(verificationCode);
 
   const handleDownload = async () => {
     if (!certificate || !userName) return;

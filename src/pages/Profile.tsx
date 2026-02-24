@@ -6,9 +6,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { User, Save, Award, BookOpen, Loader2 } from "lucide-react";
+import { User, Save, Award, BookOpen, Loader2, Lock } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { enrollmentService, certificateService } from "@/services/supabaseDatabaseService";
+import { supabaseAuthService } from "@/services/supabaseAuthService";
+import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
 import { Certificate, Enrollment } from "@/types";
 
@@ -25,6 +27,12 @@ const Profile = () => {
     phone: "",
     address: "",
   });
+  const [passwordForm, setPasswordForm] = useState({
+    currentPassword: "",
+    newPassword: "",
+    confirmPassword: "",
+  });
+  const [changingPassword, setChangingPassword] = useState(false);
 
   useEffect(() => {
     if (user) {
@@ -74,6 +82,50 @@ const Profile = () => {
       toast.error("Failed to update profile. Please try again.");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user?.email) return;
+    const { currentPassword, newPassword, confirmPassword } = passwordForm;
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      toast.error("Please fill in all password fields");
+      return;
+    }
+    if (newPassword.length < 6) {
+      toast.error("New password must be at least 6 characters");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      toast.error("New password and confirmation do not match");
+      return;
+    }
+
+    setChangingPassword(true);
+    try {
+      if (supabase) {
+        const { error: signInError } = await supabase.auth.signInWithPassword({
+          email: user.email,
+          password: currentPassword,
+        });
+        if (signInError) {
+          toast.error("Current password is incorrect");
+          return;
+        }
+      }
+      const { error } = await supabaseAuthService.updatePassword(newPassword);
+      if (error) {
+        toast.error(error.message || "Failed to update password");
+        return;
+      }
+      toast.success("Password updated successfully");
+      setPasswordForm({ currentPassword: "", newPassword: "", confirmPassword: "" });
+    } catch (err) {
+      console.error("Change password error:", err);
+      toast.error("Failed to update password");
+    } finally {
+      setChangingPassword(false);
     }
   };
 
@@ -223,50 +275,71 @@ const Profile = () => {
               )}
             </CardContent>
           </Card>
-        </div>
 
-        {/* Certificates */}
-        {loadingData ? (
-          <Card>
+          {/* Security - Change password */}
+          <Card className="md:col-span-2">
             <CardHeader>
-              <CardTitle>My Certificates</CardTitle>
-              <CardDescription>TESDA-accredited certificates you've earned</CardDescription>
+              <CardTitle className="flex items-center gap-2">
+                <Lock className="w-5 h-5" />
+                Security
+              </CardTitle>
+              <CardDescription>Change your password</CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="flex items-center justify-center py-8">
-                <Loader2 className="w-6 h-6 text-muted-foreground animate-spin" />
-              </div>
+              <form onSubmit={handleChangePassword} className="space-y-4 max-w-sm">
+                <div className="space-y-2">
+                  <Label htmlFor="current-password">Current password</Label>
+                  <Input
+                    id="current-password"
+                    type="password"
+                    placeholder="Enter current password"
+                    value={passwordForm.currentPassword}
+                    onChange={(e) =>
+                      setPasswordForm({ ...passwordForm, currentPassword: e.target.value })
+                    }
+                    autoComplete="current-password"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="new-password">New password</Label>
+                  <Input
+                    id="new-password"
+                    type="password"
+                    placeholder="At least 6 characters"
+                    value={passwordForm.newPassword}
+                    onChange={(e) =>
+                      setPasswordForm({ ...passwordForm, newPassword: e.target.value })
+                    }
+                    autoComplete="new-password"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="confirm-password">Confirm new password</Label>
+                  <Input
+                    id="confirm-password"
+                    type="password"
+                    placeholder="Confirm new password"
+                    value={passwordForm.confirmPassword}
+                    onChange={(e) =>
+                      setPasswordForm({ ...passwordForm, confirmPassword: e.target.value })
+                    }
+                    autoComplete="new-password"
+                  />
+                </div>
+                <Button type="submit" disabled={changingPassword}>
+                  {changingPassword ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Updating...
+                    </>
+                  ) : (
+                    "Change password"
+                  )}
+                </Button>
+              </form>
             </CardContent>
           </Card>
-        ) : certificates.length > 0 ? (
-          <Card>
-            <CardHeader>
-              <CardTitle>My Certificates</CardTitle>
-              <CardDescription>TESDA-accredited certificates you've earned</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                {certificates.map((cert) => (
-                  <div
-                    key={cert.id}
-                    className="flex items-center justify-between p-4 border rounded-lg"
-                  >
-                    <div>
-                      <p className="font-semibold">{cert.courseTitle}</p>
-                      <p className="text-sm text-muted-foreground">
-                        Certificate #{cert.certificateNumber}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        Issued {new Date(cert.issuedAt).toLocaleDateString()}
-                      </p>
-                    </div>
-                    <Button variant="outline">Download</Button>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        ) : null}
+        </div>
       </div>
     </DashboardLayout>
   );
