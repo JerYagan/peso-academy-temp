@@ -59,9 +59,9 @@ const Reports = () => {
   const [activeTab, setActiveTab] = useState("completion");
   const [loading, setLoading] = useState(false);
 
-  // Filters
+  // Filters – default to last 12 months so Total Enrollments and other stats show existing data
   const [startDate, setStartDate] = useState<string>(
-    format(subDays(new Date(), 30), "yyyy-MM-dd")
+    format(subDays(new Date(), 365), "yyyy-MM-dd")
   );
   const [endDate, setEndDate] = useState<string>(format(new Date(), "yyyy-MM-dd"));
   const [selectedCourseId, setSelectedCourseId] = useState<string>("all");
