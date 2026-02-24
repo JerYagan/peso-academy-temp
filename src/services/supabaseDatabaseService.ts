@@ -947,10 +947,15 @@ export const enrollmentService = {
     // If not preserving progress, delete the enrollment
     // Otherwise, mark as dropped but keep the record
     if (preserveProgress) {
-      await supabase
+      const { error: updateError } = await supabase
         .from("enrollments")
         .update({ status: "dropped" })
         .eq("id", enrollmentId);
+
+      if (updateError) {
+        handleSupabaseError(updateError);
+        throw updateError;
+      }
     } else {
       // Delete the enrollment
       const { error } = await supabase
