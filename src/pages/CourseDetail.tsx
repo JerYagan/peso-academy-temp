@@ -9,6 +9,24 @@ import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   BookOpen,
   Clock,
   Users,
@@ -21,6 +39,7 @@ import {
   FileText,
   Upload,
   FileQuestion,
+  LogOut,
 } from "lucide-react";
 import { courseService, enrollmentService, moduleService, moduleCompletionService } from "@/services/supabaseDatabaseService";
 import { Course, Module, Enrollment } from "@/types";
@@ -40,6 +59,9 @@ const CourseDetail = () => {
   const [completedModuleIds, setCompletedModuleIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [enrolling, setEnrolling] = useState(false);
+  const [showCompletionDialog, setShowCompletionDialog] = useState(false);
+  const [showUnenrollConfirm, setShowUnenrollConfirm] = useState(false);
+  const [unenrolling, setUnenrolling] = useState(false);
 
   useEffect(() => {
     if (id) {
@@ -115,12 +137,13 @@ const CourseDetail = () => {
 
     try {
       await moduleCompletionService.markModuleComplete(
-        enrollment.id, 
+        enrollment.id,
         moduleId,
         timeSpentMinutes
       );
-      setCompletedModuleIds([...completedModuleIds, moduleId]);
-      
+      const newCompleted = [...completedModuleIds, moduleId];
+      setCompletedModuleIds(newCompleted);
+
       // Reload enrollment to get updated progress
       const enrollments = await enrollmentService.getEnrollments(user.id);
       const updatedEnrollment = enrollments.find((e) => e.courseId === id);
@@ -129,9 +152,29 @@ const CourseDetail = () => {
       }
 
       toast.success("Module marked as completed!");
+      // If all modules are now completed, show congratulations dialog
+      if (modules.length > 0 && newCompleted.length >= modules.length) {
+        setShowCompletionDialog(true);
+      }
     } catch (error) {
       console.error("Error completing module:", error);
       toast.error("Failed to mark module as complete");
+    }
+  };
+
+  const handleUnenroll = async () => {
+    if (!enrollment) return;
+    setUnenrolling(true);
+    try {
+      await enrollmentService.unenroll(enrollment.id, false);
+      toast.success("You have been unenrolled from this course.");
+      setShowUnenrollConfirm(false);
+      navigate("/courses");
+    } catch (error) {
+      console.error("Error unenrolling:", error);
+      toast.error("Failed to unenroll. Please try again.");
+    } finally {
+      setUnenrolling(false);
     }
   };
 
@@ -292,6 +335,15 @@ const CourseDetail = () => {
               <Star className="w-4 h-4 fill-yellow-400 text-yellow-400" />
               {course.rating}
             </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="ml-auto text-muted-foreground hover:text-destructive"
+              onClick={() => setShowUnenrollConfirm(true)}
+            >
+              <LogOut className="w-4 h-4 mr-1" />
+              Unenroll from course
+            </Button>
           </div>
 
           {/* Progress Section */}
@@ -414,6 +466,51 @@ const CourseDetail = () => {
           </div>
         </div>
       </div>
+
+      {/* Congratulations – course completed */}
+      <Dialog open={showCompletionDialog} onOpenChange={setShowCompletionDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2 text-green-600">
+              <CheckCircle2 className="h-6 w-6" />
+              Congratulations!
+            </DialogTitle>
+            <DialogDescription>
+              You have completed this course. Your certificate is ready to view and download.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button asChild>
+              <Link to="/certificates">View Certificate</Link>
+            </Button>
+            <Button variant="outline" onClick={() => setShowCompletionDialog(false)}>
+              Stay on course
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Unenroll confirmation */}
+      <AlertDialog open={showUnenrollConfirm} onOpenChange={setShowUnenrollConfirm}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Unenroll from course?</AlertDialogTitle>
+            <AlertDialogDescription>
+              You will be removed from this course and your progress will be lost. You can enroll again later.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={unenrolling}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleUnenroll}
+              disabled={unenrolling}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {unenrolling ? "Unenrolling..." : "Unenroll"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </DashboardLayout>
   );
 };

@@ -15,6 +15,7 @@ import {
   BarChart3,
   PieChart,
   Activity,
+  CheckCircle2,
 } from "lucide-react";
 import { progressTrackingService, ProgressStats, CourseProgress } from "@/services/progressTrackingService";
 import { enrollmentService } from "@/services/supabaseDatabaseService";
@@ -25,6 +26,7 @@ import {
   BarChart,
   Bar,
   PieChart as RechartsPieChart,
+  Pie,
   Cell,
   XAxis,
   YAxis,
@@ -61,8 +63,7 @@ const ProgressDashboard = () => {
 
     setLoading(true);
     try {
-      const userEnrollments = await enrollmentService.getEnrollments();
-      const myEnrollments = userEnrollments.filter((e) => e.userId === user.id);
+      const myEnrollments = await enrollmentService.getEnrollments(user.id);
       setEnrollments(myEnrollments);
 
       const progress = await progressTrackingService.getUserCourseProgress(user.id);
@@ -257,7 +258,7 @@ const ProgressDashboard = () => {
                       <RechartsPieChart>
                         <Tooltip />
                         <Legend />
-                        <RechartsPieChart
+                        <Pie
                           data={completionPieData}
                           cx="50%"
                           cy="50%"
@@ -270,7 +271,7 @@ const ProgressDashboard = () => {
                           {completionPieData.map((entry, index) => (
                             <Cell key={`cell-${index}`} fill={entry.color} />
                           ))}
-                        </RechartsPieChart>
+                        </Pie>
                       </RechartsPieChart>
                     </ResponsiveContainer>
                   ) : (
@@ -288,15 +289,24 @@ const ProgressDashboard = () => {
               {courseProgress.length > 0 ? (
                 courseProgress.map((course) => {
                   const enrollment = enrollments.find((e) => e.courseId === course.courseId);
+                  const isCompleted = enrollment?.status === "completed";
                   return (
                     <Card
                       key={course.courseId}
-                      className={selectedEnrollment === enrollment?.id ? "ring-2 ring-primary" : ""}
+                      className={`${selectedEnrollment === enrollment?.id ? "ring-2 ring-primary" : ""} ${isCompleted ? "border-green-200 dark:border-green-900/30" : ""}`}
                     >
                       <CardHeader>
                         <div className="flex items-start justify-between">
                           <div className="flex-1">
-                            <CardTitle>{course.courseTitle}</CardTitle>
+                            <CardTitle className="flex items-center gap-2">
+                              {course.courseTitle}
+                              {isCompleted && (
+                                <Badge variant="outline" className="text-green-600 border-green-300 shrink-0">
+                                  <CheckCircle2 className="w-3 h-3 mr-1" />
+                                  Completed
+                                </Badge>
+                              )}
+                            </CardTitle>
                             <CardDescription className="mt-2">
                               <div className="flex items-center gap-4 flex-wrap">
                                 <span className="flex items-center gap-1">
@@ -335,9 +345,15 @@ const ProgressDashboard = () => {
                           >
                             View Details
                           </Button>
-                          <Button asChild variant="outline" size="sm">
-                            <Link to={`/courses/${course.courseId}`}>Continue Learning</Link>
-                          </Button>
+                          {isCompleted ? (
+                            <Button asChild variant="secondary" size="sm">
+                              <Link to="/certificates">View Certificate</Link>
+                            </Button>
+                          ) : (
+                            <Button asChild variant="outline" size="sm">
+                              <Link to={`/courses/${course.courseId}`}>Continue Learning</Link>
+                            </Button>
+                          )}
                         </div>
                       </CardContent>
                     </Card>
