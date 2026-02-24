@@ -2,7 +2,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { BookOpen, Users, Award, TrendingUp, ArrowRight, Shield, FileText, FileSpreadsheet, Loader2, CheckCircle2 } from "lucide-react";
+import { BookOpen, Users, Award, TrendingUp, ArrowRight, Shield, FileText, FileSpreadsheet, Loader2, CheckCircle2, ArrowUpRight, ArrowDownRight } from "lucide-react";
 import { Link } from "react-router-dom";
 import { enrollmentService, certificateService, courseService } from "@/services/supabaseDatabaseService";
 import { dataService } from "@/services/mockData"; // TODO: Replace with Supabase services for admin/training officer dashboards
@@ -11,6 +11,7 @@ import { Course, Enrollment } from "@/types";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { User } from "@/types/auth";
+import { startOfMonth, endOfMonth, isWithinInterval } from "date-fns";
 
 interface TraineeDashboardProps {
   user: User;
@@ -187,6 +188,191 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
             </div>
           )}
         </div>
+      </div>
+    </DashboardLayout>
+  );
+};
+
+interface TrainingOfficerDashboardProps {
+  user: User;
+}
+
+const TrainingOfficerDashboard = ({ user }: TrainingOfficerDashboardProps) => {
+  const [courses, setCourses] = useState<Course[]>([]);
+  const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
+  const [certificatesIssued, setCertificatesIssued] = useState<{ courseId: string; issuedAt: string }[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    const load = async () => {
+      if (!user?.id) return;
+      setLoading(true);
+      try {
+        const [allCourses, allEnrollments, allCerts] = await Promise.all([
+          courseService.getCourses(),
+          enrollmentService.getEnrollments(),
+          certificateService.getCertificates(),
+        ]);
+        if (cancelled) return;
+        const myCourses = allCourses.filter((c) => c.instructorId === user.id);
+        const myCourseIds = new Set(myCourses.map((c) => c.id));
+        const myEnrollments = allEnrollments.filter((e) => myCourseIds.has(e.courseId));
+        setCourses(myCourses);
+        setEnrollments(myEnrollments);
+        setCertificatesIssued(
+          allCerts.filter((c) => myCourseIds.has(c.courseId)).map((c) => ({ courseId: c.courseId, issuedAt: c.issuedAt }))
+        );
+      } catch (e) {
+        if (!cancelled) toast.error("Failed to load dashboard data");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    load();
+    return () => { cancelled = true; };
+  }, [user?.id]);
+
+  const now = new Date();
+  const monthStart = startOfMonth(now);
+  const monthEnd = endOfMonth(now);
+  const inThisMonth = (dateStr: string) =>
+    isWithinInterval(new Date(dateStr), { start: monthStart, end: monthEnd });
+
+  const joinedThisMonth = enrollments.filter((e) => inThisMonth(e.enrolledAt)).length;
+  const droppedThisMonth = enrollments.filter((e) => e.status === "dropped").length; // all-time dropped; could narrow to month if we had updated_at
+  const completedThisMonth = enrollments.filter(
+    (e) => e.status === "completed" && e.completedAt && inThisMonth(e.completedAt)
+  ).length;
+  const certificatesThisMonth = certificatesIssued.filter((c) => inThisMonth(c.issuedAt)).length;
+
+  const completedTotal = enrollments.filter((e) => e.status === "completed").length;
+  const completionRate = enrollments.length > 0 ? Math.round((completedTotal / enrollments.length) * 100) : 0;
+
+  return (
+    <DashboardLayout>
+      <div className="space-y-8">
+        <div>
+          <h1 className="text-3xl font-bold">Training Officer Dashboard</h1>
+          <p className="text-muted-foreground mt-2">Manage your courses and learners</p>
+        </div>
+
+        {loading ? (
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+          </div>
+        ) : (
+          <>
+            <div className="grid gap-4 md:grid-cols-3">
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Courses</CardTitle>
+                  <BookOpen className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{courses.length}</div>
+                  <p className="text-xs text-muted-foreground">Courses you teach</p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Learners</CardTitle>
+                  <Users className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{enrollments.length}</div>
+                  <p className="text-xs text-muted-foreground">Total learners</p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Completion Rate</CardTitle>
+                  <TrendingUp className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{completionRate}%</div>
+                  <p className="text-xs text-muted-foreground">Course completion</p>
+                </CardContent>
+              </Card>
+            </div>
+
+            <div>
+              <h2 className="text-xl font-semibold mb-4">Monthly Report</h2>
+              <p className="text-sm text-muted-foreground mb-4">
+                {now.toLocaleString("default", { month: "long", year: "numeric" })}
+              </p>
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <CardTitle className="text-sm font-medium">Joined</CardTitle>
+                    <ArrowUpRight className="h-4 w-4 text-muted-foreground text-green-600" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold">{joinedThisMonth}</div>
+                    <p className="text-xs text-muted-foreground">Learners this month</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <CardTitle className="text-sm font-medium">Dropped</CardTitle>
+                    <ArrowDownRight className="h-4 w-4 text-muted-foreground text-amber-600" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold">{droppedThisMonth}</div>
+                    <p className="text-xs text-muted-foreground">Dropped (all time)</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <CardTitle className="text-sm font-medium">Completed</CardTitle>
+                    <CheckCircle2 className="h-4 w-4 text-muted-foreground text-green-600" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold">{completedThisMonth}</div>
+                    <p className="text-xs text-muted-foreground">Completed this month</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                    <CardTitle className="text-sm font-medium">Certificates</CardTitle>
+                    <Award className="h-4 w-4 text-muted-foreground" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-bold">{certificatesThisMonth}</div>
+                    <p className="text-xs text-muted-foreground">Issued this month</p>
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Quick Actions</CardTitle>
+                <CardDescription>Shortcuts to manage courses and learners</CardDescription>
+              </CardHeader>
+              <CardContent className="flex flex-wrap gap-3">
+                <Button asChild variant="outline">
+                  <Link to="/trainer/courses">
+                    <BookOpen className="mr-2 h-4 w-4" />
+                    My Courses
+                  </Link>
+                </Button>
+                <Button asChild variant="outline">
+                  <Link to="/trainer/learners">
+                    <Users className="mr-2 h-4 w-4" />
+                    Learners
+                  </Link>
+                </Button>
+                <Button asChild variant="outline">
+                  <Link to="/admin/reports">
+                    <FileSpreadsheet className="mr-2 h-4 w-4" />
+                    Reports
+                  </Link>
+                </Button>
+              </CardContent>
+            </Card>
+          </>
+        )}
       </div>
     </DashboardLayout>
   );
@@ -391,99 +577,9 @@ const Dashboard = () => {
     );
   }
 
-  // Training Officer Dashboard (replaces old "trainer" and "spd" roles)
-  if (user.role === "training_officer") {
-    const courses = dataService.getCourses().filter((c) => c.instructorId === user.id);
-    const enrollments = dataService.getEnrollments();
-    const myEnrollments = enrollments.filter((e) => courses.some((c) => c.id === e.courseId));
-
-    return (
-      <DashboardLayout>
-        <div className="space-y-8">
-          <div>
-            <h1 className="text-3xl font-bold">Training Officer Dashboard</h1>
-            <p className="text-muted-foreground mt-2">Manage your courses and learners</p>
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-3">
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">My Courses</CardTitle>
-                <BookOpen className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{courses.length}</div>
-                <p className="text-xs text-muted-foreground">Courses created</p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Learners</CardTitle>
-                <Users className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{myEnrollments.length}</div>
-                <p className="text-xs text-muted-foreground">Total learners</p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Completion Rate</CardTitle>
-                <TrendingUp className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">
-                  {myEnrollments.length > 0
-                    ? Math.round(
-                        (myEnrollments.filter((e) => e.status === "completed").length /
-                          myEnrollments.length) *
-                          100
-                      )
-                    : 0}
-                  %
-                </div>
-                <p className="text-xs text-muted-foreground">Course completion</p>
-              </CardContent>
-            </Card>
-          </div>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>My Courses</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {courses.length > 0 ? (
-                <div className="space-y-4">
-                  {courses.map((course) => (
-                    <div key={course.id} className="flex items-center justify-between p-4 border rounded-lg">
-                      <div>
-                        <h3 className="font-semibold">{course.title}</h3>
-                        <p className="text-sm text-muted-foreground">
-                          {myEnrollments.filter((e) => e.courseId === course.id).length} learners
-                        </p>
-                      </div>
-                      <Button asChild variant="outline">
-                        <Link to={`/trainer/courses/${course.id}`}>Manage</Link>
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-center py-8">
-                  <BookOpen className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
-                  <p className="text-muted-foreground mb-4">You haven't created any courses yet</p>
-                  <Button asChild>
-                    <Link to="/trainer/courses">Create Course</Link>
-                  </Button>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-      </DashboardLayout>
-    );
+  // Training Officer / Trainer Dashboard (real data from Supabase; no redundant My Courses section)
+  if (user.role === "training_officer" || user.role === "trainer") {
+    return <TrainingOfficerDashboard user={user} />;
   }
 
   // Validator Dashboard
