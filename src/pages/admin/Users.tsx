@@ -29,7 +29,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Users, Mail, Phone, Search, Edit2, Shield, User as UserIcon, Settings, Plus, Loader2, Trash2 } from "lucide-react";
+import { Users, Mail, Search, Edit2, Shield, User as UserIcon, Settings, Plus, Loader2, Trash2 } from "lucide-react";
 import { User, UserRole } from "@/types/auth";
 import { userService } from "@/services/supabaseDatabaseService";
 import { defaultRoleDisplayNames, getRoleDisplayName } from "@/lib/roles";
@@ -38,6 +38,9 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
 import { supabaseAuthService } from "@/services/supabaseAuthService";
 import { roleService, DatabaseRole } from "@/services/roleService";
+
+// Roles shown in User Management: only admin, trainer, trainee (validator/SPD/training_officer optional or removed later)
+const USER_MANAGEMENT_ROLES: UserRole[] = ["admin", "trainer", "trainee", "training_officer"];
 
 const AdminUsers = () => {
   const { user: currentUser, loading: authLoading } = useAuth();
@@ -302,7 +305,9 @@ const AdminUsers = () => {
       rolesLoading
     });
     setEditingUser(user);
-    setSelectedRole(user.role);
+    // Only admin and training_officer are assignable; default to training_officer if current role isn't one of them
+    const assignable = user.role === "admin" || user.role === "training_officer";
+    setSelectedRole(assignable ? user.role : "training_officer");
     setIsRoleDialogOpen(true);
   };
 
@@ -429,12 +434,13 @@ const AdminUsers = () => {
     }, {} as Record<UserRole, number>),
   };
 
-  // Get roles dynamically from database, fallback to default if empty
-  // Map database role IDs to UserRole type (allows any string from database)
-  // IMPORTANT: Only use fallback if roles have finished loading AND are still empty
+  // Get roles dynamically from database, fallback to User Management roles if empty
   const allRoles: string[] = availableRoles.length > 0
     ? availableRoles.map(r => r.id)
-    : ['admin', 'training_officer', 'validator', 'trainee']; // Fallback if no roles loaded
+    : [...USER_MANAGEMENT_ROLES];
+
+  // Only show admin, trainer, trainee in cards and filters (validator/SPD/training_officer not shown)
+  const displayRoles = USER_MANAGEMENT_ROLES;
   
   // Debug: Log roles for troubleshooting (log when roles change)
   useEffect(() => {
@@ -452,8 +458,16 @@ const AdminUsers = () => {
   const getRoleDisplayName = (roleId: string): string => {
     const dbRole = availableRoles.find(r => r.id === roleId);
     if (dbRole) return dbRole.name;
-    // Fallback to default display names
+    if (roleId === "trainer") return "Trainer";
     return defaultRoleDisplayNames[roleId as UserRole] || roleId;
+  };
+
+  // Roles that can be assigned when creating or changing a user (admin, trainer, trainee only)
+  const assignableRolesForChange = displayRoles;
+
+  // Account status for list (extend with last_activity when available for "Inactive X months ago")
+  const getAccountStatusLabel = (_createdAt: string): string => {
+    return "Active";
   };
 
   // Debug: Log render state
@@ -528,7 +542,7 @@ const AdminUsers = () => {
             </CardContent>
           </Card>
 
-          {allRoles.map((role) => (
+          {displayRoles.map((role) => (
             <Card key={role}>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                 <CardTitle className="text-sm font-medium">{getRoleDisplayName(role)}</CardTitle>
@@ -565,7 +579,7 @@ const AdminUsers = () => {
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="all">All Roles</SelectItem>
-                  {allRoles.map((role) => (
+                  {displayRoles.map((role) => (
                     <SelectItem key={role} value={role}>
                       {getRoleDisplayName(role)}
                     </SelectItem>
@@ -618,8 +632,8 @@ const AdminUsers = () => {
                     <TableRow>
                       <TableHead>User</TableHead>
                       <TableHead>Email</TableHead>
-                      <TableHead>Phone</TableHead>
                       <TableHead>Role</TableHead>
+                      <TableHead>Account status</TableHead>
                       <TableHead>Joined</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
@@ -657,19 +671,14 @@ const AdminUsers = () => {
                           </div>
                         </TableCell>
                         <TableCell>
-                          {user.phone ? (
-                            <div className="flex items-center gap-2">
-                              <Phone className="w-4 h-4 text-muted-foreground" />
-                              <span className="text-sm">{user.phone}</span>
-                            </div>
-                          ) : (
-                            <span className="text-sm text-muted-foreground">-</span>
-                          )}
-                        </TableCell>
-                        <TableCell>
                           <Badge variant={user.role === "admin" ? "default" : "secondary"}>
                             {getRoleDisplayName(user.role)}
                           </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <span className="text-sm text-muted-foreground">
+                            {getAccountStatusLabel(user.createdAt)}
+                          </span>
                         </TableCell>
                         <TableCell>
                           <span className="text-sm text-muted-foreground">
@@ -678,15 +687,17 @@ const AdminUsers = () => {
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-2">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => openRoleDialog(user)}
-                              className="gap-2"
-                            >
-                              <Shield className="w-4 h-4" />
-                              Change Role
-                            </Button>
+                            {user.role !== "trainee" && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => openRoleDialog(user)}
+                                className="gap-2"
+                              >
+                                <Shield className="w-4 h-4" />
+                                Change Role
+                              </Button>
+                            )}
                             <Button
                               variant="outline"
                               size="sm"
@@ -752,19 +763,15 @@ const AdminUsers = () => {
                     <SelectTrigger id="role">
                       <SelectValue placeholder="Select a role" />
                     </SelectTrigger>
-                    <SelectContent key={`role-content-${allRoles.length}`}>
-                      {allRoles.length === 0 ? (
+                    <SelectContent key={`role-content-${assignableRolesForChange.length}`}>
+                      {assignableRolesForChange.length === 0 ? (
                         <SelectItem value="" disabled>No roles available</SelectItem>
                       ) : (
-                        allRoles.map((role) => {
-                          const displayName = getRoleDisplayName(role);
-                          console.log("📋 Rendering role option:", { role, displayName, totalRoles: allRoles.length });
-                          return (
-                            <SelectItem key={role} value={role}>
-                              {displayName}
-                            </SelectItem>
-                          );
-                        })
+                        assignableRolesForChange.map((role) => (
+                          <SelectItem key={role} value={role}>
+                            {getRoleDisplayName(role)}
+                          </SelectItem>
+                        ))
                       )}
                     </SelectContent>
                   </Select>
@@ -854,7 +861,7 @@ const AdminUsers = () => {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {allRoles.map((role) => (
+                    {assignableRolesForChange.map((role) => (
                       <SelectItem key={role} value={role}>
                         {getRoleDisplayName(role)}
                       </SelectItem>

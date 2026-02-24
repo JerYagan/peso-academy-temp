@@ -46,17 +46,24 @@ const Profile = () => {
     }
   }, [user]);
 
+  const isLearner = user?.role === "trainee" || user?.role === "jobseeker";
+
   const loadProfileData = async () => {
     if (!user) return;
-    
+
     setLoadingData(true);
     try {
-      const [certs, enrolls] = await Promise.all([
-        certificateService.getCertificates(user.id),
-        enrollmentService.getEnrollments(user.id),
-      ]);
-      setCertificates(certs);
-      setEnrollments(enrolls);
+      if (isLearner) {
+        const [certs, enrolls] = await Promise.all([
+          certificateService.getCertificates(user.id),
+          enrollmentService.getEnrollments(user.id),
+        ]);
+        setCertificates(certs);
+        setEnrollments(enrolls);
+      } else {
+        setCertificates([]);
+        setEnrollments([]);
+      }
     } catch (error) {
       console.error("Error loading profile data:", error);
       toast.error("Failed to load profile data");
@@ -240,41 +247,43 @@ const Profile = () => {
             </CardContent>
           </Card>
 
-          {/* Stats */}
-          <Card>
-            <CardHeader>
-              <CardTitle>Statistics</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {loadingData ? (
-                <div className="flex items-center justify-center py-8">
-                  <Loader2 className="w-6 h-6 text-muted-foreground animate-spin" />
-                </div>
-              ) : (
-                <>
-                  <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center">
-                      <BookOpen className="w-6 h-6 text-primary" />
-                    </div>
-                    <div>
-                      <p className="text-2xl font-bold">{enrollments.length}</p>
-                      <p className="text-sm text-muted-foreground">Enrolled Courses</p>
-                    </div>
+          {/* Stats – only for learner roles (trainee, jobseeker); admins/trainers don't need enrolled courses / certificates here */}
+          {isLearner && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Statistics</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {loadingData ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="w-6 h-6 text-muted-foreground animate-spin" />
                   </div>
+                ) : (
+                  <>
+                    <div className="flex items-center gap-3">
+                      <div className="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center">
+                        <BookOpen className="w-6 h-6 text-primary" />
+                      </div>
+                      <div>
+                        <p className="text-2xl font-bold">{enrollments.length}</p>
+                        <p className="text-sm text-muted-foreground">Enrolled Courses</p>
+                      </div>
+                    </div>
 
-                  <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 rounded-lg bg-accent/10 flex items-center justify-center">
-                      <Award className="w-6 h-6 text-accent" />
+                    <div className="flex items-center gap-3">
+                      <div className="w-12 h-12 rounded-lg bg-accent/10 flex items-center justify-center">
+                        <Award className="w-6 h-6 text-accent" />
+                      </div>
+                      <div>
+                        <p className="text-2xl font-bold">{certificates.length}</p>
+                        <p className="text-sm text-muted-foreground">Certificates</p>
+                      </div>
                     </div>
-                    <div>
-                      <p className="text-2xl font-bold">{certificates.length}</p>
-                      <p className="text-sm text-muted-foreground">Certificates</p>
-                    </div>
-                  </div>
-                </>
-              )}
-            </CardContent>
-          </Card>
+                  </>
+                )}
+              </CardContent>
+            </Card>
+          )}
 
           {/* Security - Change password */}
           <Card className="md:col-span-2">

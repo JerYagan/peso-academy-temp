@@ -37,7 +37,6 @@ import {
   X,
   Loader2,
   Plus,
-  Trash2,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -84,6 +83,19 @@ const roleColors: Record<string, string> = {
   purple: "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-300",
   orange: "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-300",
   gray: "bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-300",
+};
+
+// Only these 3 roles are shown: Internal = admin + training_officer, End User = trainee
+const FIXED_ROLE_IDS = ["admin", "training_officer", "trainee"] as const;
+const FIXED_ROLE_ICON: Record<string, keyof typeof roleIcons> = {
+  admin: "Shield",
+  training_officer: "GraduationCap",
+  trainee: "User",
+};
+const FIXED_ROLE_COLOR: Record<string, keyof typeof roleColors> = {
+  admin: "blue",
+  training_officer: "gray",
+  trainee: "green",
 };
 
 const AdminRoles = () => {
@@ -308,8 +320,10 @@ const AdminRoles = () => {
     }
   };
 
-  const internalRoles = roles.filter((r) => r.category === "internal");
-  const endUserRoles = roles.filter((r) => r.category === "end_user");
+  // Only 3 fixed roles: Internal = admin + training_officer, End User = trainee
+  const fixedRoles = roles.filter((r) => FIXED_ROLE_IDS.includes(r.id as any));
+  const internalRoles = fixedRoles.filter((r) => r.category === "internal"); // admin, training_officer
+  const endUserRoles = fixedRoles.filter((r) => r.category === "end_user"); // trainee
 
   if (loading) {
     return (
@@ -327,36 +341,14 @@ const AdminRoles = () => {
   return (
     <DashboardLayout>
       <div className="space-y-8">
-        <div className="flex items-center justify-between">
-          <div>
+        <div>
             <h1 className="text-3xl font-bold">Role Management</h1>
             <p className="text-muted-foreground mt-2">
               View and manage system roles, permissions, and access controls
             </p>
           </div>
-          <Button
-            onClick={() => {
-              setRoleForm({
-                id: "",
-                name: "",
-                description: "",
-                category: "end_user",
-                icon: "User",
-                color: "gray",
-                dashboard_route: "/dashboard",
-                can_signup: false,
-                metadata: null,
-              });
-              setSelectedPermissions(new Set());
-              setIsCreateDialogOpen(true);
-            }}
-          >
-            <Plus className="w-4 h-4 mr-2" />
-            Create Role
-          </Button>
-        </div>
 
-        {/* Statistics */}
+        {/* Statistics - aligned with tabs: Total 3, Internal 2, End Users 1 */}
         <div className="grid gap-4 md:grid-cols-3">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -364,7 +356,7 @@ const AdminRoles = () => {
               <Shield className="h-4 w-4 text-muted-foreground" />
             </CardHeader>
             <CardContent>
-              <div className="text-2xl font-bold">{roles.length}</div>
+              <div className="text-2xl font-bold">{fixedRoles.length}</div>
               <p className="text-xs text-muted-foreground">System roles</p>
             </CardContent>
           </Card>
@@ -376,7 +368,7 @@ const AdminRoles = () => {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{internalRoles.length}</div>
-              <p className="text-xs text-muted-foreground">Internal user roles</p>
+              <p className="text-xs text-muted-foreground">Training Officer, Administrator</p>
             </CardContent>
           </Card>
 
@@ -387,7 +379,7 @@ const AdminRoles = () => {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{endUserRoles.length}</div>
-              <p className="text-xs text-muted-foreground">End user roles</p>
+              <p className="text-xs text-muted-foreground">Trainee only</p>
             </CardContent>
           </Card>
         </div>
@@ -408,34 +400,8 @@ const AdminRoles = () => {
 
               <TabsContent value="all" className="mt-4">
                 <RolesTable
-                  roles={roles}
+                  roles={fixedRoles}
                   onViewPermissions={viewRolePermissions}
-                  onEditPermissions={editRolePermissions}
-                  onEditRole={async (role) => {
-                    try {
-                      const roleWithPerms = await roleService.getRoleWithPermissions(role.id);
-                      setRoleForm({
-                        id: role.id,
-                        name: role.name,
-                        description: role.description || "",
-                        category: role.category,
-                        icon: role.icon || "User",
-                        color: role.color || "gray",
-                        dashboard_route: role.dashboard_route,
-                        can_signup: role.can_signup,
-                        metadata: role.metadata,
-                      });
-                      setSelectedPermissions(new Set(roleWithPerms?.permissions.map((p) => p.id) || []));
-                      setIsEditRoleDialogOpen(true);
-                    } catch (error) {
-                      console.error("Error loading role:", error);
-                      toast.error("Failed to load role details");
-                    }
-                  }}
-                  onDeleteRole={(role) => {
-                    setRoleToDelete(role);
-                    setIsDeleteDialogOpen(true);
-                  }}
                 />
               </TabsContent>
 
@@ -443,32 +409,6 @@ const AdminRoles = () => {
                 <RolesTable
                   roles={internalRoles}
                   onViewPermissions={viewRolePermissions}
-                  onEditPermissions={editRolePermissions}
-                  onEditRole={async (role) => {
-                    try {
-                      const roleWithPerms = await roleService.getRoleWithPermissions(role.id);
-                      setRoleForm({
-                        id: role.id,
-                        name: role.name,
-                        description: role.description || "",
-                        category: role.category,
-                        icon: role.icon || "User",
-                        color: role.color || "gray",
-                        dashboard_route: role.dashboard_route,
-                        can_signup: role.can_signup,
-                        metadata: role.metadata,
-                      });
-                      setSelectedPermissions(new Set(roleWithPerms?.permissions.map((p) => p.id) || []));
-                      setIsEditRoleDialogOpen(true);
-                    } catch (error) {
-                      console.error("Error loading role:", error);
-                      toast.error("Failed to load role details");
-                    }
-                  }}
-                  onDeleteRole={(role) => {
-                    setRoleToDelete(role);
-                    setIsDeleteDialogOpen(true);
-                  }}
                 />
               </TabsContent>
 
@@ -476,32 +416,6 @@ const AdminRoles = () => {
                 <RolesTable
                   roles={endUserRoles}
                   onViewPermissions={viewRolePermissions}
-                  onEditPermissions={editRolePermissions}
-                  onEditRole={async (role) => {
-                    try {
-                      const roleWithPerms = await roleService.getRoleWithPermissions(role.id);
-                      setRoleForm({
-                        id: role.id,
-                        name: role.name,
-                        description: role.description || "",
-                        category: role.category,
-                        icon: role.icon || "User",
-                        color: role.color || "gray",
-                        dashboard_route: role.dashboard_route,
-                        can_signup: role.can_signup,
-                        metadata: role.metadata,
-                      });
-                      setSelectedPermissions(new Set(roleWithPerms?.permissions.map((p) => p.id) || []));
-                      setIsEditRoleDialogOpen(true);
-                    } catch (error) {
-                      console.error("Error loading role:", error);
-                      toast.error("Failed to load role details");
-                    }
-                  }}
-                  onDeleteRole={(role) => {
-                    setRoleToDelete(role);
-                    setIsDeleteDialogOpen(true);
-                  }}
                 />
               </TabsContent>
             </Tabs>
@@ -1095,16 +1009,12 @@ const RoleForm = ({
 interface RolesTableProps {
   roles: DatabaseRole[];
   onViewPermissions: (role: DatabaseRole) => void;
-  onEditPermissions: (role: DatabaseRole) => void;
-  onEditRole: (role: DatabaseRole) => void;
-  onDeleteRole: (role: DatabaseRole) => void;
 }
 
-const RolesTable = ({ roles, onViewPermissions, onEditPermissions, onEditRole, onDeleteRole }: RolesTableProps) => {
+const RolesTable = ({ roles, onViewPermissions }: RolesTableProps) => {
   const [rolePermissionCounts, setRolePermissionCounts] = useState<Record<string, number>>({});
 
   useEffect(() => {
-    // Load permission counts for each role
     const loadCounts = async () => {
       const counts: Record<string, number> = {};
       for (const role of roles) {
@@ -1135,8 +1045,12 @@ const RolesTable = ({ roles, onViewPermissions, onEditPermissions, onEditRole, o
         </TableHeader>
         <TableBody>
           {roles.map((role) => {
-            const IconComponent = roleIcons[role.icon || "User"] || User;
-            const colorClass = roleColors[role.color || "gray"] || roleColors.gray;
+            const iconKey = FIXED_ROLE_ICON[role.id] || "User";
+            const colorKey = FIXED_ROLE_COLOR[role.id] || "gray";
+            const IconComponent = roleIcons[iconKey] || User;
+            const colorClass = roleColors[colorKey] || roleColors.gray;
+            const isEndUser = role.category === "end_user";
+            const signupLabel = isEndUser ? "Yes" : "No";
 
             return (
               <TableRow key={role.id}>
@@ -1164,54 +1078,23 @@ const RolesTable = ({ roles, onViewPermissions, onEditPermissions, onEditRole, o
                   </Badge>
                 </TableCell>
                 <TableCell>
-                  <Badge variant={role.can_signup ? "default" : "outline"}>
-                    {role.can_signup ? "Yes" : "No"}
+                  <Badge variant={signupLabel === "Yes" ? "default" : "outline"}>
+                    {signupLabel}
                   </Badge>
                 </TableCell>
                 <TableCell>
                   <code className="text-xs bg-muted px-2 py-1 rounded">{role.dashboard_route}</code>
                 </TableCell>
                 <TableCell className="text-right">
-                  <div className="flex justify-end gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => onViewPermissions(role)}
-                      className="gap-2"
-                    >
-                      <Eye className="w-4 h-4" />
-                      View
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => onEditPermissions(role)}
-                      className="gap-2"
-                      title="Edit Permissions"
-                    >
-                      <Edit className="w-4 h-4" />
-                      Permissions
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => onEditRole(role)}
-                      className="gap-2"
-                      title="Edit Role Details"
-                    >
-                      <Edit className="w-4 h-4" />
-                      Edit
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => onDeleteRole(role)}
-                      className="gap-2 text-destructive hover:text-destructive"
-                      title="Delete Role"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
-                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => onViewPermissions(role)}
+                    className="gap-2"
+                  >
+                    <Eye className="w-4 h-4" />
+                    View
+                  </Button>
                 </TableCell>
               </TableRow>
             );

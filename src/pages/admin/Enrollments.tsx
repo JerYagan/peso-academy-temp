@@ -30,15 +30,8 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Users, Plus, Search, MoreVertical, Pause, Play, Trash2, History } from "lucide-react";
+import { Users, Plus, Search, Trash2 } from "lucide-react";
 import { Enrollment, Course } from "@/types";
 import { enrollmentService, courseService } from "@/services/supabaseDatabaseService";
 import { BulkEnrollmentDialog } from "@/components/enrollment/BulkEnrollmentDialog";
@@ -48,6 +41,7 @@ type EnrollmentWithDetails = Enrollment & {
   userName?: string;
   userEmail?: string;
   courseTitle?: string;
+  lastActivityAt?: string;
 };
 
 const AdminEnrollments = () => {
@@ -61,11 +55,6 @@ const AdminEnrollments = () => {
   const [selectedCourse, setSelectedCourse] = useState<Course | null>(null);
   const [unenrollId, setUnenrollId] = useState<string | null>(null);
   const [preserveProgress, setPreserveProgress] = useState(false);
-  const [statusChangeDialog, setStatusChangeDialog] = useState<{
-    open: boolean;
-    enrollment: EnrollmentWithDetails | null;
-    newStatus: Enrollment["status"] | null;
-  }>({ open: false, enrollment: null, newStatus: null });
 
   useEffect(() => {
     loadCourses();
@@ -133,22 +122,6 @@ const AdminEnrollments = () => {
     return matchesSearch && matchesCourse && matchesStatus;
   });
 
-  const handleStatusChange = async () => {
-    if (!statusChangeDialog.enrollment || !statusChangeDialog.newStatus) return;
-
-    try {
-      await enrollmentService.updateEnrollment(statusChangeDialog.enrollment.id, {
-        status: statusChangeDialog.newStatus,
-      });
-      toast.success("Enrollment status updated");
-      setStatusChangeDialog({ open: false, enrollment: null, newStatus: null });
-      loadEnrollments();
-    } catch (error) {
-      console.error("Error updating enrollment status:", error);
-      toast.error("Failed to update enrollment status");
-    }
-  };
-
   const handleUnenroll = async () => {
     if (!unenrollId) return;
 
@@ -172,6 +145,19 @@ const AdminEnrollments = () => {
       dropped: "destructive",
     };
     return <Badge variant={variants[status]}>{status}</Badge>;
+  };
+
+  const getLastActiveLabel = (lastActivityAt?: string) => {
+    if (!lastActivityAt) return { text: "—", color: "text-muted-foreground" };
+    const at = new Date(lastActivityAt).getTime();
+    const now = Date.now();
+    const hours = (now - at) / (1000 * 60 * 60);
+    const days = hours / 24;
+    if (hours < 6) return { text: "Active (within 6h)", color: "text-green-600 font-medium" };
+    if (hours < 24) return { text: `${Math.round(hours)}h ago`, color: "text-green-600" };
+    if (days < 7) return { text: `${Math.round(days)} day(s) ago`, color: "text-yellow-600 dark:text-yellow-500" };
+    if (days < 14) return { text: `${Math.round(days)} days ago`, color: "text-orange-600 dark:text-orange-500" };
+    return { text: `${Math.round(days / 7)} week(s) ago`, color: "text-red-600 font-medium" };
   };
 
   return (
@@ -270,69 +256,42 @@ const AdminEnrollments = () => {
                     <TableHead>Course</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Progress</TableHead>
+                    <TableHead>Last Active</TableHead>
                     <TableHead>Enrolled</TableHead>
                     <TableHead className="text-right">Actions</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredEnrollments.map((enrollment) => (
-                    <TableRow key={enrollment.id}>
-                      <TableCell>
-                        <div>
-                          <div className="font-medium">{enrollment.userName || "Unknown"}</div>
-                          <div className="text-sm text-muted-foreground">{enrollment.userEmail}</div>
-                        </div>
-                      </TableCell>
-                      <TableCell>{enrollment.courseTitle || "Unknown Course"}</TableCell>
-                      <TableCell>{getStatusBadge(enrollment.status)}</TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <div className="w-24 bg-muted rounded-full h-2">
-                            <div
-                              className="bg-primary h-2 rounded-full"
-                              style={{ width: `${enrollment.progress}%` }}
-                            />
+                  {filteredEnrollments.map((enrollment) => {
+                    const lastActive = getLastActiveLabel(enrollment.lastActivityAt || enrollment.enrolledAt);
+                    return (
+                      <TableRow key={enrollment.id}>
+                        <TableCell>
+                          <div>
+                            <div className="font-medium">{enrollment.userName || "Unknown"}</div>
+                            <div className="text-sm text-muted-foreground">{enrollment.userEmail}</div>
                           </div>
-                          <span className="text-sm">{enrollment.progress}%</span>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        {new Date(enrollment.enrolledAt).toLocaleDateString()}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex justify-end gap-2">
-                          {enrollment.status === "enrolled" && (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() =>
-                                setStatusChangeDialog({
-                                  open: true,
-                                  enrollment,
-                                  newStatus: "in-progress",
-                                })
-                              }
-                            >
-                              <Play className="w-4 h-4 mr-1" />
-                              Resume
-                            </Button>
-                          )}
-                          {enrollment.status === "in-progress" && (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() =>
-                                setStatusChangeDialog({
-                                  open: true,
-                                  enrollment,
-                                  newStatus: "enrolled",
-                                })
-                              }
-                            >
-                              <Pause className="w-4 h-4 mr-1" />
-                              Pause
-                            </Button>
-                          )}
+                        </TableCell>
+                        <TableCell>{enrollment.courseTitle || "Unknown Course"}</TableCell>
+                        <TableCell>{getStatusBadge(enrollment.status)}</TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <div className="w-24 bg-muted rounded-full h-2">
+                              <div
+                                className="bg-primary h-2 rounded-full"
+                                style={{ width: `${enrollment.progress}%` }}
+                              />
+                            </div>
+                            <span className="text-sm">{enrollment.progress}%</span>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <span className={lastActive.color}>{lastActive.text}</span>
+                        </TableCell>
+                        <TableCell>
+                          {new Date(enrollment.enrolledAt).toLocaleDateString()}
+                        </TableCell>
+                        <TableCell className="text-right">
                           <Button
                             variant="destructive"
                             size="sm"
@@ -340,10 +299,10 @@ const AdminEnrollments = () => {
                           >
                             <Trash2 className="w-4 h-4" />
                           </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  ))}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
                 </TableBody>
               </Table>
             )}
@@ -363,37 +322,6 @@ const AdminEnrollments = () => {
           onSuccess={loadEnrollments}
         />
       )}
-
-      {/* Status Change Dialog */}
-      <Dialog
-        open={statusChangeDialog.open}
-        onOpenChange={(open) =>
-          setStatusChangeDialog({ open, enrollment: null, newStatus: null })
-        }
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Change Enrollment Status</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <p>
-              Change status from <strong>{statusChangeDialog.enrollment?.status}</strong> to{" "}
-              <strong>{statusChangeDialog.newStatus}</strong>?
-            </p>
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() =>
-                setStatusChangeDialog({ open: false, enrollment: null, newStatus: null })
-              }
-            >
-              Cancel
-            </Button>
-            <Button onClick={handleStatusChange}>Confirm</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       {/* Unenroll Confirmation Dialog */}
       <AlertDialog open={!!unenrollId} onOpenChange={(open) => !open && setUnenrollId(null)}>

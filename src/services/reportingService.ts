@@ -391,11 +391,12 @@ export const reportingService = {
         periodLabel = format(now, "yyyy");
       }
 
-      // Get enrollments in period
+      // Get enrollments in period (include user_id so Total Participants = unique users)
       const { data: enrollments } = await supabase
         .from("enrollments")
         .select(`
           id,
+          user_id,
           course_id,
           status,
           completed_at,
@@ -411,12 +412,15 @@ export const reportingService = {
 
       if (!enrollments) return null;
 
-      const uniqueUsers = new Set(enrollments.map((e) => e.user_id));
-      const completedEnrollments = enrollments.filter((e) => e.status === "completed");
+      // Exclude dropped so summary and course breakdown match active participants only
+      const activeEnrollments = enrollments.filter((e: any) => e.status !== "dropped");
 
-      // Get courses data
+      const uniqueUsers = new Set(activeEnrollments.map((e: any) => e.user_id));
+      const completedEnrollments = activeEnrollments.filter((e: any) => e.status === "completed");
+
+      // Get courses data (from active enrollments only)
       const courseMap = new Map<string, any>();
-      enrollments.forEach((e) => {
+      activeEnrollments.forEach((e: any) => {
         const course = e.courses as any;
         if (!course) return;
 
@@ -444,9 +448,9 @@ export const reportingService = {
             : 0;
       });
 
-      // Get TESDA supported courses
-      const tesdaCourses = enrollments.filter(
-        (e) => (e.courses as any)?.is_tesda_accredited === true
+      // Get TESDA supported courses (from active enrollments)
+      const tesdaCourses = activeEnrollments.filter(
+        (e: any) => (e.courses as any)?.is_tesda_accredited === true
       );
       const uniqueTesdaCourses = new Set(tesdaCourses.map((e) => e.course_id));
 
@@ -457,9 +461,9 @@ export const reportingService = {
         .gte("issued_at", startDate.toISOString())
         .lte("issued_at", endDate.toISOString());
 
-      // Calculate average duration
-      const coursesWithDuration = enrollments
-        .map((e) => (e.courses as any)?.duration)
+      // Calculate average duration (from courses in active enrollments)
+      const coursesWithDuration = activeEnrollments
+        .map((e: any) => (e.courses as any)?.duration)
         .filter((d) => d !== null && d !== undefined);
       const averageDuration =
         coursesWithDuration.length > 0
@@ -475,8 +479,8 @@ export const reportingService = {
         totalParticipants: uniqueUsers.size,
         totalCompletions: completedEnrollments.length,
         completionRate:
-          enrollments.length > 0
-            ? Math.round((completedEnrollments.length / enrollments.length) * 100)
+          activeEnrollments.length > 0
+            ? Math.round((completedEnrollments.length / activeEnrollments.length) * 100)
             : 0,
         tesdaAccreditedTrainings: uniqueTesdaCourses.size,
         certificatesIssued: certificates?.length || 0,
