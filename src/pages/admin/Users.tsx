@@ -29,7 +29,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Users, Mail, Phone, Search, Edit2, Shield, User as UserIcon, Settings, Plus, Loader2, Trash2 } from "lucide-react";
+import { Users, Mail, Search, Edit2, Shield, User as UserIcon, Settings, Plus, Loader2, Trash2 } from "lucide-react";
 import { User, UserRole } from "@/types/auth";
 import { userService } from "@/services/supabaseDatabaseService";
 import { defaultRoleDisplayNames, getRoleDisplayName } from "@/lib/roles";
@@ -449,6 +449,11 @@ const AdminUsers = () => {
     return defaultRoleDisplayNames[roleId as UserRole] || roleId;
   };
 
+  // Account status for list (extend with last_activity when available for "Inactive X months ago")
+  const getAccountStatusLabel = (_createdAt: string): string => {
+    return "Active";
+  };
+
   // Debug: Log render state
   console.log("🎨 AdminUsers render", { 
     loading, 
@@ -611,8 +616,8 @@ const AdminUsers = () => {
                     <TableRow>
                       <TableHead>User</TableHead>
                       <TableHead>Email</TableHead>
-                      <TableHead>Phone</TableHead>
                       <TableHead>Role</TableHead>
+                      <TableHead>Account status</TableHead>
                       <TableHead>Joined</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
@@ -650,19 +655,14 @@ const AdminUsers = () => {
                           </div>
                         </TableCell>
                         <TableCell>
-                          {user.phone ? (
-                            <div className="flex items-center gap-2">
-                              <Phone className="w-4 h-4 text-muted-foreground" />
-                              <span className="text-sm">{user.phone}</span>
-                            </div>
-                          ) : (
-                            <span className="text-sm text-muted-foreground">-</span>
-                          )}
-                        </TableCell>
-                        <TableCell>
                           <Badge variant={user.role === "admin" ? "default" : "secondary"}>
                             {getRoleDisplayName(user.role)}
                           </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <span className="text-sm text-muted-foreground">
+                            {getAccountStatusLabel(user.createdAt)}
+                          </span>
                         </TableCell>
                         <TableCell>
                           <span className="text-sm text-muted-foreground">
