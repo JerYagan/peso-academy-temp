@@ -41,6 +41,7 @@ import {
   LineChart,
   Line,
   PieChart as RechartsPieChart,
+  Pie,
   Cell,
   XAxis,
   YAxis,
@@ -612,36 +613,42 @@ const Reports = () => {
                         <CardTitle>Users by Role</CardTitle>
                       </CardHeader>
                       <CardContent>
-                        <ResponsiveContainer width="100%" height={300}>
-                          <RechartsPieChart>
-                            <Tooltip />
-                            <Legend />
-                            <RechartsPieChart
-                              data={Object.entries(
-                                userActivityReports.reduce((acc, r) => {
-                                  acc[r.role] = (acc[r.role] || 0) + 1;
-                                  return acc;
-                                }, {} as Record<string, number>)
-                              ).map(([name, value]) => ({ name, value }))}
-                              cx="50%"
-                              cy="50%"
-                              labelLine={false}
-                              label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
-                              outerRadius={80}
-                              fill="#8884d8"
-                              dataKey="value"
-                            >
-                              {Object.entries(
-                                userActivityReports.reduce((acc, r) => {
-                                  acc[r.role] = (acc[r.role] || 0) + 1;
-                                  return acc;
-                                }, {} as Record<string, number>)
-                              ).map((entry, index) => (
-                                <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                              ))}
-                            </RechartsPieChart>
-                          </RechartsPieChart>
-                        </ResponsiveContainer>
+                        {(() => {
+                          const roleData = Object.entries(
+                            userActivityReports.reduce((acc, r) => {
+                              const role = r.role || "Unknown";
+                              acc[role] = (acc[role] || 0) + 1;
+                              return acc;
+                            }, {} as Record<string, number>)
+                          ).map(([name, value]) => ({ name, value }));
+                          return roleData.length > 0 ? (
+                            <ResponsiveContainer width="100%" height={300}>
+                              <RechartsPieChart>
+                                <Tooltip />
+                                <Legend />
+                                <Pie
+                                  data={roleData}
+                                  cx="50%"
+                                  cy="50%"
+                                  labelLine={false}
+                                  label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
+                                  outerRadius={80}
+                                  fill="#8884d8"
+                                  dataKey="value"
+                                >
+                                  {roleData.map((_, index) => (
+                                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                                  ))}
+                                </Pie>
+                              </RechartsPieChart>
+                            </ResponsiveContainer>
+                          ) : (
+                            <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+                              <Users className="w-12 h-12 mb-2" />
+                              <p>No role distribution data</p>
+                            </div>
+                          );
+                        })()}
                       </CardContent>
                     </Card>
 
@@ -794,7 +801,7 @@ const Reports = () => {
                           <RechartsPieChart>
                             <Tooltip />
                             <Legend />
-                            <RechartsPieChart
+                            <Pie
                               data={[
                                 {
                                   name: "Completion",
@@ -819,7 +826,7 @@ const Reports = () => {
                             >
                               <Cell fill={COLORS[0]} />
                               <Cell fill={COLORS[1]} />
-                            </RechartsPieChart>
+                            </Pie>
                           </RechartsPieChart>
                         </ResponsiveContainer>
                       </CardContent>
@@ -1189,7 +1196,7 @@ const Reports = () => {
                           <RechartsPieChart>
                             <Tooltip />
                             <Legend />
-                            <RechartsPieChart
+                            <Pie
                               data={Object.entries(
                                 enrollmentReports.reduce((acc, r) => {
                                   acc[r.status] = (acc[r.status] || 0) + 1;
@@ -1212,7 +1219,7 @@ const Reports = () => {
                               ).map((entry, index) => (
                                 <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
                               ))}
-                            </RechartsPieChart>
+                            </Pie>
                           </RechartsPieChart>
                         </ResponsiveContainer>
                       </CardContent>
