@@ -2,12 +2,13 @@ import { useAuth } from "@/contexts/AuthContext";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { BookOpen, Users, Award, TrendingUp, ArrowRight, Shield, FileText, FileSpreadsheet, Loader2 } from "lucide-react";
+import { BookOpen, Users, Award, TrendingUp, ArrowRight, Shield, FileText, FileSpreadsheet, Loader2, CheckCircle2 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { enrollmentService, certificateService, courseService } from "@/services/supabaseDatabaseService";
 import { dataService } from "@/services/mockData"; // TODO: Replace with Supabase services for admin/training officer dashboards
 import { useEffect, useState } from "react";
 import { Course, Enrollment } from "@/types";
+import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { User } from "@/types/auth";
 
@@ -42,6 +43,7 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
           return course ? { ...course, enrollment: e } : null;
         })
         .filter((c): c is Course & { enrollment: Enrollment } => c !== null)
+        .sort((a, b) => (a.enrollment.status === "completed" ? 1 : 0) - (b.enrollment.status === "completed" ? 1 : 0))
         .slice(0, 3);
       
       setMyCourses(coursesWithEnrollments);
@@ -127,31 +129,50 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
           ) : (
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
               {myCourses.length > 0 ? (
-                myCourses.map((course) => (
-                  <Card key={course.id}>
-                    <CardHeader>
-                      <CardTitle className="line-clamp-2">{course.title}</CardTitle>
-                      <CardDescription>{course.category} • {course.level}</CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="space-y-2">
-                        <div className="flex justify-between text-sm">
-                          <span className="text-muted-foreground">Progress</span>
-                          <span className="font-medium">{course.enrollment.progress}%</span>
+                myCourses.map((course) => {
+                  const isCompleted = course.enrollment.status === "completed";
+                  return (
+                    <Card key={course.id} className={isCompleted ? "border-green-200 dark:border-green-900/30" : ""}>
+                      <CardHeader>
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0 flex-1">
+                            <CardTitle className="line-clamp-2">{course.title}</CardTitle>
+                            <CardDescription>{course.category} • {course.level}</CardDescription>
+                          </div>
+                          {isCompleted && (
+                            <Badge variant="outline" className="shrink-0 text-green-600 border-green-300">
+                              <CheckCircle2 className="w-3 h-3 mr-1" />
+                              Completed
+                            </Badge>
+                          )}
                         </div>
-                        <div className="h-2 bg-muted rounded-full overflow-hidden">
-                          <div
-                            className="h-full bg-primary rounded-full transition-all"
-                            style={{ width: `${course.enrollment.progress}%` }}
-                          />
+                      </CardHeader>
+                      <CardContent>
+                        <div className="space-y-2">
+                          <div className="flex justify-between text-sm">
+                            <span className="text-muted-foreground">Progress</span>
+                            <span className="font-medium">{course.enrollment.progress}%</span>
+                          </div>
+                          <div className="h-2 bg-muted rounded-full overflow-hidden">
+                            <div
+                              className={`h-full rounded-full transition-all ${isCompleted ? "bg-green-600" : "bg-primary"}`}
+                              style={{ width: `${course.enrollment.progress}%` }}
+                            />
+                          </div>
+                          {isCompleted ? (
+                            <Button asChild className="w-full mt-4" variant="secondary">
+                              <Link to="/certificates">View Certificate</Link>
+                            </Button>
+                          ) : (
+                            <Button asChild className="w-full mt-4">
+                              <Link to={`/courses/${course.id}`}>Continue Learning</Link>
+                            </Button>
+                          )}
                         </div>
-                        <Button asChild className="w-full mt-4">
-                          <Link to={`/courses/${course.id}`}>Continue Learning</Link>
-                        </Button>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))
+                      </CardContent>
+                    </Card>
+                  );
+                })
               ) : (
                 <Card className="col-span-full">
                   <CardContent className="flex flex-col items-center justify-center py-8">
@@ -258,50 +279,112 @@ const Dashboard = () => {
 
           </div>
 
-          <div className="grid gap-4 md:grid-cols-2">
-            <Card>
-              <CardHeader>
-                <CardTitle>Quick Actions</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                <Button asChild className="w-full justify-start" variant="outline">
-                  <Link to="/admin/users">
-                    <Users className="mr-2 h-4 w-4" />
+          {/* Quick Actions - informative cards */}
+          <div>
+            <h2 className="text-xl font-semibold mb-4">Quick Actions</h2>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+              <Card className="flex flex-col">
+                <CardHeader>
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Users className="h-4 w-4" />
                     Manage Users
-                  </Link>
-                </Button>
-                <Button asChild className="w-full justify-start" variant="outline">
-                  <Link to="/admin/courses">
-                    <BookOpen className="mr-2 h-4 w-4" />
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="flex-1 flex flex-col">
+                  <CardDescription className="mb-4">
+                    Manage registered users, assign/change roles, and oversee account status.
+                  </CardDescription>
+                  <Button asChild variant="outline" size="sm" className="mt-auto w-fit">
+                    <Link to="/admin/users">Open</Link>
+                  </Button>
+                </CardContent>
+              </Card>
+
+              <Card className="flex flex-col">
+                <CardHeader>
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <BookOpen className="h-4 w-4" />
                     Manage Courses
-                  </Link>
-                </Button>
-                <Button asChild className="w-full justify-start" variant="outline">
-                  <Link to="/admin/roles">
-                    <Shield className="mr-2 h-4 w-4" />
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="flex-1 flex flex-col">
+                  <CardDescription className="mb-4">
+                    Create and edit courses, manage modules, and control course visibility.
+                  </CardDescription>
+                  <Button asChild variant="outline" size="sm" className="mt-auto w-fit">
+                    <Link to="/admin/courses">Open</Link>
+                  </Button>
+                </CardContent>
+              </Card>
+
+              <Card className="flex flex-col">
+                <CardHeader>
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Shield className="h-4 w-4" />
                     Manage Roles
-                  </Link>
-                </Button>
-                <Button asChild className="w-full justify-start" variant="outline">
-                  <Link to="/admin/audit-logs">
-                    <FileText className="mr-2 h-4 w-4" />
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="flex-1 flex flex-col">
+                  <CardDescription className="mb-4">
+                    Define user roles, job functions, and system access permissions.
+                  </CardDescription>
+                  <Button asChild variant="outline" size="sm" className="mt-auto w-fit">
+                    <Link to="/admin/roles">Open</Link>
+                  </Button>
+                </CardContent>
+              </Card>
+
+              <Card className="flex flex-col">
+                <CardHeader>
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <FileText className="h-4 w-4" />
                     Audit Logs
-                  </Link>
-                </Button>
-                <Button asChild className="w-full justify-start" variant="outline">
-                  <Link to="/admin/enrollments">
-                    <Users className="mr-2 h-4 w-4" />
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="flex-1 flex flex-col">
+                  <CardDescription className="mb-4">
+                    Track system activities and review user actions for security and accountability.
+                  </CardDescription>
+                  <Button asChild variant="outline" size="sm" className="mt-auto w-fit">
+                    <Link to="/admin/audit-logs">Open</Link>
+                  </Button>
+                </CardContent>
+              </Card>
+
+              <Card className="flex flex-col">
+                <CardHeader>
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Users className="h-4 w-4" />
                     Manage Enrollments
-                  </Link>
-                </Button>
-                <Button asChild className="w-full justify-start" variant="outline">
-                  <Link to="/admin/reports">
-                    <FileSpreadsheet className="mr-2 h-4 w-4" />
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="flex-1 flex flex-col">
+                  <CardDescription className="mb-4">
+                    Monitor trainee enrollments and manage course participation.
+                  </CardDescription>
+                  <Button asChild variant="outline" size="sm" className="mt-auto w-fit">
+                    <Link to="/admin/enrollments">Open</Link>
+                  </Button>
+                </CardContent>
+              </Card>
+
+              <Card className="flex flex-col">
+                <CardHeader>
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <FileSpreadsheet className="h-4 w-4" />
                     Reports & Analytics
-                  </Link>
-                </Button>
-              </CardContent>
-            </Card>
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="flex-1 flex flex-col">
+                  <CardDescription className="mb-4">
+                    Access summarized data and insights on users, courses, and system performance.
+                  </CardDescription>
+                  <Button asChild variant="outline" size="sm" className="mt-auto w-fit">
+                    <Link to="/admin/reports">Open</Link>
+                  </Button>
+                </CardContent>
+              </Card>
+            </div>
           </div>
         </div>
       </DashboardLayout>
