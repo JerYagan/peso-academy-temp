@@ -49,6 +49,7 @@ export const courseService = {
         enrolledCount: course.enrolled_count,
         rating: course.rating,
         createdAt: course.created_at,
+        published: course.published ?? true,
       })) || []
     );
   },
@@ -86,6 +87,7 @@ export const courseService = {
       enrolledCount: data.enrolled_count,
       rating: data.rating,
       createdAt: data.created_at,
+      published: data.published ?? true,
     };
   },
 
@@ -109,6 +111,7 @@ export const courseService = {
         enrolled_count: 0,
         rating: 0,
         certificate_type: "completion",
+        published: course.published ?? false,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       })
@@ -136,6 +139,7 @@ export const courseService = {
       enrolledCount: data.enrolled_count,
       rating: data.rating,
       createdAt: data.created_at,
+      published: data.published ?? false,
     };
   },
 
@@ -157,6 +161,7 @@ export const courseService = {
     if (updates.courseDocument !== undefined) updateData.course_document = updates.courseDocument;
     if (updates.isTESDAAccredited !== undefined) updateData.is_tesda_accredited = updates.isTESDAAccredited;
     if (updates.skills !== undefined) updateData.skills = updates.skills;
+    if (updates.published !== undefined) updateData.published = updates.published;
 
     const { data, error } = await supabase
       .from("courses")
@@ -186,6 +191,7 @@ export const courseService = {
       enrolledCount: data.enrolled_count,
       rating: data.rating,
       createdAt: data.created_at,
+      published: data.published ?? true,
     };
   },
 

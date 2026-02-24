@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { X, Plus, Upload, FileText, Loader2 } from "lucide-react";
+import { X, Plus, Upload, FileText, Loader2, Eye } from "lucide-react";
 import { Course } from "@/types";
 import { courseService } from "@/services/supabaseDatabaseService";
 import { useAuth } from "@/contexts/AuthContext";
@@ -55,6 +55,8 @@ export const CourseCreateEditDialog = ({
   const [categoryOther, setCategoryOther] = useState("");
   const [newSkill, setNewSkill] = useState("");
   const [selectedThumbnailFile, setSelectedThumbnailFile] = useState<File | null>(null);
+  const [thumbnailPreviewUrl, setThumbnailPreviewUrl] = useState<string | null>(null);
+  const [documentPreviewUrl, setDocumentPreviewUrl] = useState<string | null>(null);
 
   useEffect(() => {
     if (course) {
@@ -86,7 +88,30 @@ export const CourseCreateEditDialog = ({
     }
     setSelectedFile(null);
     setSelectedThumbnailFile(null);
+    setThumbnailPreviewUrl(null);
+    setDocumentPreviewUrl(null);
   }, [course, open]);
+
+  // Preview URLs for selected files (revoke on unmount/change)
+  useEffect(() => {
+    if (selectedThumbnailFile) {
+      const url = URL.createObjectURL(selectedThumbnailFile);
+      setThumbnailPreviewUrl(url);
+      return () => URL.revokeObjectURL(url);
+    }
+    setThumbnailPreviewUrl(formData.thumbnail || null);
+    return () => {};
+  }, [selectedThumbnailFile, formData.thumbnail]);
+
+  useEffect(() => {
+    if (selectedFile) {
+      const url = URL.createObjectURL(selectedFile);
+      setDocumentPreviewUrl(url);
+      return () => URL.revokeObjectURL(url);
+    }
+    setDocumentPreviewUrl(currentDocumentUrl || null);
+    return () => {};
+  }, [selectedFile, currentDocumentUrl]);
 
   const ACCEPTED_DOC_TYPES = [
     "application/pdf",
@@ -429,6 +454,69 @@ export const CourseCreateEditDialog = ({
                     </button>
                   </Badge>
                 ))}
+              </div>
+            )}
+          </div>
+
+          {/* Preview: see how thumbnail, title, description and uploaded file reflect */}
+          <div className="rounded-lg border bg-muted/30 p-4 space-y-3">
+            <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+              <Eye className="w-4 h-4" />
+              Preview
+            </div>
+            <div className="grid gap-3 sm:grid-cols-[140px_1fr]">
+              <div className="aspect-video rounded-md border bg-muted flex items-center justify-center overflow-hidden min-h-[80px]">
+                {thumbnailPreviewUrl ? (
+                  <img
+                    src={thumbnailPreviewUrl}
+                    alt="Thumbnail preview"
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  <span className="text-xs text-muted-foreground">Thumbnail</span>
+                )}
+              </div>
+              <div className="min-w-0 space-y-1">
+                <p className="font-semibold truncate">
+                  {formData.title || "Course title"}
+                </p>
+                <p className="text-xs text-muted-foreground line-clamp-2">
+                  {formData.description || "Description"}
+                </p>
+                {(formData.category || categoryOther) && (
+                  <Badge variant="outline" className="text-xs">
+                    {formData.category === "Other" ? categoryOther : formData.category}
+                  </Badge>
+                )}
+              </div>
+            </div>
+            {(documentPreviewUrl || selectedFile) && (
+              <div className="text-xs space-y-1">
+                <span className="text-muted-foreground">Uploaded file / media:</span>
+                {selectedFile && (
+                  <span className="block font-medium">{selectedFile.name}</span>
+                )}
+                {documentPreviewUrl && (
+                  <div className="mt-2 rounded border overflow-hidden bg-background max-h-40">
+                    {documentPreviewUrl.startsWith("blob:") && selectedFile?.type.startsWith("image/") && (
+                      <img src={documentPreviewUrl} alt="Upload preview" className="w-full h-auto max-h-36 object-contain" />
+                    )}
+                    {documentPreviewUrl.startsWith("blob:") && selectedFile?.type.startsWith("video/") && (
+                      <video src={documentPreviewUrl} controls className="w-full max-h-36" />
+                    )}
+                    {(!selectedFile || selectedFile.type.startsWith("application/")) && (
+                      <a
+                        href={documentPreviewUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex items-center gap-2 p-2 text-primary hover:underline"
+                      >
+                        <FileText className="w-4 h-4" />
+                        {documentPreviewUrl.startsWith("blob:") ? selectedFile?.name || "File" : documentPreviewUrl.split("/").pop()}
+                      </a>
+                    )}
+                  </div>
+                )}
               </div>
             )}
           </div>

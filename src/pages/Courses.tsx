@@ -56,7 +56,7 @@ const Courses = () => {
     setLoading(true);
     try {
       const allCourses = await courseService.getCourses();
-      setCourses(allCourses);
+      setCourses(allCourses.filter((c) => c.published !== false));
     } catch (error) {
       console.error("Error loading courses:", error);
       toast.error("Failed to load courses");

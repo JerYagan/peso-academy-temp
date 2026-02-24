@@ -14,6 +14,8 @@ export interface Course {
   enrolledCount: number;
   rating: number;
   createdAt: string;
+  /** When false, course is hidden from trainee Browse Courses; only trainers/admins see it */
+  published?: boolean;
 }
 
 export interface Enrollment {
