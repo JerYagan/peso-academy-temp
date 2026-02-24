@@ -13,6 +13,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { BookOpen, Plus, Users, Award, Edit, Trash2, Settings } from "lucide-react";
+import { Link } from "react-router-dom";
 import { courseService } from "@/services/supabaseDatabaseService";
 import { CourseCreateEditDialog } from "@/components/course/CourseCreateEditDialog";
 import { useNavigate } from "react-router-dom";
@@ -76,6 +77,21 @@ const AdminCourses = () => {
             Add Course
           </Button>
         </div>
+
+        {/* Quick Actions - Manage Enrollments (admin access) */}
+        <Card className="border-primary/20 bg-primary/5">
+          <CardContent className="py-4">
+            <div className="flex flex-wrap items-center gap-4">
+              <span className="text-sm font-medium text-muted-foreground">Quick Actions</span>
+              <Button asChild variant="outline" size="sm" className="gap-2">
+                <Link to="/admin/enrollments">
+                  <Users className="w-4 h-4" />
+                  Manage Enrollments
+                </Link>
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
 
         <Card>
           <CardHeader>

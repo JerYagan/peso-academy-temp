@@ -723,7 +723,7 @@ export const enrollmentService = {
     }
 
     const mappedEnrollments = (
-      data?.map((enrollment) => ({
+      data?.map((enrollment: any) => ({
         id: enrollment.id,
         userId: enrollment.user_id,
         courseId: enrollment.course_id,
@@ -732,6 +732,7 @@ export const enrollmentService = {
         enrolledAt: enrollment.enrolled_at,
         completedAt: enrollment.completed_at || undefined,
         certificateId: enrollment.certificate_id || undefined,
+        lastActivityAt: enrollment.updated_at || enrollment.enrolled_at,
       })) || []
     );
 
@@ -1036,7 +1037,7 @@ export const enrollmentService = {
     }
 
     return (
-      data?.map((item) => ({
+      data?.map((item: any) => ({
         id: item.id,
         userId: item.user_id,
         courseId: item.course_id,
@@ -1047,6 +1048,7 @@ export const enrollmentService = {
         certificateId: item.certificate_id || undefined,
         userName: item.users?.name,
         userEmail: item.users?.email,
+        lastActivityAt: item.updated_at || item.enrolled_at,
       })) || []
     );
   },
