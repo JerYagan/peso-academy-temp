@@ -23,6 +23,7 @@ interface TraineeDashboardProps {
 }
 
 const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
+  const [completedCourses, setCompletedCourses] = useState<Array<Course & { enrollment: Enrollment }>>([]);
   const [myCourses, setMyCourses] = useState<Array<Course & { enrollment: Enrollment }>>([]);
   const [loading, setLoading] = useState(true);
 
@@ -32,22 +33,24 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
 
   const loadMyCourses = async () => {
     if (!user) return;
-    
+
     setLoading(true);
     try {
       const enrollments = await enrollmentService.getEnrollments(user.id);
       const allCourses = await courseService.getCourses();
-      
+
       const coursesWithEnrollments = enrollments
         .map((e) => {
           const course = allCourses.find((c) => c.id === e.courseId);
           return course ? { ...course, enrollment: e } : null;
         })
-        .filter((c): c is Course & { enrollment: Enrollment } => c !== null)
-        .sort((a, b) => (a.enrollment.status === "completed" ? 1 : 0) - (b.enrollment.status === "completed" ? 1 : 0))
-        .slice(0, 3);
-      
-      setMyCourses(coursesWithEnrollments);
+        .filter((c): c is Course & { enrollment: Enrollment } => c !== null);
+
+      const completed = coursesWithEnrollments.filter((c) => c.enrollment.status === "completed");
+      const inProgress = coursesWithEnrollments.filter((c) => c.enrollment.status !== "completed").slice(0, 3);
+
+      setCompletedCourses(completed);
+      setMyCourses(inProgress);
     } catch (error) {
       console.error("Error loading trainee courses:", error);
       toast.error("Failed to load courses");
@@ -112,7 +115,38 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
           </Card> */}
         </div>
 
-        {/* My Courses */}
+        {/* Completed Courses - on Dashboard per user request */}
+        {completedCourses.length > 0 && (
+          <div className="space-y-4">
+            <h2 className="text-xl font-semibold flex items-center gap-2">
+              <CheckCircle2 className="h-5 w-5 text-green-600" />
+              Completed Courses
+            </h2>
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {completedCourses.map((course) => (
+                <Card key={course.id} className="flex flex-col border-green-200 dark:border-green-900/30">
+                  <CardHeader>
+                    <Badge variant="outline" className="w-fit text-green-600 border-green-300">
+                      Completed
+                    </Badge>
+                    <CardTitle className="line-clamp-2">{course.title}</CardTitle>
+                    <CardDescription className="line-clamp-2">{course.description}</CardDescription>
+                  </CardHeader>
+                  <CardContent className="mt-auto">
+                    <Button asChild variant="default" className="w-full gap-2">
+                      <Link to="/certificates">
+                        <Award className="h-4 w-4" />
+                        View Certificate
+                      </Link>
+                    </Button>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* My Courses (in progress) */}
         <div>
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-2xl font-bold">My Courses</h2>

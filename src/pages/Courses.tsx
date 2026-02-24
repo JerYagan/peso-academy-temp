@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { BookOpen, Search, Award, Clock, Users, Star, Loader2, CheckCircle2, Eye } from "lucide-react";
+import { BookOpen, Search, Award, Clock, Users, Star, Loader2, Eye } from "lucide-react";
 import { courseService, enrollmentService, moduleService } from "@/services/supabaseDatabaseService";
 import {
   Dialog,
@@ -38,6 +38,14 @@ const Courses = () => {
   useEffect(() => {
     loadCourses();
     loadEnrollments();
+  }, [user]);
+
+  // Refetch enrollments when page gains focus so unenrolling in another tab/window is reflected
+  useEffect(() => {
+    if (!user) return;
+    const onFocus = () => loadEnrollments();
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
   }, [user]);
 
   useEffect(() => {
@@ -175,38 +183,9 @@ const Courses = () => {
         </Select>
       </div>
 
-      {/* Completed Courses (no longer in Browse; link to Certifications) */}
-      {user && completedCourses.length > 0 && (
-        <div className="space-y-4">
-          <h2 className="text-xl font-semibold flex items-center gap-2">
-            <CheckCircle2 className="h-5 w-5 text-green-600" />
-            Completed Courses
-          </h2>
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-            {completedCourses.map((course) => (
-              <Card key={course.id} className="flex flex-col border-green-200 dark:border-green-900/30">
-                <CardHeader>
-                  <Badge variant="outline" className="w-fit text-green-600 border-green-300">
-                    Completed
-                  </Badge>
-                  <CardTitle className="line-clamp-2">{course.title}</CardTitle>
-                  <CardDescription className="line-clamp-2">{course.description}</CardDescription>
-                </CardHeader>
-                <CardContent className="mt-auto">
-                  <Button asChild variant="default" className="w-full gap-2">
-                    <Link to="/certificates">
-                      <Award className="h-4 w-4" />
-                      View Certificate
-                    </Link>
-                  </Button>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        </div>
-      )}
+      {/* Completed Courses are shown on My Dashboard only */}
 
-      {/* Courses Grid (excludes completed – they are above) */}
+      {/* Courses Grid (excludes completed – see Dashboard) */}
       {loading ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12">
@@ -302,8 +281,8 @@ const Courses = () => {
           <CardContent className="flex flex-col items-center justify-center py-12">
             <BookOpen className="w-16 h-16 text-muted-foreground mb-4" />
             <p className="text-muted-foreground">
-              {completedCourses.length > 0
-                ? "No more courses to browse. Your completed courses are listed above."
+              {completedCourseIds.size > 0
+                ? "No more courses to browse. View completed courses on your Dashboard."
                 : "No courses found matching your criteria"}
             </p>
           </CardContent>

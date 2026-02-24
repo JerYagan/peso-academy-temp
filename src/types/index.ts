@@ -29,6 +29,8 @@ export interface Enrollment {
   certificateId?: string;
 }
 
+export type ModuleStatus = "draft" | "finalized";
+
 export interface Module {
   id: string;
   course_id: string;
@@ -40,6 +42,10 @@ export interface Module {
   prerequisites: string[]; // Array of module IDs that must be completed first
   module_document?: string; // URL to the module document (PDF/PPTX)
   created_at: string;
+  /** When set, last update time (for "Last modified" in Module Management) */
+  updated_at?: string;
+  /** draft = saved but not finalized; finalized = ready for learners */
+  status?: ModuleStatus;
 }
 
 export interface Certificate {
