@@ -49,6 +49,7 @@ export const courseService = {
         enrolledCount: course.enrolled_count,
         rating: course.rating,
         createdAt: course.created_at,
+        published: course.published ?? true,
       })) || []
     );
   },
@@ -86,6 +87,7 @@ export const courseService = {
       enrolledCount: data.enrolled_count,
       rating: data.rating,
       createdAt: data.created_at,
+      published: data.published ?? true,
     };
   },
 
@@ -109,6 +111,7 @@ export const courseService = {
         enrolled_count: 0,
         rating: 0,
         certificate_type: "completion",
+        published: course.published ?? false,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       })
@@ -136,6 +139,7 @@ export const courseService = {
       enrolledCount: data.enrolled_count,
       rating: data.rating,
       createdAt: data.created_at,
+      published: data.published ?? false,
     };
   },
 
@@ -157,6 +161,7 @@ export const courseService = {
     if (updates.courseDocument !== undefined) updateData.course_document = updates.courseDocument;
     if (updates.isTESDAAccredited !== undefined) updateData.is_tesda_accredited = updates.isTESDAAccredited;
     if (updates.skills !== undefined) updateData.skills = updates.skills;
+    if (updates.published !== undefined) updateData.published = updates.published;
 
     const { data, error } = await supabase
       .from("courses")
@@ -186,6 +191,7 @@ export const courseService = {
       enrolledCount: data.enrolled_count,
       rating: data.rating,
       createdAt: data.created_at,
+      published: data.published ?? true,
     };
   },
 
@@ -225,7 +231,7 @@ export const moduleService = {
     }
 
     return (
-      data?.map((module) => ({
+      data?.map((module: any) => ({
         id: module.id,
         course_id: module.course_id,
         title: module.title,
@@ -236,6 +242,8 @@ export const moduleService = {
         prerequisites: module.prerequisites || [],
         module_document: module.module_document || undefined,
         created_at: module.created_at,
+        updated_at: module.updated_at || module.created_at,
+        status: (module.status === "finalized" ? "finalized" : "draft") as "draft" | "finalized",
       })) || []
     );
   },
@@ -272,6 +280,8 @@ export const moduleService = {
       materials: data.materials || [],
       prerequisites: data.prerequisites || [],
       created_at: data.created_at,
+      updated_at: (data as any).updated_at || data.created_at,
+      status: ((data as any).status === "finalized" ? "finalized" : "draft") as Module["status"],
     };
   },
 
@@ -309,7 +319,9 @@ export const moduleService = {
         materials: module.materials || [],
         prerequisites: module.prerequisites || [],
         module_document: (module as any).module_document || null,
+        status: (module as any).status || "draft",
         created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
       })
       .select()
       .single();
@@ -319,6 +331,7 @@ export const moduleService = {
       throw error;
     }
 
+    const row = data as any;
     return {
       id: data.id,
       course_id: data.course_id,
@@ -330,6 +343,8 @@ export const moduleService = {
       prerequisites: data.prerequisites || [],
       module_document: data.module_document || undefined,
       created_at: data.created_at,
+      updated_at: row.updated_at || data.created_at,
+      status: (row.status === "finalized" ? "finalized" : "draft") as Module["status"],
     };
   },
 
@@ -341,7 +356,7 @@ export const moduleService = {
       throw new Error("Supabase not initialized");
     }
 
-    const updateData: any = {};
+    const updateData: any = { updated_at: new Date().toISOString() };
 
     if (updates.title !== undefined) updateData.title = updates.title;
     if (updates.description !== undefined) updateData.description = updates.description;
@@ -350,6 +365,7 @@ export const moduleService = {
     if (updates.module_document !== undefined) updateData.module_document = updates.module_document;
     if (updates.materials !== undefined) updateData.materials = updates.materials;
     if (updates.prerequisites !== undefined) updateData.prerequisites = updates.prerequisites;
+    if (updates.status !== undefined) updateData.status = updates.status;
 
     const { data, error } = await supabase
       .from("modules")
@@ -363,6 +379,7 @@ export const moduleService = {
       throw error;
     }
 
+    const row = data as any;
     return {
       id: data.id,
       course_id: data.course_id,
@@ -374,6 +391,8 @@ export const moduleService = {
       prerequisites: data.prerequisites || [],
       module_document: data.module_document || undefined,
       created_at: data.created_at,
+      updated_at: row.updated_at || data.created_at,
+      status: (row.status === "finalized" ? "finalized" : "draft") as Module["status"],
     };
   },
 

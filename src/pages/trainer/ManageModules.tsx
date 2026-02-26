@@ -145,6 +145,35 @@ const SortableModuleCard = ({
                 </div>
               )}
 
+              {/* Status badge (Finalized / Saved as Draft) */}
+              <div className="flex flex-wrap items-center gap-2 mt-2">
+                <Badge variant={module.status === "finalized" ? "default" : "secondary"} className="text-xs">
+                  {module.status === "finalized" ? "Finalized" : "Saved as Draft"}
+                </Badge>
+                {(() => {
+                  let blockCount = 0;
+                  if (module.content) {
+                    try {
+                      const parsed = JSON.parse(module.content);
+                      if (Array.isArray(parsed)) blockCount = parsed.length;
+                    } catch {}
+                  }
+                  if (blockCount > 0) {
+                    return (
+                      <span className="text-xs text-muted-foreground">
+                        {blockCount} content block{blockCount !== 1 ? "s" : ""}
+                      </span>
+                    );
+                  }
+                  return null;
+                })()}
+                {(module.updated_at || module.created_at) && (
+                  <span className="text-xs text-muted-foreground">
+                    Last modified {new Date(module.updated_at || module.created_at).toLocaleDateString()}
+                  </span>
+                )}
+              </div>
+
               {/* Materials Count */}
               {module.materials.length > 0 && (
                 <div className="flex items-center gap-1 mt-2 text-xs text-muted-foreground">
@@ -463,7 +492,7 @@ const ManageModules = () => {
     return urlData.publicUrl;
   };
 
-  const handleSaveModule = async () => {
+  const handleSaveModule = async (saveAsFinalized: boolean) => {
     if (!courseId) return;
 
     if (!formData.title || !formData.description) {
@@ -490,9 +519,11 @@ const ManageModules = () => {
       documentUrl = null;
     }
 
+    const status = saveAsFinalized ? "finalized" : "draft";
+
     try {
       let contentToSave = formData.content;
-      
+
       if (useContentBlocks && contentBlocks.length > 0) {
         contentToSave = JSON.stringify(contentBlocks);
       }
@@ -504,9 +535,10 @@ const ManageModules = () => {
           content: contentToSave,
           materials: formData.materials,
           prerequisites: formData.prerequisites,
+          status,
           ...(documentUrl !== undefined && { module_document: documentUrl }),
         });
-        toast.success("Module updated successfully");
+        toast.success(saveAsFinalized ? "Module finalized" : "Module saved as draft");
       } else {
         const nextOrder = modules.length > 0 ? Math.max(...modules.map((m) => m.order)) + 1 : 1;
         await moduleService.createModule({
@@ -518,8 +550,9 @@ const ManageModules = () => {
           materials: formData.materials,
           prerequisites: formData.prerequisites,
           module_document: documentUrl ?? undefined,
-        });
-        toast.success("Module created successfully");
+          status,
+        } as Module);
+        toast.success(saveAsFinalized ? "Module created and finalized" : "Module saved as draft");
       }
 
       await loadModules();
@@ -786,6 +819,42 @@ const ManageModules = () => {
           </div>
         </div>
 
+        {/* Summary cards (Total, Finalized, Drafts) */}
+        <div className="grid gap-4 grid-cols-3">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium">Total Modules</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{modules.length}</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium">Finalized</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-green-600">
+                {modules.filter((m) => m.status === "finalized").length}
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium">Drafts</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-amber-600">
+                {modules.filter((m) => m.status !== "finalized").length}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="rounded-lg bg-primary/10 text-primary px-4 py-3 text-sm">
+          Tip: Drag and drop modules to reorder them. The order will be reflected for learners.
+        </div>
+
         {/* Main Content */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* Modules List - Left Side */}
@@ -794,14 +863,14 @@ const ManageModules = () => {
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <div>
-                    <CardTitle>Modules</CardTitle>
+                    <CardTitle>All Modules ({modules.length})</CardTitle>
                     <p className="text-sm text-muted-foreground mt-1">
-                      {modules.length} {modules.length === 1 ? "module" : "modules"} • Drag to reorder
+                      Drag to reorder
                     </p>
                   </div>
                   <Button onClick={handleCreateModule} size="sm">
                     <Plus className="w-4 h-4 mr-2" />
-                    Add Module
+                    Create Module
                   </Button>
                 </div>
               </CardHeader>
@@ -1127,8 +1196,14 @@ const ManageModules = () => {
                         )}
                       </div>
 
-                      <div className="flex gap-2 pt-4 w-full min-w-0">
-                        <Button onClick={handleSaveModule} disabled={loading || uploadingDocument} className="flex-1 min-w-0">
+                      <div className="flex gap-2 pt-4 w-full min-w-0 flex-wrap">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          onClick={() => handleSaveModule(false)}
+                          disabled={loading || uploadingDocument}
+                          className="min-w-0"
+                        >
                           {uploadingDocument ? (
                             <>
                               <Loader2 className="w-4 h-4 mr-2 animate-spin" />
@@ -1136,10 +1211,20 @@ const ManageModules = () => {
                             </>
                           ) : loading ? (
                             "Saving..."
-                          ) : editingModule ? (
-                            "Update Module"
                           ) : (
-                            "Create Module"
+                            "Save as Draft"
+                          )}
+                        </Button>
+                        <Button
+                          type="button"
+                          onClick={() => handleSaveModule(true)}
+                          disabled={loading || uploadingDocument}
+                          className="min-w-0"
+                        >
+                          {loading && !uploadingDocument ? (
+                            "Saving..."
+                          ) : (
+                            "Finalize"
                           )}
                         </Button>
                       </div>

@@ -12,7 +12,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { BookOpen, Plus, Users, Award, Edit, Trash2, Settings } from "lucide-react";
+import { BookOpen, Plus, Users, Edit, Trash2, Settings, Eye, EyeOff } from "lucide-react";
 import { courseService, enrollmentService } from "@/services/supabaseDatabaseService";
 import { CourseCreateEditDialog } from "@/components/course/CourseCreateEditDialog";
 import { useNavigate } from "react-router-dom";
@@ -83,6 +83,18 @@ const TrainerCourses = () => {
     return enrollments.filter((e) => e.courseId === courseId).length;
   };
 
+  const handleTogglePublish = async (course: Course) => {
+    const next = !(course.published !== false);
+    try {
+      await courseService.updateCourse(course.id, { published: next });
+      toast.success(next ? "Course is now visible to trainees" : "Course is now hidden from trainees");
+      loadCourses();
+    } catch (error) {
+      console.error("Error updating publish state:", error);
+      toast.error("Failed to update course visibility");
+    }
+  };
+
   return (
     <DashboardLayout>
       <div className="space-y-8">
@@ -110,11 +122,26 @@ const TrainerCourses = () => {
               return (
                 <Card key={course.id}>
                   <CardHeader>
-                    <div className="flex items-start justify-between mb-2">
-                      <Badge variant={course.isTESDAAccredited ? "default" : "secondary"}>
-                        {course.category}
-                      </Badge>
-                      <Badge variant="outline">{course.level}</Badge>
+                    <div className="flex items-start justify-between mb-2 flex-wrap gap-2">
+                      <div className="flex gap-2 flex-wrap">
+                        <Badge variant={course.isTESDAAccredited ? "default" : "secondary"}>
+                          {course.category}
+                        </Badge>
+                        <Badge variant="outline">{course.level}</Badge>
+                        <Badge variant={course.published !== false ? "default" : "secondary"}>
+                          {course.published !== false ? (
+                            <>
+                              <Eye className="w-3 h-3 mr-1" />
+                              Published
+                            </>
+                          ) : (
+                            <>
+                              <EyeOff className="w-3 h-3 mr-1" />
+                              Draft
+                            </>
+                          )}
+                        </Badge>
+                      </div>
                     </div>
                     <CardTitle>{course.title}</CardTitle>
                   </CardHeader>
@@ -130,7 +157,25 @@ const TrainerCourses = () => {
                         </span>
                         <span className="text-muted-foreground">{course.duration}h</span>
                       </div>
-                      <div className="flex gap-2">
+                      <div className="flex gap-2 flex-wrap">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleTogglePublish(course)}
+                          title={course.published !== false ? "Hide from trainee dashboard" : "Show on trainee dashboard"}
+                        >
+                          {course.published !== false ? (
+                            <>
+                              <EyeOff className="w-4 h-4 mr-1" />
+                              Unpublish
+                            </>
+                          ) : (
+                            <>
+                              <Eye className="w-4 h-4 mr-1" />
+                              Publish
+                            </>
+                          )}
+                        </Button>
                         <Button
                           variant="outline"
                           className="flex-1"
