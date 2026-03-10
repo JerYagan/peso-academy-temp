@@ -1,9 +1,169 @@
-import { User } from "@/types/auth";
+import { User, normalizeUserRole } from "@/types/auth";
 import { supabase, handleSupabaseError } from "@/lib/supabase";
 
 if (!supabase) {
   console.warn("Supabase client not initialized. Please set up environment variables.");
 }
+
+type UserProfileRecord = {
+  id: string;
+  email: string;
+  name: string;
+  role?: string | null;
+  avatar?: string | null;
+  phone?: string | null;
+  address?: string | null;
+  date_of_birth?: string | null;
+  gender?: string | null;
+  civil_status?: string | null;
+  employment_status?: string | null;
+  occupation?: string | null;
+  education_level?: string | null;
+  barangay?: string | null;
+  city_municipality?: string | null;
+  province?: string | null;
+  postal_code?: string | null;
+  skills?: string[] | null;
+  created_at: string;
+};
+
+const resolveUserRole = (profileRole: unknown, metadataRole: unknown): User["role"] => {
+  if (typeof profileRole === "string" && profileRole.trim().length > 0) {
+    return normalizeUserRole(profileRole);
+  }
+
+  return normalizeUserRole(metadataRole);
+};
+
+const buildUserFromSources = (
+  authUser: { id: string; email?: string | null; created_at?: string | null; user_metadata?: Record<string, any> | null },
+  profileData: UserProfileRecord | null,
+): User => {
+  const displayName =
+    profileData?.name ||
+    authUser.user_metadata?.full_name ||
+    authUser.user_metadata?.name ||
+    authUser.email?.split("@")[0] ||
+    "User";
+
+  return {
+    id: profileData?.id || authUser.id,
+    email: profileData?.email || authUser.email || "",
+    name: displayName,
+    role: resolveUserRole(profileData?.role, authUser.user_metadata?.role),
+    avatar: profileData?.avatar || undefined,
+    phone: profileData?.phone || undefined,
+    address: profileData?.address || undefined,
+    dateOfBirth: profileData?.date_of_birth || undefined,
+    gender: (profileData?.gender as User["gender"] | undefined) || undefined,
+    civilStatus: (profileData?.civil_status as User["civilStatus"] | undefined) || undefined,
+    employmentStatus: (profileData?.employment_status as User["employmentStatus"] | undefined) || undefined,
+    occupation: profileData?.occupation || undefined,
+    educationLevel: profileData?.education_level || undefined,
+    barangay: profileData?.barangay || undefined,
+    cityMunicipality: profileData?.city_municipality || undefined,
+    province: profileData?.province || undefined,
+    postalCode: profileData?.postal_code || undefined,
+    skills: profileData?.skills || undefined,
+    createdAt: profileData?.created_at || authUser.created_at || new Date().toISOString(),
+  };
+};
+
+const resolveCurrentProfileId = async (): Promise<string | null> => {
+  if (!supabase) {
+    return null;
+  }
+
+  try {
+    const { data, error } = await supabase.rpc("get_current_user_profile_id");
+
+    if (error) {
+      return null;
+    }
+
+    return typeof data === "string" && data.length > 0 ? data : null;
+  } catch {
+    return null;
+  }
+};
+
+const loadUserProfile = async (userId: string, email?: string | null): Promise<{ profileData: UserProfileRecord | null; profileError: Error | null }> => {
+  if (!supabase) {
+    return { profileData: null, profileError: new Error("Supabase client not initialized") };
+  }
+
+  const profilePromise = supabase
+    .from("users")
+    .select("*")
+    .eq("id", userId)
+    .single();
+
+  const timeoutPromise = new Promise<{ data: null; error: Error }>((resolve) => {
+    setTimeout(() => {
+      resolve({ data: null, error: new Error("Profile fetch timeout") });
+    }, 5000);
+  });
+
+  try {
+    const result = await Promise.race([profilePromise, timeoutPromise]) as {
+      data: UserProfileRecord | null;
+      error: Error | null;
+    };
+
+    if (result.data) {
+      return {
+        profileData: result.data,
+        profileError: result.error,
+      };
+    }
+
+    if (email) {
+      const emailResult = await supabase
+        .from("users")
+        .select("*")
+        .eq("email", email)
+        .maybeSingle();
+
+      if (emailResult.data) {
+        return {
+          profileData: emailResult.data as UserProfileRecord,
+          profileError: result.error,
+        };
+      }
+
+      return {
+        profileData: null,
+        profileError: (emailResult.error as Error | null) || result.error,
+      };
+    }
+
+    const resolvedProfileId = await resolveCurrentProfileId();
+    if (resolvedProfileId && resolvedProfileId !== userId) {
+      const resolvedResult = await supabase
+        .from("users")
+        .select("*")
+        .eq("id", resolvedProfileId)
+        .maybeSingle();
+
+      if (resolvedResult.data) {
+        return {
+          profileData: resolvedResult.data as UserProfileRecord,
+          profileError: result.error,
+        };
+      }
+    }
+
+    return {
+      profileData: result.data,
+      profileError: result.error,
+    };
+  } catch (error) {
+    return {
+      profileData: null,
+      profileError: error instanceof Error ? error : new Error("Profile fetch failed"),
+    };
+  }
+};
 
 /**
  * Supabase Authentication Service
@@ -17,7 +177,8 @@ export const supabaseAuthService = {
     email: string,
     password: string,
     name: string,
-    role: User["role"]
+    role: User["role"],
+    profile?: Partial<User>
   ): Promise<{ user: User | null; error: Error | null }> => {
     if (!supabase) {
       return { user: null, error: new Error("Supabase client not initialized") };
@@ -36,6 +197,8 @@ export const supabaseAuthService = {
     const trimmedEmail = email.trim().toLowerCase();
     
     try {
+      const canonicalRole = normalizeUserRole(role);
+
       // IMPORTANT: Save the current admin session before creating user
       // signUp() will automatically log in as the new user, so we need to restore admin session
       const { data: currentSession } = await supabase.auth.getSession();
@@ -51,7 +214,19 @@ export const supabaseAuthService = {
         options: {
           data: {
             name,
-            role,
+            role: canonicalRole,
+            phone: profile?.phone ?? null,
+            address: profile?.address ?? null,
+            date_of_birth: profile?.dateOfBirth ?? null,
+            gender: profile?.gender ?? null,
+            civil_status: profile?.civilStatus ?? null,
+            employment_status: profile?.employmentStatus ?? null,
+            occupation: profile?.occupation ?? null,
+            education_level: profile?.educationLevel ?? null,
+            barangay: profile?.barangay ?? null,
+            city_municipality: profile?.cityMunicipality ?? null,
+            province: profile?.province ?? null,
+            postal_code: profile?.postalCode ?? null,
           },
           // For development: auto-confirm email if email confirmation is disabled
           // This requires Supabase project settings to have "Enable email confirmations" disabled
@@ -130,6 +305,8 @@ export const supabaseAuthService = {
               authError.message.includes("already exists") ||
               authError.message.includes("User already registered")) {
             errorMessage = "A user with this email already exists";
+          } else if (authError.message.toLowerCase().includes("rate limit") || authError.message.toLowerCase().includes("email rate limit exceeded")) {
+            errorMessage = "Supabase email rate limit was exceeded while creating the user. This usually means email confirmations are enabled in the project. Disable email confirmations for admin-created accounts or wait for the rate limit window to reset.";
           } else if (authError.message.includes("Password")) {
             errorMessage = "Password does not meet requirements";
           } else if (authError.message.includes("invalid") && authError.message.includes("email")) {
@@ -184,7 +361,7 @@ export const supabaseAuthService = {
           userId: authData.user.id,
           email: authData.user.email,
           metadata: authData.user.user_metadata,
-          role: role,
+          role: canonicalRole,
           name: name,
         });
       }
@@ -209,7 +386,19 @@ export const supabaseAuthService = {
             id: authData.user.id,
             email: authData.user.email!,
             name,
-            role,
+            role: canonicalRole,
+            phone: profile?.phone,
+            address: profile?.address,
+            date_of_birth: profile?.dateOfBirth,
+            gender: profile?.gender,
+            civil_status: profile?.civilStatus,
+            employment_status: profile?.employmentStatus,
+            occupation: profile?.occupation,
+            education_level: profile?.educationLevel,
+            barangay: profile?.barangay,
+            city_municipality: profile?.cityMunicipality,
+            province: profile?.province,
+            postal_code: profile?.postalCode,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
           } as any)
@@ -263,15 +452,15 @@ export const supabaseAuthService = {
       }
 
       // Ensure role in users table matches the one we set in auth (trigger may have defaulted to trainee)
-      if (profileData && profileData.role !== role) {
+      if (profileData && normalizeUserRole(profileData.role) !== canonicalRole) {
         const { error: updateRoleError } = await supabase
           .from("users")
-          .update({ role, updated_at: new Date().toISOString() })
+          .update({ role: canonicalRole, updated_at: new Date().toISOString() })
           .eq("id", authData.user.id);
         if (updateRoleError) {
           console.warn("Could not sync role to users table:", updateRoleError);
         } else {
-          profileData = { ...profileData, role };
+          profileData = { ...profileData, role: canonicalRole };
         }
       }
 
@@ -283,7 +472,19 @@ export const supabaseAuthService = {
           id: authData.user.id,
           email: authData.user.email!,
           name: name,
-          role: role,
+          role: canonicalRole,
+          phone: profile?.phone,
+          address: profile?.address,
+          dateOfBirth: profile?.dateOfBirth,
+          gender: profile?.gender,
+          civilStatus: profile?.civilStatus,
+          employmentStatus: profile?.employmentStatus,
+          occupation: profile?.occupation,
+          educationLevel: profile?.educationLevel,
+          barangay: profile?.barangay,
+          cityMunicipality: profile?.cityMunicipality,
+          province: profile?.province,
+          postalCode: profile?.postalCode,
           createdAt: authData.user.created_at || new Date().toISOString(),
         };
         return { user: minimalUser, error: null };
@@ -293,10 +494,20 @@ export const supabaseAuthService = {
         id: profileData.id,
         email: profileData.email,
         name: profileData.name,
-        role: profileData.role as User["role"],
+        role: normalizeUserRole(profileData.role),
         avatar: profileData.avatar || undefined,
         phone: profileData.phone || undefined,
         address: profileData.address || undefined,
+        dateOfBirth: profileData.date_of_birth || undefined,
+        gender: (profileData.gender as User["gender"] | undefined) || undefined,
+        civilStatus: (profileData.civil_status as User["civilStatus"] | undefined) || undefined,
+        employmentStatus: (profileData.employment_status as User["employmentStatus"] | undefined) || undefined,
+        occupation: profileData.occupation || undefined,
+        educationLevel: profileData.education_level || undefined,
+        barangay: profileData.barangay || undefined,
+        cityMunicipality: profileData.city_municipality || undefined,
+        province: profileData.province || undefined,
+        postalCode: profileData.postal_code || undefined,
         skills: profileData.skills || undefined,
         createdAt: profileData.created_at,
       };
@@ -357,64 +568,16 @@ export const supabaseAuthService = {
         return { user: null, error: new Error("Failed to sign in") };
       }
 
-      // Get role from user_metadata (payroll-pal approach)
-      const roleFromMetadata = authData.user.user_metadata?.role || 'trainee';
-      const validRoles: User["role"][] = ["admin", "training_officer", "validator", "trainee"];
-      const userRole = validRoles.includes(roleFromMetadata) ? roleFromMetadata : 'trainee';
-
-      // Fetch user profile from users table (for other profile data, not role)
-      // Add timeout to prevent hanging
-      const profilePromise = supabase
-        .from("users")
-        .select("*")
-        .eq("id", authData.user.id)
-        .single();
-
-      const timeoutPromise = new Promise<{ data: null; error: Error }>((resolve) => {
-        setTimeout(() => {
-          resolve({ data: null, error: new Error("Profile fetch timeout") });
-        }, 5000); // 5 second timeout for profile fetch
-      });
-
-      let profileData = null;
-      let profileError = null;
-
-      try {
-        const result = await Promise.race([profilePromise, timeoutPromise]) as any;
-        profileData = result.data;
-        profileError = result.error;
-      } catch (err) {
-        profileError = err instanceof Error ? err : new Error("Profile fetch failed");
-      }
+      const { profileData, profileError } = await loadUserProfile(authData.user.id, authData.user.email);
 
       // If profile doesn't exist or fetch timed out, create a temporary user
       if (profileError || !profileData) {
         console.warn("User profile not found or fetch timed out for user ID:", authData.user.id, "Creating temporary user");
-        
-        // Return a temporary user - profile will be created by trigger or can be fetched later
-        const tempUser: User = {
-          id: authData.user.id,
-          email: authData.user.email!,
-          name: authData.user.user_metadata?.name || authData.user.email!.split("@")[0],
-          role: userRole, // Role from metadata
-          createdAt: authData.user.created_at || new Date().toISOString(),
-        };
-        
-        return { user: tempUser, error: null };
+
+        return { user: buildUserFromSources(authData.user, null), error: null };
       }
 
-      // Build user object with role from metadata (not database)
-      const user: User = {
-        id: profileData.id,
-        email: profileData.email,
-        name: profileData.name,
-        role: userRole, // Role from user_metadata, not database
-        avatar: profileData.avatar || undefined,
-        phone: profileData.phone || undefined,
-        address: profileData.address || undefined,
-        skills: profileData.skills || undefined,
-        createdAt: profileData.created_at,
-      };
+      const user = buildUserFromSources(authData.user, profileData);
 
       return { user, error: null };
     } catch (error) {
@@ -472,14 +635,14 @@ export const supabaseAuthService = {
       const displayName =
         meta.full_name ?? meta.name ?? (user.email ? user.email.split("@")[0] : "User");
       const role = meta.role;
-      const validRoles = ["admin", "training_officer", "validator", "trainee"];
-      const needsRole = !role || !validRoles.includes(role);
+      const normalizedRole = normalizeUserRole(role);
+      const needsRole = !role || normalizedRole !== role;
       const needsName = !meta.name && !meta.full_name;
 
       if (!needsRole && !needsName) return { error: null };
 
       const updates: Record<string, string> = {};
-      if (needsRole) updates.role = "trainee";
+      if (needsRole) updates.role = normalizedRole;
       if (needsName) updates.name = displayName;
 
       const { error } = await supabase.auth.updateUser({
@@ -537,29 +700,7 @@ export const supabaseAuthService = {
         return { user: null, error: authError || new Error("No user found") };
       }
 
-      // Get role from user_metadata (payroll-pal approach)
-      const roleFromMetadata = authUser.user_metadata?.role || 'trainee';
-      const validRoles: User["role"][] = ["admin", "training_officer", "validator", "trainee"];
-      const userRole = validRoles.includes(roleFromMetadata) ? roleFromMetadata : 'trainee';
-
-      // Fetch user profile from users table with timeout (for other profile data, not role)
-      const profilePromise = supabase
-        .from("users")
-        .select("*")
-        .eq("id", authUser.id)
-        .single();
-
-      // Add timeout to prevent hanging
-      const timeoutPromise = new Promise<{ data: null; error: Error }>((resolve) => {
-        setTimeout(() => {
-          resolve({ data: null, error: new Error("Database query timeout") });
-        }, 5000); // 5 second timeout
-      });
-
-      const { data: profileData, error: profileError } = await Promise.race([
-        profilePromise,
-        timeoutPromise,
-      ]) as any;
+      const { profileData, profileError } = await loadUserProfile(authUser.id, authUser.email);
 
       if (profileError || !profileData) {
         // Profile doesn't exist, but we can still return user with role from metadata
@@ -567,32 +708,13 @@ export const supabaseAuthService = {
         console.warn("User profile not found, using auth user data:", {
           userId: authUser.id,
           email: authUser.email,
-          role: userRole,
+          role: normalizeUserRole(authUser.user_metadata?.role),
         });
 
-        const user: User = {
-          id: authUser.id,
-          email: authUser.email!,
-          name: authUser.user_metadata?.name || authUser.email!.split("@")[0],
-          role: userRole, // Role from metadata
-          createdAt: authUser.created_at || new Date().toISOString(),
-        };
-
-        return { user, error: null };
+        return { user: buildUserFromSources(authUser, null), error: null };
       }
 
-      // Build user object with role from metadata (not database)
-      const user: User = {
-        id: profileData.id,
-        email: profileData.email,
-        name: profileData.name,
-        role: userRole, // Role from user_metadata, not database
-        avatar: profileData.avatar || undefined,
-        phone: profileData.phone || undefined,
-        address: profileData.address || undefined,
-        skills: profileData.skills || undefined,
-        createdAt: profileData.created_at,
-      };
+      const user = buildUserFromSources(authUser, profileData);
 
       return { user, error: null };
     } catch (error) {
@@ -618,9 +740,44 @@ export const supabaseAuthService = {
       if (updates.name !== undefined) updateData.name = updates.name;
       if (updates.phone !== undefined) updateData.phone = updates.phone;
       if (updates.address !== undefined) updateData.address = updates.address;
+      if (updates.dateOfBirth !== undefined) updateData.date_of_birth = updates.dateOfBirth || null;
+      if (updates.gender !== undefined) updateData.gender = updates.gender || null;
+      if (updates.civilStatus !== undefined) updateData.civil_status = updates.civilStatus || null;
+      if (updates.employmentStatus !== undefined) updateData.employment_status = updates.employmentStatus || null;
+      if (updates.occupation !== undefined) updateData.occupation = updates.occupation || null;
+      if (updates.educationLevel !== undefined) updateData.education_level = updates.educationLevel || null;
+      if (updates.barangay !== undefined) updateData.barangay = updates.barangay || null;
+      if (updates.cityMunicipality !== undefined) updateData.city_municipality = updates.cityMunicipality || null;
+      if (updates.province !== undefined) updateData.province = updates.province || null;
+      if (updates.postalCode !== undefined) updateData.postal_code = updates.postalCode || null;
       if (updates.avatar !== undefined) updateData.avatar = updates.avatar;
       if (updates.skills !== undefined) updateData.skills = updates.skills;
       if (updates.role !== undefined) updateData.role = updates.role;
+
+      const metadataUpdates: Record<string, unknown> = {};
+      if (updates.name !== undefined) metadataUpdates.name = updates.name;
+      if (updates.phone !== undefined) metadataUpdates.phone = updates.phone || null;
+      if (updates.address !== undefined) metadataUpdates.address = updates.address || null;
+      if (updates.dateOfBirth !== undefined) metadataUpdates.date_of_birth = updates.dateOfBirth || null;
+      if (updates.gender !== undefined) metadataUpdates.gender = updates.gender || null;
+      if (updates.civilStatus !== undefined) metadataUpdates.civil_status = updates.civilStatus || null;
+      if (updates.employmentStatus !== undefined) metadataUpdates.employment_status = updates.employmentStatus || null;
+      if (updates.occupation !== undefined) metadataUpdates.occupation = updates.occupation || null;
+      if (updates.educationLevel !== undefined) metadataUpdates.education_level = updates.educationLevel || null;
+      if (updates.barangay !== undefined) metadataUpdates.barangay = updates.barangay || null;
+      if (updates.cityMunicipality !== undefined) metadataUpdates.city_municipality = updates.cityMunicipality || null;
+      if (updates.province !== undefined) metadataUpdates.province = updates.province || null;
+      if (updates.postalCode !== undefined) metadataUpdates.postal_code = updates.postalCode || null;
+
+      if (Object.keys(metadataUpdates).length > 0) {
+        const { error: metadataError } = await supabase.auth.updateUser({
+          data: metadataUpdates,
+        });
+
+        if (metadataError) {
+          console.warn("Error updating auth metadata:", metadataError);
+        }
+      }
 
       // If role is being updated, sync it to auth metadata FIRST
       if (updates.role !== undefined) {
@@ -655,6 +812,16 @@ export const supabaseAuthService = {
         avatar: data.avatar || undefined,
         phone: data.phone || undefined,
         address: data.address || undefined,
+        dateOfBirth: data.date_of_birth || undefined,
+        gender: (data.gender as User["gender"] | undefined) || undefined,
+        civilStatus: (data.civil_status as User["civilStatus"] | undefined) || undefined,
+        employmentStatus: (data.employment_status as User["employmentStatus"] | undefined) || undefined,
+        occupation: data.occupation || undefined,
+        educationLevel: data.education_level || undefined,
+        barangay: data.barangay || undefined,
+        cityMunicipality: data.city_municipality || undefined,
+        province: data.province || undefined,
+        postalCode: data.postal_code || undefined,
         skills: data.skills || undefined,
         createdAt: data.created_at,
       };
@@ -718,19 +885,24 @@ export const supabaseAuthService = {
     return await supabase.auth.getUser();
   },
 
+  hydrateUserFromAuthUser: async (authUser: { id: string; email?: string | null; created_at?: string | null; user_metadata?: Record<string, any> | null }) => {
+    const { profileData } = await loadUserProfile(authUser.id, authUser.email);
+    return buildUserFromSources(authUser, profileData);
+  },
+
   /**
    * Listen to auth state changes
    * Simplified like payroll-pal - just pass the session user directly
    */
-  onAuthStateChange: (callback: (user: User | null, supabaseUser: any) => void) => {
+  onAuthStateChange: (callback: (user: User | null, supabaseUser: any, event: string) => void) => {
     if (!supabase) {
       return { data: { subscription: { unsubscribe: () => {} } } };
     }
     
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       // Simple: just pass the session user (or null if no session)
       // AuthContext will handle creating the User object from Supabase user
-      callback(null, session?.user ?? null);
+      callback(null, session?.user ?? null, event);
     });
     
     return { data: { subscription } };

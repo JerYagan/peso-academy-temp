@@ -1,7 +1,7 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
-import { BookOpen, Code, Video, FileQuestion, Type } from "lucide-react";
+import { BookOpen, Code, Video, FileQuestion, Type, ImageIcon, FileText, Link2 } from "lucide-react";
 import { Module } from "@/types";
 import { ContentBlock } from "./ContentBlock";
 import DocumentViewer from "./DocumentViewer";
@@ -15,6 +15,7 @@ interface ModulePreviewProps {
     materials: string[];
     prerequisites: string[];
     order: number;
+    module_thumbnail?: string;
     module_document?: string;
   };
   allModules?: Module[];
@@ -54,6 +55,11 @@ export const ModulePreview = ({ module, allModules = [] }: ModulePreviewProps) =
         <CardHeader>
           <div className="flex items-start justify-between">
             <div className="flex-1">
+              {module.module_thumbnail && (
+                <div className="mb-4 overflow-hidden rounded-xl border bg-muted">
+                  <img src={module.module_thumbnail} alt={module.title} className="h-56 w-full object-cover" />
+                </div>
+              )}
               <div className="flex items-center gap-2 mb-2">
                 <Badge variant="outline" className="text-sm">
                   Module {module.order}
@@ -90,7 +96,10 @@ export const ModulePreview = ({ module, allModules = [] }: ModulePreviewProps) =
                     {block.type === "text" && <Type className="w-4 h-4 text-muted-foreground" />}
                     {block.type === "code" && <Code className="w-4 h-4 text-muted-foreground" />}
                     {block.type === "video" && <Video className="w-4 h-4 text-muted-foreground" />}
+                    {block.type === "image" && <ImageIcon className="w-4 h-4 text-muted-foreground" />}
                     {block.type === "quiz" && <FileQuestion className="w-4 h-4 text-muted-foreground" />}
+                    {block.type === "document" && <FileText className="w-4 h-4 text-muted-foreground" />}
+                    {block.type === "learning_material" && <Link2 className="w-4 h-4 text-muted-foreground" />}
                     <span className="text-sm font-medium capitalize">{block.type} Block</span>
                     {block.type === "code" && block.language && (
                       <Badge variant="outline" className="text-xs">
@@ -100,37 +109,68 @@ export const ModulePreview = ({ module, allModules = [] }: ModulePreviewProps) =
                   </div>
                   
                   {block.type === "text" && (
-                    <div
-                      className="prose prose-sm max-w-none"
-                      dangerouslySetInnerHTML={{ __html: block.content }}
-                    />
+                    <div className="space-y-2">
+                      {block.title && <h3 className="text-lg font-semibold">{block.title}</h3>}
+                      <div
+                        className="prose prose-sm max-w-none"
+                        dangerouslySetInnerHTML={{ __html: block.content }}
+                      />
+                    </div>
                   )}
                   
                   {block.type === "code" && (
-                    <pre className="bg-muted p-4 rounded-lg overflow-x-auto">
-                      <code className={`language-${block.language || "plaintext"}`}>
-                        {block.content}
-                      </code>
-                    </pre>
+                    <div className="space-y-2">
+                      {block.title && <h3 className="font-semibold">{block.title}</h3>}
+                      <pre className="bg-muted p-4 rounded-lg overflow-x-auto">
+                        <code className={`language-${block.language || "plaintext"}`}>
+                          {block.content}
+                        </code>
+                      </pre>
+                    </div>
                   )}
                   
                   {block.type === "video" && block.videoUrl && (
                     <div className="space-y-2">
+                      {block.title && <h3 className="font-semibold">{block.title}</h3>}
                       <div className="aspect-video bg-muted rounded-lg flex items-center justify-center">
                         <Video className="w-12 h-12 text-muted-foreground" />
                         <span className="ml-2 text-sm text-muted-foreground">
                           Video: {block.videoUrl}
                         </span>
                       </div>
-                      {block.content && (
-                        <p className="text-sm text-muted-foreground">{block.content}</p>
+                    </div>
+                  )}
+
+                  {block.type === "image" && block.imageUrl && (
+                    <figure className="space-y-2">
+                      <img src={block.imageUrl} alt={block.altText || block.title || "Module image"} className="max-h-[420px] w-full rounded-lg object-cover" />
+                      {(block.caption || block.altText) && (
+                        <figcaption className="text-sm text-muted-foreground">{block.caption || block.altText}</figcaption>
                       )}
+                    </figure>
+                  )}
+
+                  {block.type === "document" && block.documentUrl && (
+                    <div className="space-y-2">
+                      {block.title && <h3 className="font-semibold">{block.title}</h3>}
+                      <DocumentViewer url={block.documentUrl} title={block.title || "Document"} />
+                    </div>
+                  )}
+
+                  {block.type === "learning_material" && block.materialUrl && (
+                    <div className="rounded-lg border p-3">
+                      <div className="flex items-center gap-2">
+                        <Link2 className="w-4 h-4 text-muted-foreground" />
+                        <a href={block.materialUrl} target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-primary hover:underline">
+                          {block.title || "Open learning material"}
+                        </a>
+                      </div>
                     </div>
                   )}
                   
                   {block.type === "quiz" && (
                     <div className="space-y-3">
-                      <p className="font-medium">{block.title || "Quiz Question"}</p>
+                      <p className="font-medium">{block.content || block.title || "Quiz Question"}</p>
                       <div className="space-y-2">
                         {(block.options || []).map((option, optIdx) => (
                           <div

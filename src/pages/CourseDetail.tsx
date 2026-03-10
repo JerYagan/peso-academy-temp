@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useParams, useNavigate, Link } from "react-router-dom";
+import { useParams, useNavigate, Link, useSearchParams } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -51,6 +51,7 @@ import { supabase } from "@/lib/supabase";
 const CourseDetail = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { user } = useAuth();
   const [course, setCourse] = useState<Course | null>(null);
   const [modules, setModules] = useState<Module[]>([]);
@@ -62,20 +63,58 @@ const CourseDetail = () => {
   const [showCompletionDialog, setShowCompletionDialog] = useState(false);
   const [showUnenrollConfirm, setShowUnenrollConfirm] = useState(false);
   const [unenrolling, setUnenrolling] = useState(false);
+  const previewKey = searchParams.get("previewKey");
+  const isPreviewMode = Boolean(searchParams.get("preview") && previewKey);
+  const previewEnrollmentId = `preview-enrollment-${id || "course"}`;
 
   useEffect(() => {
     if (id) {
       loadCourseData();
     }
-  }, [id, user]);
+  }, [id, user, isPreviewMode, previewKey]);
 
   const loadCourseData = async () => {
     if (!id) return;
 
     setLoading(true);
     try {
-      // Load course (allow for guests to see 404, but content requires user)
-      const courseData = await courseService.getCourse(id);
+      let courseData: Course | null = null;
+      let modulesSourceCourseId: string | null = id;
+
+      if (isPreviewMode && typeof window !== "undefined" && previewKey) {
+        const rawPreview = window.sessionStorage.getItem(previewKey);
+
+        if (rawPreview) {
+          const previewData = JSON.parse(rawPreview) as Partial<Course> & {
+            previewSourceCourseId?: string | null;
+          };
+
+          courseData = {
+            id: previewData.id || id,
+            title: previewData.title || "Course Preview",
+            description: previewData.description || "",
+            category: previewData.category || "Other",
+            level: previewData.level || "Beginner",
+            duration: previewData.duration || 0,
+            instructor: previewData.instructor || "",
+            instructorId: previewData.instructorId || "",
+            thumbnail: previewData.thumbnail,
+            courseDocument: previewData.courseDocument,
+            isTESDAAccredited: previewData.isTESDAAccredited || false,
+            skills: previewData.skills || [],
+            enrolledCount: previewData.enrolledCount || 0,
+            rating: previewData.rating || 0,
+            createdAt: previewData.createdAt || new Date().toISOString(),
+            published: previewData.published,
+          };
+          modulesSourceCourseId = previewData.previewSourceCourseId || (id !== "__preview__" ? id : null);
+        }
+      }
+
+      if (!courseData) {
+        courseData = await courseService.getCourse(id);
+      }
+
       if (!courseData) {
         toast.error("Course not found");
         navigate("/courses");
@@ -84,8 +123,23 @@ const CourseDetail = () => {
       setCourse(courseData);
 
       // Load modules (for description / sidebar)
-      const modulesData = await moduleService.getModulesByCourse(id);
+      const modulesData = modulesSourceCourseId ? await moduleService.getModulesByCourse(modulesSourceCourseId) : [];
       setModules(modulesData);
+
+      if (isPreviewMode) {
+        setEnrollment({
+          id: previewEnrollmentId,
+          userId: user?.id || "preview-user",
+          courseId: courseData.id,
+          progress: 0,
+          status: "enrolled",
+          enrolledAt: new Date().toISOString(),
+        });
+        setSelectedModule(modulesData.length > 0 ? modulesData[0] : null);
+        setCompletedModuleIds([]);
+        setLoading(false);
+        return;
+      }
 
       if (!user) {
         setEnrollment(null);
@@ -133,7 +187,36 @@ const CourseDetail = () => {
   };
 
   const handleModuleComplete = async (moduleId: string, timeSpentMinutes?: number) => {
-    if (!enrollment || !user) return;
+    if (!enrollment) return;
+
+    if (isPreviewMode) {
+      if (completedModuleIds.includes(moduleId)) return;
+
+      const newCompleted = [...completedModuleIds, moduleId];
+      const previewProgress = modules.length > 0
+        ? Math.round((newCompleted.length / modules.length) * 100)
+        : 0;
+
+      setCompletedModuleIds(newCompleted);
+      setEnrollment((current) =>
+        current
+          ? {
+              ...current,
+              progress: previewProgress,
+              status: newCompleted.length >= modules.length ? "completed" : "in-progress",
+              completedAt: newCompleted.length >= modules.length ? new Date().toISOString() : current.completedAt,
+            }
+          : current,
+      );
+
+      toast.success("Preview progress updated");
+      if (modules.length > 0 && newCompleted.length >= modules.length) {
+        setShowCompletionDialog(true);
+      }
+      return;
+    }
+
+    if (!user) return;
 
     try {
       await moduleCompletionService.markModuleComplete(
@@ -237,6 +320,17 @@ const CourseDetail = () => {
     return (
       <DashboardLayout>
         <div className="space-y-6">
+          {isPreviewMode && (
+            <Card className="border-primary/30 bg-primary/5">
+              <CardContent className="flex items-center justify-between gap-4 py-4">
+                <div>
+                  <p className="font-medium">Preview Mode</p>
+                  <p className="text-sm text-muted-foreground">This is a trainee-style preview of the current course draft.</p>
+                </div>
+                <Badge variant="outline">Draft Preview</Badge>
+              </CardContent>
+            </Card>
+          )}
           <Button variant="ghost" size="sm" asChild>
             <Link to="/courses">
               <ChevronRight className="w-4 h-4 rotate-180 mr-1" />
@@ -264,6 +358,16 @@ const CourseDetail = () => {
               </div>
             </CardHeader>
             <CardContent className="space-y-6">
+              {course.thumbnail && (
+                <div className="overflow-hidden rounded-xl border bg-muted">
+                  <img
+                    src={course.thumbnail}
+                    alt={course.title}
+                    className="h-64 w-full object-cover"
+                    loading="lazy"
+                  />
+                </div>
+              )}
               {modules.length > 0 && (
                 <div>
                   <h3 className="font-semibold mb-2">Modules ({modules.length})</h3>
@@ -277,7 +381,7 @@ const CourseDetail = () => {
                 </div>
               )}
               <div className="flex flex-wrap gap-3">
-                {user ? (
+                {isPreviewMode ? null : user ? (
                   <Button onClick={handleEnrollInCourse} disabled={enrolling}>
                     {enrolling ? "Enrolling..." : "Enroll in this course"}
                   </Button>
@@ -300,8 +404,31 @@ const CourseDetail = () => {
   return (
     <DashboardLayout>
       <div className="space-y-6">
+        {isPreviewMode && (
+          <Card className="border-primary/30 bg-primary/5">
+            <CardContent className="flex items-center justify-between gap-4 py-4">
+              <div>
+                <p className="font-medium">Preview Mode</p>
+                <p className="text-sm text-muted-foreground">This preview uses the same learner course layout while keeping progress changes local to this tab.</p>
+              </div>
+              <Badge variant="outline">Draft Preview</Badge>
+            </CardContent>
+          </Card>
+        )}
+
         {/* Course Header */}
         <div className="space-y-4">
+          {course.thumbnail && (
+            <div className="overflow-hidden rounded-2xl border bg-muted shadow-sm">
+              <img
+                src={course.thumbnail}
+                alt={course.title}
+                className="h-64 w-full object-cover lg:h-80"
+                loading="lazy"
+              />
+            </div>
+          )}
+
           <div className="flex items-start justify-between">
             <div className="space-y-2">
               <div className="flex items-center gap-2">
@@ -335,15 +462,17 @@ const CourseDetail = () => {
               <Star className="w-4 h-4 fill-yellow-400 text-yellow-400" />
               {course.rating}
             </div>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="ml-auto text-muted-foreground hover:text-destructive"
-              onClick={() => setShowUnenrollConfirm(true)}
-            >
-              <LogOut className="w-4 h-4 mr-1" />
-              Unenroll from course
-            </Button>
+            {!isPreviewMode && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="ml-auto text-muted-foreground hover:text-destructive"
+                onClick={() => setShowUnenrollConfirm(true)}
+              >
+                <LogOut className="w-4 h-4 mr-1" />
+                Unenroll from course
+              </Button>
+            )}
           </div>
 
           {/* Progress Section */}
@@ -449,7 +578,8 @@ const CourseDetail = () => {
                 module={selectedModule}
                 enrollment={enrollment}
                 isCompleted={isModuleCompleted(selectedModule.id)}
-                onComplete={() => handleModuleComplete(selectedModule.id)}
+                isPreviewMode={isPreviewMode}
+                onComplete={(timeSpentMinutes) => handleModuleComplete(selectedModule.id, timeSpentMinutes)}
               />
             ) : (
               <Card>

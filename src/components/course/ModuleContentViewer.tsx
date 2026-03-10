@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
-import { CheckCircle2, Play, FileText, Upload, FileQuestion, Clock, Code, Video } from "lucide-react";
+import { CheckCircle2, Play, FileText, Upload, FileQuestion, Clock, Code, Video, ImageIcon, Link2 } from "lucide-react";
 import { Module, Enrollment } from "@/types";
 import { supabase } from "@/lib/supabase";
 import VideoPlayer from "./VideoPlayer";
@@ -19,6 +19,7 @@ interface ModuleContentViewerProps {
   module: Module;
   enrollment: Enrollment;
   isCompleted: boolean;
+  isPreviewMode?: boolean;
   onComplete: (timeSpentMinutes?: number) => void;
 }
 
@@ -26,6 +27,7 @@ const ModuleContentViewer = ({
   module,
   enrollment,
   isCompleted,
+  isPreviewMode = false,
   onComplete,
 }: ModuleContentViewerProps) => {
   const [activeTab, setActiveTab] = useState("content");
@@ -35,7 +37,7 @@ const ModuleContentViewer = ({
   const [quizResults, setQuizResults] = useState<Record<string, boolean>>({}); // Store quiz results (answered correctly)
 
   const loadTimeSpent = useCallback(async () => {
-    if (!supabase) return;
+    if (!supabase || isPreviewMode) return;
 
     try {
       const { data } = await supabase
@@ -51,7 +53,7 @@ const ModuleContentViewer = ({
     } catch (error) {
       // Module not completed yet, no time spent recorded
     }
-  }, [module.id, enrollment.id]);
+  }, [isPreviewMode, module.id, enrollment.id]);
 
   // Load time spent for this module
   useEffect(() => {
@@ -88,12 +90,12 @@ const ModuleContentViewer = ({
     return url.match(/\.(pdf|doc|docx|ppt|pptx)$/i);
   });
 
-  const hasAssignments = module.materials.some((m) => {
+  const hasAssignments = !isPreviewMode && module.materials.some((m) => {
     const url = typeof m === "string" ? m : String(m);
     return url.includes("assignment") || url.includes("submit");
   });
 
-  const hasAssessments = module.materials.some((m) => {
+  const hasAssessments = !isPreviewMode && module.materials.some((m) => {
     const url = typeof m === "string" ? m : String(m);
     return url.includes("assessment") || url.includes("quiz") || url.includes("test");
   });
@@ -173,7 +175,11 @@ const ModuleContentViewer = ({
 
       case "code":
         return (
-          <div key={block.id || index} className="space-y-2">
+          <div key={block.id || index} className="space-y-3">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Code className="h-4 w-4" />
+              <span>{block.title || "Code Block"}</span>
+            </div>
             {block.language && (
               <Badge variant="outline" className="mb-2">
                 {block.language}
@@ -190,15 +196,67 @@ const ModuleContentViewer = ({
       case "video":
         if (block.videoUrl) {
           return (
-            <div key={block.id || index} className="space-y-2">
-              {block.content && (
-                <p className="text-sm text-muted-foreground">{block.content}</p>
-              )}
+            <div key={block.id || index} className="space-y-3">
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <Video className="h-4 w-4" />
+                <span>{block.title || "Video"}</span>
+              </div>
               <VideoPlayer 
                 url={block.videoUrl} 
-                enrollmentId={enrollment.id}
-                moduleId={module.id}
+                enrollmentId={isPreviewMode ? undefined : enrollment.id}
+                moduleId={isPreviewMode ? undefined : module.id}
               />
+            </div>
+          );
+        }
+        return null;
+
+      case "image":
+        if (block.imageUrl) {
+          return (
+            <figure key={block.id || index} className="space-y-3">
+              {(block.title || block.caption || block.altText) && (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <ImageIcon className="h-4 w-4" />
+                  <span>{block.title || "Image"}</span>
+                </div>
+              )}
+              <img src={block.imageUrl} alt={block.altText || block.title || "Module image"} className="max-h-[520px] w-full rounded-lg object-cover" />
+              {(block.caption || block.altText) && (
+                <figcaption className="text-sm text-muted-foreground">{block.caption || block.altText}</figcaption>
+              )}
+            </figure>
+          );
+        }
+        return null;
+
+      case "document":
+        if (block.documentUrl) {
+          return (
+            <div key={block.id || index} className="space-y-3">
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                <FileText className="h-4 w-4" />
+                <span>{block.title || "Document"}</span>
+              </div>
+              <DocumentViewer url={block.documentUrl} />
+            </div>
+          );
+        }
+        return null;
+
+      case "learning_material":
+        if (block.materialUrl) {
+          return (
+            <div key={block.id || index} className="rounded-lg border p-4">
+              <div className="flex items-center gap-3">
+                <Link2 className="w-5 h-5 text-muted-foreground" />
+                <div>
+                  <p className="font-medium">{block.title || "Learning Material"}</p>
+                  <a href={block.materialUrl} target="_blank" rel="noopener noreferrer" className="text-sm text-primary hover:underline break-all">
+                    {block.materialUrl}
+                  </a>
+                </div>
+              </div>
             </div>
           );
         }
@@ -216,12 +274,12 @@ const ModuleContentViewer = ({
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <FileQuestion className="w-5 h-5" />
-                Quiz Question
+                {block.title || "Quiz Question"}
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <div>
-                <Label className="text-base font-semibold">{block.title || "Question"}</Label>
+                <Label className="text-base font-semibold">{block.content || "Question"}</Label>
               </div>
               {block.options && block.options.length > 0 && (
                 <RadioGroup 
@@ -301,12 +359,6 @@ const ModuleContentViewer = ({
                   )}
                 </div>
               )}
-              {!hasAnswered && block.explanation && (
-                <div className="mt-4 p-3 bg-muted rounded-lg">
-                  <p className="text-sm font-medium mb-1">Hint:</p>
-                  <p className="text-sm text-muted-foreground">{block.explanation}</p>
-                </div>
-              )}
             </CardContent>
           </Card>
         );
@@ -378,35 +430,22 @@ const ModuleContentViewer = ({
           {/* Content blocks or rich text content */}
           {contentBlocks.length > 0 ? (
             <div className="space-y-4">
-              {contentBlocks.map((block, idx) =>
-                (block.type?.toLowerCase?.() ?? block.type) === "text" ? (
-                  /* Text blocks: show content only, no "Text Block" label for trainees */
-                  <div key={block.id || idx} className="contents">
-                    {renderContentBlock(block, idx)}
+              {contentBlocks.map((block, idx) => {
+                const blockType = (block.type?.toLowerCase?.() ?? block.type) as ContentBlock["type"];
+                const renderedBlock = renderContentBlock(block, idx);
+
+                if (!renderedBlock) return null;
+
+                if (blockType === "text" || blockType === "quiz" || blockType === "learning_material") {
+                  return <div key={block.id || idx}>{renderedBlock}</div>;
+                }
+
+                return (
+                  <div key={block.id || idx} className="rounded-xl border p-4">
+                    {renderedBlock}
                   </div>
-                ) : (
-                  <Card key={block.id || idx}>
-                    <CardHeader>
-                      <div className="flex items-center gap-2">
-                        {block.type === "code" && <Code className="w-4 h-4 text-muted-foreground" />}
-                        {block.type === "video" && <Video className="w-4 h-4 text-muted-foreground" />}
-                        {block.type === "quiz" && <FileQuestion className="w-4 h-4 text-muted-foreground" />}
-                        <CardTitle className="text-lg capitalize">
-                          {block.type === "quiz" ? block.title || "Quiz Question" : `${block.type} Block`}
-                        </CardTitle>
-                        {block.type === "code" && block.language && (
-                          <Badge variant="outline" className="ml-2">
-                            {block.language}
-                          </Badge>
-                        )}
-                      </div>
-                    </CardHeader>
-                    <CardContent>
-                      {renderContentBlock(block, idx)}
-                    </CardContent>
-                  </Card>
-                )
-              )}
+                );
+              })}
             </div>
           ) : module.content ? (
             <Card>
@@ -449,8 +488,8 @@ const ModuleContentViewer = ({
                   <CardContent>
                     <VideoPlayer 
                       url={url} 
-                      enrollmentId={enrollment.id}
-                      moduleId={module.id}
+                      enrollmentId={isPreviewMode ? undefined : enrollment.id}
+                      moduleId={isPreviewMode ? undefined : module.id}
                     />
                   </CardContent>
                 </Card>
@@ -537,7 +576,9 @@ const ModuleContentViewer = ({
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
               <p className="text-sm text-muted-foreground">
-                Mark this module as complete when you're done reviewing all content
+                {isPreviewMode
+                  ? "Preview the learner completion flow without saving progress to the database"
+                  : "Mark this module as complete when you're done reviewing all content"}
               </p>
               <Button 
                 onClick={() => {

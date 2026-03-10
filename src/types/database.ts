@@ -24,6 +24,16 @@ export interface Database {
           avatar?: string | null
           phone?: string | null
           address?: string | null
+          date_of_birth?: string | null
+          gender?: string | null
+          civil_status?: string | null
+          employment_status?: string | null
+          occupation?: string | null
+          education_level?: string | null
+          barangay?: string | null
+          city_municipality?: string | null
+          province?: string | null
+          postal_code?: string | null
           skills?: string[] | null
           created_at: string
           updated_at: string
@@ -36,6 +46,16 @@ export interface Database {
           avatar?: string | null
           phone?: string | null
           address?: string | null
+          date_of_birth?: string | null
+          gender?: string | null
+          civil_status?: string | null
+          employment_status?: string | null
+          occupation?: string | null
+          education_level?: string | null
+          barangay?: string | null
+          city_municipality?: string | null
+          province?: string | null
+          postal_code?: string | null
           skills?: string[] | null
           created_at?: string
           updated_at?: string
@@ -48,6 +68,16 @@ export interface Database {
           avatar?: string | null
           phone?: string | null
           address?: string | null
+          date_of_birth?: string | null
+          gender?: string | null
+          civil_status?: string | null
+          employment_status?: string | null
+          occupation?: string | null
+          education_level?: string | null
+          barangay?: string | null
+          city_municipality?: string | null
+          province?: string | null
+          postal_code?: string | null
           skills?: string[] | null
           created_at?: string
           updated_at?: string
@@ -116,7 +146,10 @@ export interface Database {
           content?: string | null
           materials?: string[] | null
           prerequisites?: string[] | null
+          module_thumbnail?: string | null
           created_at: string
+          updated_at?: string
+          status?: string
         }
         Insert: {
           id?: string
@@ -127,7 +160,10 @@ export interface Database {
           content?: string | null
           materials?: string[] | null
           prerequisites?: string[] | null
+          module_thumbnail?: string | null
           created_at?: string
+          updated_at?: string
+          status?: string
         }
         Update: {
           id?: string
@@ -138,7 +174,10 @@ export interface Database {
           content?: string | null
           materials?: string[] | null
           prerequisites?: string[] | null
+          module_thumbnail?: string | null
           created_at?: string
+          updated_at?: string
+          status?: string
         }
       }
       enrollments: {
@@ -151,6 +190,7 @@ export interface Database {
           enrolled_at: string
           completed_at?: string | null
           certificate_id?: string | null
+          updated_at?: string
         }
         Insert: {
           id?: string
@@ -161,6 +201,7 @@ export interface Database {
           enrolled_at?: string
           completed_at?: string | null
           certificate_id?: string | null
+          updated_at?: string
         }
         Update: {
           id?: string
@@ -171,6 +212,7 @@ export interface Database {
           enrolled_at?: string
           completed_at?: string | null
           certificate_id?: string | null
+          updated_at?: string
         }
       }
       module_completions: {
@@ -178,21 +220,21 @@ export interface Database {
           id: string
           enrollment_id: string
           module_id: string
-          completed_at: string
+          completed_at?: string | null
           time_spent?: number | null
         }
         Insert: {
           id?: string
           enrollment_id: string
           module_id: string
-          completed_at?: string
+          completed_at?: string | null
           time_spent?: number | null
         }
         Update: {
           id?: string
           enrollment_id?: string
           module_id?: string
-          completed_at?: string
+          completed_at?: string | null
           time_spent?: number | null
         }
       }

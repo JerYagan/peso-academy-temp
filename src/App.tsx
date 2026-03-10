@@ -16,15 +16,18 @@ import Certificates from "./pages/Certificates";
 import CertificateView from "./pages/CertificateView";
 import VerifyCertificate from "./pages/VerifyCertificate";
 import Profile from "./pages/Profile";
+import AdminDashboardPlaceholder from "./pages/admin/DashboardPlaceholder";
 import AdminUsers from "./pages/admin/Users";
 import AdminCourses from "./pages/admin/Courses";
 import AdminRoles from "./pages/admin/Roles";
 import AdminAuditLogs from "./pages/admin/AuditLogs";
 import AdminEnrollments from "./pages/admin/Enrollments";
 import AdminReports from "./pages/admin/Reports";
+import TrainerDashboardPlaceholder from "./pages/trainer/DashboardPlaceholder";
 import TrainerCourses from "./pages/trainer/Courses";
 import TrainerLearners from "./pages/trainer/Learners";
-import ManageModules from "./pages/trainer/ManageModules";
+import ManageModules from "@/pages/trainer/ManageModules";
+import ModuleEditorPage from "@/pages/trainer/ModuleEditorPage";
 import ValidatorDashboard from "./pages/validator/Dashboard";
 import ValidatorSubmissions from "./pages/validator/Submissions";
 import SubmissionReview from "./pages/validator/SubmissionReview";
@@ -70,6 +73,7 @@ const App = () => (
             <Route path="/login" element={<Login />} />
             <Route path="/signup" element={<SignUp />} />
             <Route path="/courses" element={<Courses />} />
+            <Route path="/courses/preview/:id" element={<CourseDetail />} />
             <Route
               path="/courses/:id"
               element={
@@ -115,6 +119,14 @@ const App = () => (
             
             {/* Admin Routes - Permissions checked dynamically from database */}
             <Route
+              path="/admin/dashboard"
+              element={
+                <ProtectedRoute allowedRoles={["admin"]}>
+                  <AdminDashboardPlaceholder />
+                </ProtectedRoute>
+              }
+            />
+            <Route
               path="/admin/users"
               element={
                 <ProtectedRoute>
@@ -135,6 +147,22 @@ const App = () => (
               element={
                 <ProtectedRoute>
                   <ManageModules />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/admin/courses/:courseId/modules/new"
+              element={
+                <ProtectedRoute>
+                  <ModuleEditorPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/admin/courses/:courseId/modules/:moduleId/edit"
+              element={
+                <ProtectedRoute>
+                  <ModuleEditorPage />
                 </ProtectedRoute>
               }
             />
@@ -173,6 +201,14 @@ const App = () => (
             
             {/* Trainer/SPD/Training Officer Routes - Permissions checked dynamically */}
             <Route
+              path="/trainer/dashboard"
+              element={
+                <ProtectedRoute allowedRoles={["training_officer", "trainer", "spd"]}>
+                  <TrainerDashboardPlaceholder />
+                </ProtectedRoute>
+              }
+            />
+            <Route
               path="/trainer/courses"
               element={
                 <ProtectedRoute>
@@ -193,6 +229,22 @@ const App = () => (
               element={
                 <ProtectedRoute>
                   <ManageModules />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/trainer/courses/:courseId/modules/new"
+              element={
+                <ProtectedRoute>
+                  <ModuleEditorPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/trainer/courses/:courseId/modules/:moduleId/edit"
+              element={
+                <ProtectedRoute>
+                  <ModuleEditorPage />
                 </ProtectedRoute>
               }
             />

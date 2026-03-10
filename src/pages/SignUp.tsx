@@ -4,29 +4,66 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { GraduationCap, AlertCircle, Eye, EyeOff } from "lucide-react";
+import { Textarea } from "@/components/ui/textarea";
+import { AlertCircle, Eye, EyeOff } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { UserRole } from "@/types/auth";
-import { getPublicSignupRoles, getDashboardRoute, defaultRoleDisplayNames, type UserRole as AppUserRole } from "@/lib/roles";
+import { User } from "@/types/auth";
+import { getDashboardRoute, type UserRole as AppUserRole } from "@/lib/roles";
+import AuthPageShell from "@/components/auth/AuthPageShell";
+
+const genderOptions: Array<{ value: NonNullable<User["gender"]>; label: string }> = [
+  { value: "male", label: "Male" },
+  { value: "female", label: "Female" },
+  { value: "non_binary", label: "Non-binary" },
+  { value: "prefer_not_to_say", label: "Prefer not to say" },
+  { value: "other", label: "Other" },
+];
+
+const civilStatusOptions: Array<{ value: NonNullable<User["civilStatus"]>; label: string }> = [
+  { value: "single", label: "Single" },
+  { value: "married", label: "Married" },
+  { value: "widowed", label: "Widowed" },
+  { value: "separated", label: "Separated" },
+  { value: "divorced", label: "Divorced" },
+  { value: "annulled", label: "Annulled" },
+  { value: "prefer_not_to_say", label: "Prefer not to say" },
+];
+
+const employmentStatusOptions: Array<{ value: NonNullable<User["employmentStatus"]>; label: string }> = [
+  { value: "employed", label: "Employed" },
+  { value: "unemployed", label: "Unemployed" },
+  { value: "self_employed", label: "Self-employed" },
+  { value: "student", label: "Student" },
+  { value: "underemployed", label: "Underemployed" },
+  { value: "not_applicable", label: "Not applicable" },
+  { value: "prefer_not_to_say", label: "Prefer not to say" },
+];
 
 const SignUp = () => {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");``
+  const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
-  const [role, setRole] = useState<UserRole>("trainee");
+  const [phone, setPhone] = useState("");
+  const [dateOfBirth, setDateOfBirth] = useState("");
+  const [gender, setGender] = useState<User["gender"] | "">("");
+  const [civilStatus, setCivilStatus] = useState<User["civilStatus"] | "">("");
+  const [employmentStatus, setEmploymentStatus] = useState<User["employmentStatus"] | "">("");
+  const [occupation, setOccupation] = useState("");
+  const [educationLevel, setEducationLevel] = useState("");
+  const [address, setAddress] = useState("");
+  const [barangay, setBarangay] = useState("");
+  const [cityMunicipality, setCityMunicipality] = useState("");
+  const [province, setProvince] = useState("");
+  const [postalCode, setPostalCode] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [googleLoading, setGoogleLoading] = useState(false);
   const [signupSuccess, setSignupSuccess] = useState(false);
-  const { signup, loginWithGoogle, user, isAuthenticated } = useAuth();
+  const { signup, user, isAuthenticated } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const redirectTo = searchParams.get("redirect");
-  
-  const availableRoles = getPublicSignupRoles();
 
   // Navigate after successful signup, or when returning from Google OAuth (already authenticated)
   useEffect(() => {
@@ -46,13 +83,6 @@ const SignUp = () => {
     setError("");
     setLoading(true);
 
-    // Validate role is allowed for public signup
-    if (!availableRoles.includes(role as AppUserRole)) {
-      setError("Selected role is not available for public signup.");
-      setLoading(false);
-      return;
-    }
-
     // Validate password strength
     if (password.length < 6) {
       setError("Password must be at least 6 characters long.");
@@ -60,8 +90,31 @@ const SignUp = () => {
       return;
     }
 
+    if (dateOfBirth) {
+      const birthDate = new Date(dateOfBirth);
+      const now = new Date();
+      if (Number.isNaN(birthDate.getTime()) || birthDate > now) {
+        setError("Date of birth must be a valid past date.");
+        setLoading(false);
+        return;
+      }
+    }
+
     try {
-      const result = await signup(email, password, name, role);
+      const result = await signup(email, password, name, "trainee", {
+        phone,
+        address,
+        dateOfBirth: dateOfBirth || undefined,
+        gender: gender || undefined,
+        civilStatus: civilStatus || undefined,
+        employmentStatus: employmentStatus || undefined,
+        occupation,
+        educationLevel,
+        barangay,
+        cityMunicipality,
+        province,
+        postalCode,
+      });
       if (result.success) {
         setSignupSuccess(true);
         // Navigation will happen via useEffect when user state updates
@@ -77,19 +130,25 @@ const SignUp = () => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary/5 via-background to-accent/5 p-4">
-      <Card className="w-full max-w-md">
-        <CardHeader className="space-y-1 text-center">
-          <div className="flex justify-center mb-4">
-            <div className="w-16 h-16 rounded-xl hero-gradient flex items-center justify-center">
-              <GraduationCap className="w-8 h-8 text-primary-foreground" />
-            </div>
-          </div>
-          <CardTitle className="text-2xl font-bold">Create Account</CardTitle>
-          <CardDescription>Join PESO Academy and start your learning journey</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-4">
+    <AuthPageShell
+      title="Register"
+      subtitle="Create your PESO Academy learner account and complete your trainee information in one step."
+      maxWidthClass="max-w-4xl"
+      switchPrompt={
+        <>
+          Already have an account?{" "}
+          <Link to="/login" className="font-semibold text-primary transition-colors hover:text-primary/80">
+            Login here
+          </Link>
+        </>
+      }
+    >
+      <form onSubmit={handleSubmit} className="space-y-8">
+        <div className="space-y-1 text-center">
+          <h2 className="text-2xl font-semibold tracking-tight text-foreground">Create your account</h2>
+          <p className="text-sm text-muted-foreground">All public signups are created as trainee accounts.</p>
+        </div>
+
             {error && (
               <Alert variant="destructive">
                 <AlertCircle className="h-4 w-4" />
@@ -97,7 +156,13 @@ const SignUp = () => {
               </Alert>
             )}
 
-            <div className="space-y-2">
+        <section className="space-y-4 rounded-2xl border border-border/70 bg-muted/20 p-5 sm:p-6">
+          <div>
+            <h3 className="text-lg font-semibold text-foreground">Account information</h3>
+            <p className="text-sm text-muted-foreground">Enter the core details you will use to sign in.</p>
+          </div>
+
+          <div className="space-y-2">
               <Label htmlFor="name">Full Name</Label>
               <Input
                 id="name"
@@ -106,22 +171,38 @@ const SignUp = () => {
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 required
+                className="h-12 rounded-xl border-border/80 bg-background px-4"
               />
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-2">
+                <Label htmlFor="email">Email</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  placeholder="your.email@peso.academy"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  className="h-12 rounded-xl border-border/80 bg-background px-4"
+                />
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
-              <Input
-                id="email"
-                type="email"
-                placeholder="your.email@peso.academy"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-              />
+                <Label htmlFor="phone">Phone</Label>
+                <Input
+                  id="phone"
+                  type="tel"
+                  placeholder="09xx xxx xxxx"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  className="h-12 rounded-xl border-border/80 bg-background px-4"
+                />
             </div>
+          </div>
 
-            <div className="space-y-2">
+          <div className="space-y-2">
               <Label htmlFor="password">Password</Label>
               <div className="relative">
                 <Input
@@ -132,12 +213,12 @@ const SignUp = () => {
                   onChange={(e) => setPassword(e.target.value)}
                   required
                   minLength={6}
-                  className="pr-10"
+                  className="h-12 rounded-xl border-border/80 bg-background px-4 pr-10"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 rounded text-muted-foreground hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
                   tabIndex={-1}
                   aria-label={showPassword ? "Hide password" : "Show password"}
                 >
@@ -148,77 +229,164 @@ const SignUp = () => {
                   )}
                 </button>
               </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="role">I am a</Label>
-              <Select value={role} onValueChange={(value) => setRole(value as UserRole)}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select your role" />
-                </SelectTrigger>
-                <SelectContent>
-                  {availableRoles.map((availableRole) => (
-                    <SelectItem key={availableRole} value={availableRole}>
-                      {defaultRoleDisplayNames[availableRole]}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground">
-                Note: Only Trainee role is available for public signup. Other roles require approval from system administrators.
-              </p>
-            </div>
-
-            <Button type="submit" className="w-full" disabled={loading}>
-              {loading ? "Creating account..." : "Create Account"}
-            </Button>
-
-            <div className="relative my-4">
-              <div className="absolute inset-0 flex items-center">
-                <span className="w-full border-t" />
-              </div>
-              <div className="relative flex justify-center text-xs uppercase">
-                <span className="bg-card px-2 text-muted-foreground">or</span>
-              </div>
-            </div>
-
-            <Button
-              type="button"
-              variant="outline"
-              className="w-full"
-              disabled={googleLoading}
-              onClick={async () => {
-                setGoogleLoading(true);
-                setError("");
-                const redirect = redirectTo && redirectTo.startsWith("/") ? redirectTo : "/signup";
-                const result = await loginWithGoogle(`${window.location.origin}${redirect}`);
-                if (!result.success && result.error) {
-                  setError(result.error);
-                  setGoogleLoading(false);
-                }
-              }}
-            >
-              <svg className="mr-2 h-4 w-4" viewBox="0 0 24 24" aria-hidden>
-                <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
-                <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
-                <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
-                <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
-              </svg>
-              {googleLoading ? "Redirecting..." : "Sign up with Google"}
-            </Button>
-          </form>
-
-          <div className="mt-6 pt-6 border-t">
-            <p className="text-sm text-center text-muted-foreground">
-              Already have an account?{" "}
-              <Link to="/login" className="text-primary hover:underline font-medium">
-                Sign in
-              </Link>
-            </p>
+            <p className="text-xs text-muted-foreground">Use at least 6 characters for your account password.</p>
           </div>
-        </CardContent>
-      </Card>
-    </div>
+        </section>
+
+        <section className="space-y-5 rounded-2xl border border-border/70 bg-background p-5 sm:p-6">
+              <div>
+                <h3 className="text-lg font-semibold text-foreground">Trainee information</h3>
+                <p className="text-sm text-muted-foreground">Capture the learner details needed for profiling and reporting.</p>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="date-of-birth">Date of Birth</Label>
+                  <Input
+                    id="date-of-birth"
+                    type="date"
+                    value={dateOfBirth}
+                    onChange={(e) => setDateOfBirth(e.target.value)}
+                    className="h-12 rounded-xl border-border/80 bg-muted/20 px-4"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="gender">Gender</Label>
+                  <Select value={gender} onValueChange={(value) => setGender(value as User["gender"])}>
+                    <SelectTrigger id="gender" className="h-12 rounded-xl border-border/80 bg-muted/20 px-4">
+                      <SelectValue placeholder="Select gender" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {genderOptions.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="civil-status">Civil Status</Label>
+                  <Select value={civilStatus} onValueChange={(value) => setCivilStatus(value as User["civilStatus"])}>
+                    <SelectTrigger id="civil-status" className="h-12 rounded-xl border-border/80 bg-muted/20 px-4">
+                      <SelectValue placeholder="Select civil status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {civilStatusOptions.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="employment-status">Employment Status</Label>
+                  <Select value={employmentStatus} onValueChange={(value) => setEmploymentStatus(value as User["employmentStatus"])}>
+                    <SelectTrigger id="employment-status" className="h-12 rounded-xl border-border/80 bg-muted/20 px-4">
+                      <SelectValue placeholder="Select employment status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {employmentStatusOptions.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="occupation">Occupation</Label>
+                  <Input
+                    id="occupation"
+                    type="text"
+                    placeholder="Current job or primary occupation"
+                    value={occupation}
+                    onChange={(e) => setOccupation(e.target.value)}
+                    className="h-12 rounded-xl border-border/80 bg-muted/20 px-4"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="education-level">Education Level</Label>
+                  <Input
+                    id="education-level"
+                    type="text"
+                    placeholder="e.g. College Graduate"
+                    value={educationLevel}
+                    onChange={(e) => setEducationLevel(e.target.value)}
+                    className="h-12 rounded-xl border-border/80 bg-muted/20 px-4"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="address">Address</Label>
+                <Textarea
+                  id="address"
+                  placeholder="House number, street, subdivision"
+                  value={address}
+                  onChange={(e) => setAddress(e.target.value)}
+                  className="min-h-28 rounded-xl border-border/80 bg-muted/20 px-4 py-3"
+                />
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor="barangay">Barangay</Label>
+                  <Input
+                    id="barangay"
+                    type="text"
+                    value={barangay}
+                    onChange={(e) => setBarangay(e.target.value)}
+                    className="h-12 rounded-xl border-border/80 bg-muted/20 px-4"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="city-municipality">City / Municipality</Label>
+                  <Input
+                    id="city-municipality"
+                    type="text"
+                    value={cityMunicipality}
+                    onChange={(e) => setCityMunicipality(e.target.value)}
+                    className="h-12 rounded-xl border-border/80 bg-muted/20 px-4"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="province">Province</Label>
+                  <Input
+                    id="province"
+                    type="text"
+                    value={province}
+                    onChange={(e) => setProvince(e.target.value)}
+                    className="h-12 rounded-xl border-border/80 bg-muted/20 px-4"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="postal-code">Postal Code</Label>
+                  <Input
+                    id="postal-code"
+                    type="text"
+                    value={postalCode}
+                    onChange={(e) => setPostalCode(e.target.value)}
+                    className="h-12 rounded-xl border-border/80 bg-muted/20 px-4"
+                  />
+                </div>
+              </div>
+        </section>
+
+        <Button type="submit" className="h-12 w-full rounded-xl text-base font-semibold" disabled={loading}>
+              {loading ? "Creating account..." : "Create Account"}
+        </Button>
+      </form>
+    </AuthPageShell>
   );
 };
 

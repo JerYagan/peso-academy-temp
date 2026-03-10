@@ -77,7 +77,7 @@ This bucket stores assignment submissions uploaded by learners.
 
 ### 2. Course Materials Bucket (Required for course/module uploads)
 
-Course and module documents (PDF, video, images) are stored in Supabase Storage. Create this bucket so uploads work:
+Course and module documents (PDF, video, images) are stored in Supabase Storage. Course cover photos / thumbnails also use this same bucket. Create this bucket so uploads work:
 
 1. **Create the Bucket:**
    - In Supabase Dashboard go to **Storage** → **Buckets** → **New bucket**
@@ -87,7 +87,7 @@ Course and module documents (PDF, video, images) are stored in Supabase Storage.
 
 2. **Set Up Storage Policies:**
 
-   Your app stores roles in **auth metadata** (not in `public.users`). Use `public.get_user_role()` in policies. Run in **SQL Editor**:
+   Your app should use `public.get_user_role()` in policies, and that helper should prefer `public.users.role` with auth metadata as fallback. Run in **SQL Editor**:
 
    ```sql
    -- Allow authenticated users to view course materials
@@ -95,25 +95,26 @@ Course and module documents (PDF, video, images) are stored in Supabase Storage.
    ON storage.objects FOR SELECT TO authenticated
    USING (bucket_id = 'course-materials');
 
-   -- Allow training officers and admins to upload (role from auth metadata)
-   CREATE POLICY "Trainers can upload course materials"
+    -- Allow course managers to upload (admin, trainer, SPD, training officer)
+    CREATE POLICY "Course managers can upload course materials"
    ON storage.objects FOR INSERT TO authenticated
    WITH CHECK (
      bucket_id = 'course-materials'
-     AND public.get_user_role() IN ('training_officer', 'admin')
+       AND public.get_user_role() IN ('admin', 'trainer', 'spd', 'training_officer')
    );
 
-   -- Optional: allow update/delete for same roles
-   CREATE POLICY "Trainers can update course materials"
+    -- Optional: allow update/delete for same roles
+    CREATE POLICY "Course managers can update course materials"
    ON storage.objects FOR UPDATE TO authenticated
-   USING (bucket_id = 'course-materials' AND public.get_user_role() IN ('training_officer', 'admin'));
+    USING (bucket_id = 'course-materials' AND public.get_user_role() IN ('admin', 'trainer', 'spd', 'training_officer'))
+    WITH CHECK (bucket_id = 'course-materials' AND public.get_user_role() IN ('admin', 'trainer', 'spd', 'training_officer'));
 
-   CREATE POLICY "Trainers can delete course materials"
+    CREATE POLICY "Course managers can delete course materials"
    ON storage.objects FOR DELETE TO authenticated
-   USING (bucket_id = 'course-materials' AND public.get_user_role() IN ('training_officer', 'admin'));
+    USING (bucket_id = 'course-materials' AND public.get_user_role() IN ('admin', 'trainer', 'spd', 'training_officer'));
    ```
 
-   If you use a migration (e.g. `022_add_course_materials_storage_policies.sql`), apply it instead of running the above manually.
+    If you use migrations, apply `028_fix_course_and_storage_rls_roles.sql` after `022_add_course_materials_storage_policies.sql` so existing databases get the corrected role logic too.
 
 ### 3. User Avatars Bucket (Optional)
 
@@ -178,11 +179,14 @@ To verify your storage policies are working:
 1. **"Bucket not found" error:**
    - Ensure the bucket name matches exactly (case-sensitive)
    - Check that the bucket exists in your Supabase project
+   - For course thumbnail uploads, confirm the bucket name is exactly `course-materials`
 
 2. **"Permission denied" error:**
    - Verify RLS policies are set up correctly
    - Check that the user is authenticated
    - Ensure the user has the correct role for the operation
+   - Course cover uploads depend on the `course-materials` storage policies being applied
+   - If admin/trainer/SPD uploads fail with row-level security, apply `028_fix_course_and_storage_rls_roles.sql`
 
 3. **"File too large" error:**
    - Check the bucket's file size limit

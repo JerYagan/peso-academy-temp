@@ -57,9 +57,17 @@ const AdminEnrollments = () => {
   const [preserveProgress, setPreserveProgress] = useState(false);
 
   useEffect(() => {
-    loadCourses();
-    loadEnrollments();
+    void initializePage();
   }, []);
+
+  const initializePage = async () => {
+    setLoading(true);
+    try {
+      await Promise.all([loadCourses(), loadEnrollments()]);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const loadCourses = async () => {
     try {
@@ -71,44 +79,12 @@ const AdminEnrollments = () => {
   };
 
   const loadEnrollments = async () => {
-    setLoading(true);
     try {
-      // Get all enrollments with details
-      const allEnrollments: EnrollmentWithDetails[] = [];
-      
-      // Get enrollments for each course
-      for (const course of courses.length > 0 ? courses : await courseService.getCourses()) {
-        const courseEnrollments = await enrollmentService.getCourseEnrollments(course.id);
-        allEnrollments.push(
-          ...courseEnrollments.map((e) => ({
-            ...e,
-            courseTitle: course.title,
-          }))
-        );
-      }
-
-      // If no courses loaded yet, try getting all enrollments directly
-      if (allEnrollments.length === 0) {
-        const allEnrolls = await enrollmentService.getEnrollments();
-        // We'll need to fetch course titles separately
-        const enrollmentsWithDetails = await Promise.all(
-          allEnrolls.map(async (enrollment) => {
-            const course = await courseService.getCourse(enrollment.courseId);
-            return {
-              ...enrollment,
-              courseTitle: course?.title || "Unknown Course",
-            };
-          })
-        );
-        setEnrollments(enrollmentsWithDetails);
-      } else {
-        setEnrollments(allEnrollments);
-      }
+      const enrollmentRows = await enrollmentService.getEnrollmentsWithDetails();
+      setEnrollments(enrollmentRows);
     } catch (error) {
       console.error("Error loading enrollments:", error);
       toast.error("Failed to load enrollments");
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -126,11 +102,23 @@ const AdminEnrollments = () => {
     if (!unenrollId) return;
 
     try {
+      const enrollmentId = unenrollId;
       await enrollmentService.unenroll(unenrollId, preserveProgress);
+      setEnrollments((current) => {
+        if (preserveProgress) {
+          return current.map((enrollment) =>
+            enrollment.id === enrollmentId
+              ? { ...enrollment, status: "dropped" }
+              : enrollment,
+          );
+        }
+
+        return current.filter((enrollment) => enrollment.id !== enrollmentId);
+      });
       toast.success(preserveProgress ? "Enrollment marked as dropped" : "User unenrolled successfully");
       setUnenrollId(null);
       setPreserveProgress(false);
-      loadEnrollments();
+      await loadEnrollments();
     } catch (error) {
       console.error("Error unenrolling:", error);
       toast.error("Failed to unenroll user");
@@ -195,7 +183,7 @@ const AdminEnrollments = () => {
                   <Input
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
-                    placeholder="Search by user or course..."
+                    placeholder="Search by name, email, or course..."
                     className="pl-10"
                   />
                 </div>

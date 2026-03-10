@@ -1,5 +1,7 @@
 import { supabase, handleSupabaseError } from "@/lib/supabase";
-import { format, subDays, startOfMonth, endOfMonth, startOfYear, endOfYear } from "date-fns";
+import { format, subDays, subMonths, startOfMonth, endOfMonth, startOfYear, endOfYear, differenceInDays } from "date-fns";
+import type { User } from "@/types/auth";
+import type { Course, Enrollment } from "@/types";
 
 if (!supabase) {
   console.warn("Supabase client not initialized. Please set up environment variables.");
@@ -77,7 +79,845 @@ export interface EnrollmentReport {
   timeSpent: number; // in minutes
 }
 
+export interface AdminDashboardTrendPoint {
+  month: string;
+  label: string;
+  totalEnrollments: number;
+  completedEnrollments: number;
+  completionRate: number;
+  certificatesIssued: number;
+  averageProgress: number;
+  averageAssessmentScore: number;
+  activeLearners: number;
+  timeSpentHours: number;
+}
+
+export interface AdminDashboardCourseInsight {
+  courseId: string;
+  courseTitle: string;
+  enrollments: number;
+  completionRate: number;
+  certificatesIssued: number;
+  averageProgress: number;
+}
+
+export interface AdminDashboardAnalytics {
+  totalUsers: number;
+  totalCourses: number;
+  totalEnrollments: number;
+  completionRate: number;
+  certificatesIssued: number;
+  activeLearners7Days: number;
+  activeLearners30Days: number;
+  averageProgress: number;
+  averageAssessmentScore: number;
+  totalLearningHours: number;
+  monthlyTrends: AdminDashboardTrendPoint[];
+  topCourses: AdminDashboardCourseInsight[];
+}
+
+export interface LearnerPerformanceAssessmentRecord {
+  id: string;
+  assessmentTitle: string;
+  moduleTitle: string;
+  courseTitle: string;
+  score: number | null;
+  passed: boolean | null;
+  submittedAt: string | null;
+  timeSpentMinutes: number;
+}
+
+export interface LearnerPerformanceModuleRecord {
+  moduleId: string;
+  moduleTitle: string;
+  courseTitle: string;
+  completedAt: string | null;
+  timeSpentMinutes: number;
+}
+
+export interface LearnerPerformanceTopicResult {
+  topic: string;
+  averageScore: number | null;
+  assessmentsTaken: number;
+  modulesCompleted: number;
+  totalTimeSpentMinutes: number;
+}
+
+export interface LearnerPerformanceSummary {
+  assessmentsTaken: number;
+  scoredAssessments: number;
+  passedAssessments: number;
+  averageAssessmentScore: number;
+  bestAssessmentScore: number;
+  modulesCompleted: number;
+  totalModules: number;
+  overallModuleCompletionRate: number;
+  totalLearningMinutes: number;
+  topicPerformance: LearnerPerformanceTopicResult[];
+  strongestTopic: LearnerPerformanceTopicResult | null;
+  needsImprovementTopic: LearnerPerformanceTopicResult | null;
+  recentAssessments: LearnerPerformanceAssessmentRecord[];
+  recentModules: LearnerPerformanceModuleRecord[];
+}
+
+export interface LearnerCourseRecommendation {
+  course: Course;
+  score: number;
+  reasons: string[];
+}
+
+const createEmptyLearnerPerformanceSummary = (): LearnerPerformanceSummary => ({
+  assessmentsTaken: 0,
+  scoredAssessments: 0,
+  passedAssessments: 0,
+  averageAssessmentScore: 0,
+  bestAssessmentScore: 0,
+  modulesCompleted: 0,
+  totalModules: 0,
+  overallModuleCompletionRate: 0,
+  totalLearningMinutes: 0,
+  topicPerformance: [],
+  strongestTopic: null,
+  needsImprovementTopic: null,
+  recentAssessments: [],
+  recentModules: [],
+});
+
+export const buildLearnerCourseRecommendations = (
+  user: User | null,
+  courses: Course[],
+  enrollments: Enrollment[],
+  performanceSummary?: LearnerPerformanceSummary | null,
+  limit = 3,
+): LearnerCourseRecommendation[] => {
+  if (!user || user.role !== "trainee") {
+    return [];
+  }
+
+  const enrolledCourseIds = new Set(enrollments.map((enrollment) => enrollment.courseId));
+  const completedCourseIds = new Set(
+    enrollments
+      .filter((enrollment) => enrollment.status === "completed")
+      .map((enrollment) => enrollment.courseId),
+  );
+
+  const completedCourses = courses.filter((course) => completedCourseIds.has(course.id));
+  const learnerSkills = new Set((user.skills || []).map((skill) => skill.toLowerCase()));
+  const completedCategoryCounts = new Map<string, number>();
+  completedCourses.forEach((course) => {
+    const key = course.category.toLowerCase();
+    completedCategoryCounts.set(key, (completedCategoryCounts.get(key) || 0) + 1);
+  });
+
+  const strongestTopic = performanceSummary?.strongestTopic?.topic?.toLowerCase() || null;
+  const needsImprovementTopic = performanceSummary?.needsImprovementTopic?.topic?.toLowerCase() || null;
+  const averageAssessmentScore = performanceSummary?.averageAssessmentScore || 0;
+  const overallModuleCompletionRate = performanceSummary?.overallModuleCompletionRate || 0;
+  const modulesCompleted = performanceSummary?.modulesCompleted || 0;
+  const totalLearningMinutes = performanceSummary?.totalLearningMinutes || 0;
+
+  const levelRank: Record<Course["level"], number> = {
+    Beginner: 1,
+    Intermediate: 2,
+    Advanced: 3,
+  };
+
+  return courses
+    .filter((course) => !enrolledCourseIds.has(course.id) && course.published !== false)
+    .map((course) => {
+      let score = 0;
+      const reasons: string[] = [];
+      const normalizedCategory = course.category.toLowerCase();
+      const courseSkills = (course.skills || []).map((skill) => skill.toLowerCase());
+      const skillOverlap = courseSkills.filter((skill) => learnerSkills.has(skill)).length;
+
+      if (skillOverlap > 0) {
+        score += skillOverlap * 22;
+        reasons.push(`Matches ${skillOverlap} of your profile skills`);
+      }
+
+      const categoryAffinity = completedCategoryCounts.get(normalizedCategory) || 0;
+      if (categoryAffinity > 0) {
+        score += categoryAffinity * 18;
+        reasons.push(`Builds on your completed ${course.category} training`);
+      }
+
+      const matchingCompletedCourse = completedCourses.find(
+        (completedCourse) => completedCourse.category.toLowerCase() === normalizedCategory,
+      );
+
+      if (
+        matchingCompletedCourse &&
+        levelRank[course.level] >= levelRank[matchingCompletedCourse.level]
+      ) {
+        score += 14;
+        reasons.push(`Natural next step after ${matchingCompletedCourse.title}`);
+      }
+
+      if (strongestTopic && courseSkills.some((skill) => skill.includes(strongestTopic) || strongestTopic.includes(skill))) {
+        score += 12;
+        reasons.push(`Extends your strong ${performanceSummary?.strongestTopic?.topic} results`);
+      }
+
+      if (needsImprovementTopic && courseSkills.some((skill) => skill.includes(needsImprovementTopic) || needsImprovementTopic.includes(skill))) {
+        score += 10;
+        reasons.push(`Helps improve ${performanceSummary?.needsImprovementTopic?.topic}`);
+      }
+
+      const popularityScore = Math.min(20, Math.round((course.enrolledCount || 0) / 15));
+      if (popularityScore > 0) {
+        score += popularityScore;
+        reasons.push("Popular among PESO Academy trainees");
+      }
+
+      if (course.isTESDAAccredited) {
+        score += 4;
+      }
+
+      if (performanceSummary) {
+        const learningMomentum = modulesCompleted >= 3 || totalLearningMinutes >= 180;
+        const performingStrongly = averageAssessmentScore >= 85 && overallModuleCompletionRate >= 60;
+        const needsFoundationalSupport =
+          (performanceSummary.scoredAssessments > 0 && averageAssessmentScore > 0 && averageAssessmentScore < 70) ||
+          overallModuleCompletionRate < 40;
+
+        if (performingStrongly && levelRank[course.level] >= 2) {
+          score += 12;
+          reasons.push("Matches your strong recent assessment and completion momentum");
+        }
+
+        if (needsFoundationalSupport && course.level === "Beginner") {
+          score += 9;
+          reasons.push("Provides a lower-risk step while you build confidence");
+        }
+
+        if (learningMomentum && course.duration >= 10) {
+          score += 6;
+          reasons.push("Fits the steady learning time you are already sustaining");
+        }
+      }
+
+      return {
+        course,
+        score,
+        reasons: Array.from(new Set(reasons)).slice(0, 3),
+      } satisfies LearnerCourseRecommendation;
+    })
+    .sort((left, right) => {
+      if (right.score !== left.score) return right.score - left.score;
+      if (right.course.enrolledCount !== left.course.enrolledCount) {
+        return right.course.enrolledCount - left.course.enrolledCount;
+      }
+      return left.course.title.localeCompare(right.course.title);
+    })
+    .slice(0, limit);
+};
+
 export const reportingService = {
+  /**
+   * Get a learner-facing summary of assessment, module, time, and topic performance.
+   */
+  getLearnerPerformanceSummary: async (userId: string): Promise<LearnerPerformanceSummary | null> => {
+    if (!supabase) return null;
+
+    try {
+      const { data: enrollments, error: enrollmentsError } = await supabase
+        .from("enrollments")
+        .select("id, course_id")
+        .eq("user_id", userId);
+
+      if (enrollmentsError) {
+        handleSupabaseError(enrollmentsError);
+        return null;
+      }
+
+      if (!enrollments || enrollments.length === 0) {
+        return createEmptyLearnerPerformanceSummary();
+      }
+
+      const enrollmentIds = Array.from(new Set(enrollments.map((enrollment) => enrollment.id)));
+      const courseIds = Array.from(new Set(enrollments.map((enrollment) => enrollment.course_id)));
+
+      const [coursesResult, modulesResult, moduleCompletionsResult, assessmentAttemptsResult] = await Promise.all([
+        supabase
+          .from("courses")
+          .select("id, title, category, skills")
+          .in("id", courseIds),
+        supabase
+          .from("modules")
+          .select("id, course_id, title")
+          .in("course_id", courseIds),
+        supabase
+          .from("module_completions")
+          .select("enrollment_id, module_id, time_spent, completed_at")
+          .in("enrollment_id", enrollmentIds),
+        supabase
+          .from("assessment_attempts")
+          .select("id, assessment_id, enrollment_id, score, passed, submitted_at, time_spent")
+          .eq("user_id", userId)
+          .in("enrollment_id", enrollmentIds)
+          .not("submitted_at", "is", null),
+      ]);
+
+      if (coursesResult.error) {
+        handleSupabaseError(coursesResult.error);
+        return null;
+      }
+
+      if (modulesResult.error) {
+        handleSupabaseError(modulesResult.error);
+        return null;
+      }
+
+      if (moduleCompletionsResult.error) {
+        handleSupabaseError(moduleCompletionsResult.error);
+        return null;
+      }
+
+      if (assessmentAttemptsResult.error) {
+        handleSupabaseError(assessmentAttemptsResult.error);
+        return null;
+      }
+
+      const courses = coursesResult.data || [];
+      const modules = modulesResult.data || [];
+      const moduleCompletions = moduleCompletionsResult.data || [];
+      const assessmentAttempts = assessmentAttemptsResult.data || [];
+
+      const assessmentIds = Array.from(
+        new Set(assessmentAttempts.map((attempt) => attempt.assessment_id).filter(Boolean))
+      );
+
+      let assessments: Array<{ id: string; title: string; module_id: string }> = [];
+      if (assessmentIds.length > 0) {
+        const { data: assessmentRows, error: assessmentsError } = await supabase
+          .from("assessments")
+          .select("id, title, module_id")
+          .in("id", assessmentIds);
+
+        if (assessmentsError) {
+          handleSupabaseError(assessmentsError);
+          return null;
+        }
+
+        assessments = assessmentRows || [];
+      }
+
+      const enrollmentMap = new Map(enrollments.map((enrollment) => [enrollment.id, enrollment]));
+      const courseMap = new Map(courses.map((course) => [course.id, course]));
+      const moduleMap = new Map(modules.map((module) => [module.id, module]));
+      const assessmentMap = new Map(assessments.map((assessment) => [assessment.id, assessment]));
+
+      const getTopicsForCourse = (courseId: string): string[] => {
+        const course = courseMap.get(courseId);
+        if (!course) return ["General Learning"];
+
+        const normalizedSkills = (course.skills || []).map((skill) => skill.trim()).filter(Boolean);
+        if (normalizedSkills.length > 0) {
+          return normalizedSkills;
+        }
+
+        return [course.category || "General Learning"];
+      };
+
+      const topicStats = new Map<string, {
+        scoreSum: number;
+        scoreCount: number;
+        assessmentsTaken: number;
+        modulesCompleted: number;
+        totalTimeSpentMinutes: number;
+      }>();
+
+      const addTopicActivity = (
+        courseId: string,
+        activity: {
+          score?: number | null;
+          moduleCompleted?: boolean;
+          timeSpentMinutes?: number;
+          assessmentTaken?: boolean;
+        }
+      ) => {
+        for (const topic of getTopicsForCourse(courseId)) {
+          const existing = topicStats.get(topic) || {
+            scoreSum: 0,
+            scoreCount: 0,
+            assessmentsTaken: 0,
+            modulesCompleted: 0,
+            totalTimeSpentMinutes: 0,
+          };
+
+          if (typeof activity.score === "number" && !Number.isNaN(activity.score)) {
+            existing.scoreSum += activity.score;
+            existing.scoreCount += 1;
+          }
+
+          if (activity.assessmentTaken) {
+            existing.assessmentsTaken += 1;
+          }
+
+          if (activity.moduleCompleted) {
+            existing.modulesCompleted += 1;
+          }
+
+          if (activity.timeSpentMinutes) {
+            existing.totalTimeSpentMinutes += activity.timeSpentMinutes;
+          }
+
+          topicStats.set(topic, existing);
+        }
+      };
+
+      const recentModules = moduleCompletions
+        .filter((completion) => Boolean(completion.completed_at))
+        .map((completion) => {
+          const module = moduleMap.get(completion.module_id);
+          const enrollment = enrollmentMap.get(completion.enrollment_id);
+          const course = enrollment ? courseMap.get(enrollment.course_id) : null;
+          const timeSpentMinutes = completion.time_spent || 0;
+
+          if (enrollment?.course_id) {
+            addTopicActivity(enrollment.course_id, {
+              moduleCompleted: true,
+              timeSpentMinutes,
+            });
+          }
+
+          return {
+            moduleId: completion.module_id,
+            moduleTitle: module?.title || "Module",
+            courseTitle: course?.title || "Course",
+            completedAt: completion.completed_at,
+            timeSpentMinutes,
+          } satisfies LearnerPerformanceModuleRecord;
+        })
+        .sort((left, right) => {
+          const leftTime = left.completedAt ? new Date(left.completedAt).getTime() : 0;
+          const rightTime = right.completedAt ? new Date(right.completedAt).getTime() : 0;
+          return rightTime - leftTime;
+        });
+
+      const recentAssessments = assessmentAttempts
+        .map((attempt) => {
+          const assessment = assessmentMap.get(attempt.assessment_id);
+          const module = assessment ? moduleMap.get(assessment.module_id) : null;
+          const enrollment = enrollmentMap.get(attempt.enrollment_id);
+          const courseId = module?.course_id || enrollment?.course_id;
+          const course = courseId ? courseMap.get(courseId) : null;
+          const numericScore = attempt.score === null || attempt.score === undefined ? null : Number(attempt.score);
+          const timeSpentMinutes = attempt.time_spent || 0;
+
+          if (courseId) {
+            addTopicActivity(courseId, {
+              score: numericScore,
+              assessmentTaken: true,
+              timeSpentMinutes,
+            });
+          }
+
+          return {
+            id: attempt.id,
+            assessmentTitle: assessment?.title || "Assessment",
+            moduleTitle: module?.title || "Module",
+            courseTitle: course?.title || "Course",
+            score: numericScore,
+            passed: attempt.passed,
+            submittedAt: attempt.submitted_at,
+            timeSpentMinutes,
+          } satisfies LearnerPerformanceAssessmentRecord;
+        })
+        .sort((left, right) => {
+          const leftTime = left.submittedAt ? new Date(left.submittedAt).getTime() : 0;
+          const rightTime = right.submittedAt ? new Date(right.submittedAt).getTime() : 0;
+          return rightTime - leftTime;
+        });
+
+      const topicPerformance = Array.from(topicStats.entries())
+        .map(([topic, stats]) => ({
+          topic,
+          averageScore: stats.scoreCount > 0 ? Math.round(stats.scoreSum / stats.scoreCount) : null,
+          assessmentsTaken: stats.assessmentsTaken,
+          modulesCompleted: stats.modulesCompleted,
+          totalTimeSpentMinutes: stats.totalTimeSpentMinutes,
+        }))
+        .sort((left, right) => {
+          const leftScore = left.averageScore ?? -1;
+          const rightScore = right.averageScore ?? -1;
+          if (rightScore !== leftScore) return rightScore - leftScore;
+          if (right.modulesCompleted !== left.modulesCompleted) return right.modulesCompleted - left.modulesCompleted;
+          return right.totalTimeSpentMinutes - left.totalTimeSpentMinutes;
+        });
+
+      const topicsWithScores = topicPerformance.filter((topic) => topic.averageScore !== null);
+      const scoredAttempts = recentAssessments.filter(
+        (attempt): attempt is LearnerPerformanceAssessmentRecord & { score: number } => attempt.score !== null
+      );
+      const totalModuleMinutes = moduleCompletions.reduce((sum, completion) => sum + (completion.time_spent || 0), 0);
+      const totalAssessmentMinutes = assessmentAttempts.reduce((sum, attempt) => sum + (attempt.time_spent || 0), 0);
+
+      return {
+        assessmentsTaken: recentAssessments.length,
+        scoredAssessments: scoredAttempts.length,
+        passedAssessments: recentAssessments.filter((attempt) => attempt.passed === true).length,
+        averageAssessmentScore:
+          scoredAttempts.length > 0
+            ? Math.round(scoredAttempts.reduce((sum, attempt) => sum + attempt.score, 0) / scoredAttempts.length)
+            : 0,
+        bestAssessmentScore:
+          scoredAttempts.length > 0
+            ? Math.max(...scoredAttempts.map((attempt) => attempt.score))
+            : 0,
+        modulesCompleted: recentModules.length,
+        totalModules: modules.length,
+        overallModuleCompletionRate:
+          modules.length > 0 ? Math.round((recentModules.length / modules.length) * 100) : 0,
+        totalLearningMinutes: totalModuleMinutes + totalAssessmentMinutes,
+        topicPerformance: topicPerformance.slice(0, 6),
+        strongestTopic: topicPerformance[0] || null,
+        needsImprovementTopic:
+          topicsWithScores.length > 1
+            ? topicsWithScores[topicsWithScores.length - 1]
+            : topicsWithScores[0] || null,
+        recentAssessments: recentAssessments.slice(0, 5),
+        recentModules: recentModules.slice(0, 5),
+      };
+    } catch (error) {
+      console.error("Error getting learner performance summary:", error);
+      return null;
+    }
+  },
+
+  /**
+   * Get organization-wide analytics for the admin dashboard
+   */
+  getAdminDashboardAnalytics: async (): Promise<AdminDashboardAnalytics | null> => {
+    if (!supabase) return null;
+
+    try {
+      const now = new Date();
+      const trendStart = startOfMonth(subMonths(now, 5));
+      const trendMonths = Array.from({ length: 6 }, (_, index) => {
+        const date = startOfMonth(subMonths(now, 5 - index));
+        const key = format(date, "yyyy-MM");
+
+        return {
+          month: key,
+          label: format(date, "MMM"),
+          totalEnrollments: 0,
+          completedEnrollments: 0,
+          completionRate: 0,
+          certificatesIssued: 0,
+          averageProgress: 0,
+          averageAssessmentScore: 0,
+          activeLearners: 0,
+          timeSpentHours: 0,
+        } satisfies AdminDashboardTrendPoint;
+      });
+
+      const trendMap = new Map(
+        trendMonths.map((point) => [point.month, {
+          ...point,
+          progressSum: 0,
+          progressCount: 0,
+          scoreSum: 0,
+          scoreCount: 0,
+          activeLearnerIds: new Set<string>(),
+          timeSpentMinutes: 0,
+        }])
+      );
+
+      const enrollmentsQueryWithActivity = supabase
+        .from("enrollments")
+        .select("id, user_id, course_id, progress, status, enrolled_at, completed_at, updated_at")
+        .order("enrolled_at", { ascending: false });
+
+      let enrollmentsResult: {
+        data: Array<{
+          id: string;
+          user_id: string;
+          course_id: string;
+          progress: number | null;
+          status: string;
+          enrolled_at: string;
+          completed_at: string | null;
+          updated_at?: string | null;
+        }> | null;
+        error: { message: string } | null;
+      } = await enrollmentsQueryWithActivity;
+      if (enrollmentsResult.error && enrollmentsResult.error.message.toLowerCase().includes("updated_at")) {
+        enrollmentsResult = await supabase
+          .from("enrollments")
+          .select("id, user_id, course_id, progress, status, enrolled_at, completed_at")
+          .order("enrolled_at", { ascending: false });
+      }
+
+      const [
+        usersResult,
+        coursesResult,
+        certificatesResult,
+        moduleCompletionsResult,
+        assessmentAttemptsResult,
+        totalCertificatesResult,
+        totalModuleCompletionsResult,
+        totalAssessmentAttemptsResult,
+      ] = await Promise.all([
+        supabase.from("users").select("id", { count: "exact" }),
+        supabase.from("courses").select("id, title"),
+        supabase
+          .from("certificates")
+          .select("id, course_id, issued_at")
+          .gte("issued_at", trendStart.toISOString()),
+        supabase
+          .from("module_completions")
+          .select("enrollment_id, time_spent, completed_at")
+          .gte("completed_at", trendStart.toISOString()),
+        supabase
+          .from("assessment_attempts")
+          .select("enrollment_id, score, submitted_at")
+          .not("score", "is", null)
+          .gte("submitted_at", trendStart.toISOString()),
+        supabase.from("certificates").select("id", { count: "exact", head: true }),
+        supabase.from("module_completions").select("time_spent"),
+        supabase
+          .from("assessment_attempts")
+          .select("score")
+          .not("score", "is", null),
+      ]);
+
+      if (coursesResult.error) {
+        handleSupabaseError(coursesResult.error);
+        return null;
+      }
+
+      if (enrollmentsResult.error) {
+        handleSupabaseError(enrollmentsResult.error);
+        return null;
+      }
+
+      if (certificatesResult.error) {
+        handleSupabaseError(certificatesResult.error);
+        return null;
+      }
+
+      if (moduleCompletionsResult.error) {
+        handleSupabaseError(moduleCompletionsResult.error);
+        return null;
+      }
+
+      if (assessmentAttemptsResult.error) {
+        handleSupabaseError(assessmentAttemptsResult.error);
+        return null;
+      }
+
+      if (totalCertificatesResult.error) {
+        handleSupabaseError(totalCertificatesResult.error);
+        return null;
+      }
+
+      if (totalModuleCompletionsResult.error) {
+        handleSupabaseError(totalModuleCompletionsResult.error);
+        return null;
+      }
+
+      if (totalAssessmentAttemptsResult.error) {
+        handleSupabaseError(totalAssessmentAttemptsResult.error);
+        return null;
+      }
+
+      const courses = coursesResult.data || [];
+      const enrollments = (enrollmentsResult.data || []) as Array<{
+        id: string;
+        user_id: string;
+        course_id: string;
+        progress: number | null;
+        status: string;
+        enrolled_at: string;
+        completed_at: string | null;
+        updated_at?: string | null;
+      }>;
+      const certificates = certificatesResult.data || [];
+      const moduleCompletions = moduleCompletionsResult.data || [];
+      const assessmentAttempts = assessmentAttemptsResult.data || [];
+      const totalModuleCompletions = totalModuleCompletionsResult.data || [];
+      const totalAssessmentAttempts = totalAssessmentAttemptsResult.data || [];
+
+      const courseTitleMap = new Map(courses.map((course) => [course.id, course.title]));
+      const enrollmentMap = new Map(enrollments.map((enrollment) => [enrollment.id, enrollment]));
+      const courseStats = new Map<string, {
+        enrollments: number;
+        completedEnrollments: number;
+        progressSum: number;
+        progressCount: number;
+        certificatesIssued: number;
+      }>();
+      const activeLearners7Days = new Set<string>();
+      const activeLearners30Days = new Set<string>();
+
+      const getMonthKey = (value: string | null | undefined) => {
+        if (!value) return null;
+
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return null;
+
+        return format(date, "yyyy-MM");
+      };
+
+      for (const enrollment of enrollments) {
+        const progress = enrollment.progress || 0;
+        const lastActivity = enrollment.updated_at || enrollment.completed_at || enrollment.enrolled_at;
+        const lastActivityDate = new Date(lastActivity);
+
+        if (!Number.isNaN(lastActivityDate.getTime())) {
+          const daysSinceActivity = differenceInDays(now, lastActivityDate);
+          if (daysSinceActivity <= 30) activeLearners30Days.add(enrollment.user_id);
+          if (daysSinceActivity <= 7) activeLearners7Days.add(enrollment.user_id);
+        }
+
+        const enrolledMonthKey = getMonthKey(enrollment.enrolled_at);
+        if (enrolledMonthKey && trendMap.has(enrolledMonthKey)) {
+          const trendPoint = trendMap.get(enrolledMonthKey)!;
+          trendPoint.totalEnrollments += 1;
+          trendPoint.progressSum += progress;
+          trendPoint.progressCount += 1;
+        }
+
+        const completedMonthKey = getMonthKey(enrollment.completed_at);
+        if ((enrollment.status === "completed" || progress === 100) && completedMonthKey && trendMap.has(completedMonthKey)) {
+          const trendPoint = trendMap.get(completedMonthKey)!;
+          trendPoint.completedEnrollments += 1;
+        }
+
+        const existingCourseStats = courseStats.get(enrollment.course_id) || {
+          enrollments: 0,
+          completedEnrollments: 0,
+          progressSum: 0,
+          progressCount: 0,
+          certificatesIssued: 0,
+        };
+
+        existingCourseStats.enrollments += 1;
+        existingCourseStats.progressSum += progress;
+        existingCourseStats.progressCount += 1;
+        if (enrollment.status === "completed" || progress === 100) {
+          existingCourseStats.completedEnrollments += 1;
+        }
+        courseStats.set(enrollment.course_id, existingCourseStats);
+      }
+
+      for (const certificate of certificates) {
+        const monthKey = getMonthKey(certificate.issued_at);
+        if (monthKey && trendMap.has(monthKey)) {
+          trendMap.get(monthKey)!.certificatesIssued += 1;
+        }
+
+        const existingCourseStats = courseStats.get(certificate.course_id) || {
+          enrollments: 0,
+          completedEnrollments: 0,
+          progressSum: 0,
+          progressCount: 0,
+          certificatesIssued: 0,
+        };
+        existingCourseStats.certificatesIssued += 1;
+        courseStats.set(certificate.course_id, existingCourseStats);
+      }
+
+      let totalLearningMinutes = 0;
+      for (const completion of moduleCompletions) {
+        const minutes = completion.time_spent || 0;
+        totalLearningMinutes += minutes;
+
+        const enrollment = enrollmentMap.get(completion.enrollment_id);
+        const monthKey = getMonthKey(completion.completed_at || undefined);
+        if (monthKey && trendMap.has(monthKey)) {
+          const trendPoint = trendMap.get(monthKey)!;
+          trendPoint.timeSpentMinutes += minutes;
+          if (enrollment?.user_id) {
+            trendPoint.activeLearnerIds.add(enrollment.user_id);
+          }
+        }
+      }
+
+      for (const attempt of assessmentAttempts) {
+        const score = Number(attempt.score);
+        const monthKey = getMonthKey(attempt.submitted_at || undefined);
+        if (!Number.isNaN(score) && monthKey && trendMap.has(monthKey)) {
+          const trendPoint = trendMap.get(monthKey)!;
+          trendPoint.scoreSum += score;
+          trendPoint.scoreCount += 1;
+        }
+      }
+
+      const monthlyTrends = Array.from(trendMap.values()).map((point) => ({
+        month: point.month,
+        label: point.label,
+        totalEnrollments: point.totalEnrollments,
+        completedEnrollments: point.completedEnrollments,
+        completionRate:
+          point.totalEnrollments > 0
+            ? Math.round((point.completedEnrollments / point.totalEnrollments) * 100)
+            : 0,
+        certificatesIssued: point.certificatesIssued,
+        averageProgress:
+          point.progressCount > 0 ? Math.round(point.progressSum / point.progressCount) : 0,
+        averageAssessmentScore:
+          point.scoreCount > 0 ? Math.round(point.scoreSum / point.scoreCount) : 0,
+        activeLearners: point.activeLearnerIds.size,
+        timeSpentHours: Math.round((point.timeSpentMinutes / 60) * 10) / 10,
+      }));
+
+      const totalEnrollments = enrollments.length;
+      const completedEnrollments = enrollments.filter(
+        (enrollment) => enrollment.status === "completed" || (enrollment.progress || 0) === 100
+      ).length;
+      const progressValues = enrollments.map((enrollment) => enrollment.progress || 0);
+      const scoredAttempts = totalAssessmentAttempts
+        .map((attempt) => Number(attempt.score))
+        .filter((score) => !Number.isNaN(score));
+      const totalLearningMinutesAllTime = totalModuleCompletions.reduce(
+        (sum, completion) => sum + (completion.time_spent || 0),
+        0
+      );
+
+      const topCourses = Array.from(courseStats.entries())
+        .map(([courseId, stats]) => ({
+          courseId,
+          courseTitle: courseTitleMap.get(courseId) || "Unknown Course",
+          enrollments: stats.enrollments,
+          completionRate: stats.enrollments > 0 ? Math.round((stats.completedEnrollments / stats.enrollments) * 100) : 0,
+          certificatesIssued: stats.certificatesIssued,
+          averageProgress: stats.progressCount > 0 ? Math.round(stats.progressSum / stats.progressCount) : 0,
+        }))
+        .sort((left, right) => {
+          if (right.enrollments !== left.enrollments) return right.enrollments - left.enrollments;
+          return right.completionRate - left.completionRate;
+        })
+        .slice(0, 5);
+
+      return {
+        totalUsers: usersResult.count || 0,
+        totalCourses: courses.length,
+        totalEnrollments,
+        completionRate: totalEnrollments > 0 ? Math.round((completedEnrollments / totalEnrollments) * 100) : 0,
+        certificatesIssued: totalCertificatesResult.count || 0,
+        activeLearners7Days: activeLearners7Days.size,
+        activeLearners30Days: activeLearners30Days.size,
+        averageProgress:
+          progressValues.length > 0
+            ? Math.round(progressValues.reduce((sum, progress) => sum + progress, 0) / progressValues.length)
+            : 0,
+        averageAssessmentScore:
+          scoredAttempts.length > 0
+            ? Math.round(scoredAttempts.reduce((sum, score) => sum + score, 0) / scoredAttempts.length)
+            : 0,
+        totalLearningHours: Math.round((totalLearningMinutesAllTime / 60) * 10) / 10,
+        monthlyTrends,
+        topCourses,
+      };
+    } catch (error) {
+      console.error("Error getting admin dashboard analytics:", error);
+      return null;
+    }
+  },
+
   /**
    * Get training completion reports
    */

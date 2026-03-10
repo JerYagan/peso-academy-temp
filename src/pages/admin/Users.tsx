@@ -39,8 +39,20 @@ import { useNavigate } from "react-router-dom";
 import { supabaseAuthService } from "@/services/supabaseAuthService";
 import { roleService, DatabaseRole } from "@/services/roleService";
 
-// Roles shown in User Management: only admin, trainer, trainee (validator/SPD/training_officer optional or removed later)
-const USER_MANAGEMENT_ROLES: UserRole[] = ["admin", "trainer", "trainee", "training_officer"];
+const SYSTEM_USER_ROLES: UserRole[] = ["trainee", "trainer", "admin"];
+const ROLE_CHANGE_ELIGIBLE_ROLES: UserRole[] = ["trainer", "admin"];
+
+const normalizeAdminRole = (role: UserRole): UserRole => {
+  if (role === "training_officer") {
+    return "trainer";
+  }
+
+  if (role === "jobseeker") {
+    return "trainee";
+  }
+
+  return role;
+};
 
 const AdminUsers = () => {
   const { user: currentUser, loading: authLoading } = useAuth();
@@ -90,14 +102,19 @@ const AdminUsers = () => {
           console.log("✅ Successfully loaded", roles.length, "roles from database");
         }
         
-        setAvailableRoles(roles);
+        setAvailableRoles(
+          roles.filter((role) => SYSTEM_USER_ROLES.includes(normalizeAdminRole(role.id as UserRole)))
+        );
         
         // Set default role for new user if current role doesn't exist in database
         if (roles.length > 0) {
           const currentRoleExists = roles.find(r => r.id === newUser.role);
           if (!currentRoleExists) {
             // Try to find 'trainee' first, otherwise use first available role
-            const defaultRole = roles.find(r => r.id === 'trainee') || roles[0];
+            const defaultRole =
+              roles.find(r => normalizeAdminRole(r.id as UserRole) === 'trainee') ||
+              roles.find(r => SYSTEM_USER_ROLES.includes(normalizeAdminRole(r.id as UserRole))) ||
+              roles[0];
             setNewUser(prev => ({ ...prev, role: defaultRole.id }));
           }
         }
@@ -181,7 +198,7 @@ const AdminUsers = () => {
 
     // Filter by role
     if (roleFilter !== "all") {
-      filtered = filtered.filter((user) => user.role === roleFilter);
+      filtered = filtered.filter((user) => normalizeAdminRole(user.role) === roleFilter);
     }
 
     setFilteredUsers(filtered);
@@ -305,9 +322,9 @@ const AdminUsers = () => {
       rolesLoading
     });
     setEditingUser(user);
-    // Only admin and training_officer are assignable; default to training_officer if current role isn't one of them
-    const assignable = user.role === "admin" || user.role === "training_officer";
-    setSelectedRole(assignable ? user.role : "training_officer");
+    const normalizedRole = normalizeAdminRole(user.role);
+    const assignable = ROLE_CHANGE_ELIGIBLE_ROLES.includes(normalizedRole);
+    setSelectedRole(assignable ? normalizedRole : "trainer");
     setIsRoleDialogOpen(true);
   };
 
@@ -363,6 +380,7 @@ const AdminUsers = () => {
 
     try {
       setCreating(true);
+      const requestedRole = normalizeAdminRole(newUser.role as UserRole);
       // Prevent redirect to new user's dashboard while admin session is being restored
       if (typeof window !== "undefined") sessionStorage.setItem("admin_creating_user", "1");
       console.log("Starting user creation for:", newUser.email);
@@ -371,7 +389,7 @@ const AdminUsers = () => {
         newUser.email,
         newUser.password,
         newUser.name,
-        newUser.role as UserRole
+        requestedRole
       );
 
       console.log("User creation result:", { 
@@ -397,14 +415,26 @@ const AdminUsers = () => {
       if (result.user) {
         console.log("User created successfully:", result.user.id);
         toast.success(`Account created successfully for ${newUser.name}. They can sign in with the email and password you provided.`);
-        setIsCreateDialogOpen(false);
-        setNewUser({
-          name: "",
-          email: "",
-          password: "",
-          role: "trainee",
-        });
-        loadUsers();
+
+        await loadUsers();
+
+        if (requestedRole === "trainer") {
+          setNewUser({
+            name: "",
+            email: "",
+            password: "",
+            role: "trainer",
+          });
+        } else {
+          setIsCreateDialogOpen(false);
+          setNewUser({
+            name: "",
+            email: "",
+            password: "",
+            role: "trainee",
+          });
+        }
+
         setCreating(false);
         if (typeof window !== "undefined") sessionStorage.removeItem("admin_creating_user");
         return;
@@ -429,18 +459,18 @@ const AdminUsers = () => {
   const stats = {
     total: users.length,
     byRole: users.reduce((acc, user) => {
-      acc[user.role] = (acc[user.role] || 0) + 1;
+      const normalizedRole = normalizeAdminRole(user.role);
+      acc[normalizedRole] = (acc[normalizedRole] || 0) + 1;
       return acc;
     }, {} as Record<UserRole, number>),
   };
 
   // Get roles dynamically from database, fallback to User Management roles if empty
   const allRoles: string[] = availableRoles.length > 0
-    ? availableRoles.map(r => r.id)
-    : [...USER_MANAGEMENT_ROLES];
+    ? availableRoles.map(r => normalizeAdminRole(r.id as UserRole))
+    : [...SYSTEM_USER_ROLES];
 
-  // Only show admin, trainer, trainee in cards and filters (validator/SPD/training_officer not shown)
-  const displayRoles = USER_MANAGEMENT_ROLES;
+  const displayRoles = SYSTEM_USER_ROLES;
   
   // Debug: Log roles for troubleshooting (log when roles change)
   useEffect(() => {
@@ -456,14 +486,15 @@ const AdminUsers = () => {
   
   // Get role display name (from database or fallback)
   const getRoleDisplayName = (roleId: string): string => {
-    const dbRole = availableRoles.find(r => r.id === roleId);
-    if (dbRole) return dbRole.name;
-    if (roleId === "trainer") return "Trainer";
-    return defaultRoleDisplayNames[roleId as UserRole] || roleId;
+    const normalizedRole = normalizeAdminRole(roleId as UserRole);
+    const dbRole = availableRoles.find(r => normalizeAdminRole(r.id as UserRole) === normalizedRole);
+    if (normalizedRole === "trainer") return "Trainer";
+    if (dbRole) return normalizedRole === "trainer" ? "Trainer" : dbRole.name;
+    return defaultRoleDisplayNames[normalizedRole as UserRole] || normalizedRole;
   };
 
-  // Roles that can be assigned when creating or changing a user (admin, trainer, trainee only)
-  const assignableRolesForChange = displayRoles;
+  const assignableRolesForChange = ROLE_CHANGE_ELIGIBLE_ROLES;
+  const assignableRolesForCreate = displayRoles;
 
   // Account status for list (extend with last_activity when available for "Inactive X months ago")
   const getAccountStatusLabel = (_createdAt: string): string => {
@@ -530,7 +561,7 @@ const AdminUsers = () => {
         </div>
 
         {/* Statistics Cards */}
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium">Total Users</CardTitle>
@@ -671,8 +702,8 @@ const AdminUsers = () => {
                           </div>
                         </TableCell>
                         <TableCell>
-                          <Badge variant={user.role === "admin" ? "default" : "secondary"}>
-                            {getRoleDisplayName(user.role)}
+                          <Badge variant={normalizeAdminRole(user.role) === "admin" ? "default" : "secondary"}>
+                            {getRoleDisplayName(normalizeAdminRole(user.role))}
                           </Badge>
                         </TableCell>
                         <TableCell>
@@ -687,7 +718,7 @@ const AdminUsers = () => {
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-2">
-                            {user.role !== "trainee" && (
+                            {ROLE_CHANGE_ELIGIBLE_ROLES.includes(normalizeAdminRole(user.role)) && (
                               <Button
                                 variant="outline"
                                 size="sm"
@@ -741,7 +772,7 @@ const AdminUsers = () => {
               <div className="space-y-2">
                 <Label>Current Role</Label>
                 <div>
-                  <Badge variant="secondary">{editingUser && getRoleDisplayName(editingUser.role)}</Badge>
+                  <Badge variant="secondary">{editingUser && getRoleDisplayName(normalizeAdminRole(editingUser.role))}</Badge>
                 </div>
               </div>
               <div className="space-y-2">
@@ -861,7 +892,7 @@ const AdminUsers = () => {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {assignableRolesForChange.map((role) => (
+                    {assignableRolesForCreate.map((role) => (
                       <SelectItem key={role} value={role}>
                         {getRoleDisplayName(role)}
                       </SelectItem>

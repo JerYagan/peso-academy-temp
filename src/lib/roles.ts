@@ -12,9 +12,13 @@
  * Display names can be customized via role_aliases table
  */
 
+import type { UserRole } from "@/types/auth";
+import { normalizeUserRole } from "@/types/auth";
 import { roleService } from "@/services/roleService";
 
-export type UserRole = 'admin' | 'training_officer' | 'validator' | 'trainee';
+export type { UserRole } from "@/types/auth";
+
+type PermissionRole = "admin" | "training_officer" | "validator" | "trainee";
 
 // Cache for dashboard routes to avoid repeated database calls
 const dashboardRouteCache: Map<string, string> = new Map();
@@ -29,7 +33,18 @@ export interface RolePermissions {
   canManageSettings: boolean;
 }
 
-export const rolePermissions: Record<UserRole, RolePermissions> = {
+const permissionRoleAliases: Record<UserRole, PermissionRole> = {
+  admin: "admin",
+  training_officer: "training_officer",
+  trainer: "training_officer",
+  spd: "training_officer",
+  validator: "validator",
+  trainee: "trainee",
+  employer: "trainee",
+  jobseeker: "trainee",
+};
+
+export const rolePermissions: Record<PermissionRole, RolePermissions> = {
   admin: {
     canManageUsers: true,
     canManageCourses: true,
@@ -70,8 +85,12 @@ export const rolePermissions: Record<UserRole, RolePermissions> = {
 export const defaultRoleDisplayNames: Record<UserRole, string> = {
   admin: 'Administrator',
   training_officer: 'Training Officer',
+  trainer: 'Trainer',
+  spd: 'Special Projects Division',
   validator: 'Validator',
   trainee: 'Trainee',
+  employer: 'Employer',
+  jobseeker: 'Jobseeker',
 };
 
 /**
@@ -80,9 +99,17 @@ export const defaultRoleDisplayNames: Record<UserRole, string> = {
 export const defaultRoleDescriptions: Record<UserRole, string> = {
   admin: 'Assigns and manages roles and defines access permissions',
   training_officer: 'Accesses training-related modules only',
+  trainer: 'Creates courses, manages training content, and supports learners',
+  spd: 'Manages program delivery, modules, and training operations',
   validator: 'Accesses validation and review modules only',
   trainee: 'Accesses learning, assessment, and progress modules only',
+  employer: 'Accesses learner-facing dashboard features',
+  jobseeker: 'Accesses learner-facing dashboard features',
 };
+
+function getPermissionRole(role: UserRole): PermissionRole {
+  return permissionRoleAliases[role] ?? 'trainee';
+}
 
 /**
  * Get user role from user metadata
@@ -92,16 +119,11 @@ export const defaultRoleDescriptions: Record<UserRole, string> = {
 export function getUserRole(user: any): UserRole {
   // Check if it's a User object with direct role property (from AuthContext)
   if (user?.role) {
-    const role = user.role;
-    const validRoles: UserRole[] = ['admin', 'training_officer', 'validator', 'trainee'];
-    return validRoles.includes(role) ? role : 'trainee';
+    return normalizeUserRole(user.role);
   }
   
   // Otherwise, check for Supabase user metadata
-  const role = user?.user_metadata?.role || 'trainee';
-  // Validate role is one of the 4 valid roles
-  const validRoles: UserRole[] = ['admin', 'training_officer', 'validator', 'trainee'];
-  return validRoles.includes(role) ? role : 'trainee';
+  return normalizeUserRole(user?.user_metadata?.role);
 }
 
 /**
@@ -130,18 +152,25 @@ export function isAdmin(user: any): boolean {
  * Get permissions for a user
  */
 export function getUserPermissions(user: any): RolePermissions {
-  const role = getUserRole(user);
+  const role = getPermissionRole(getUserRole(user));
   return rolePermissions[role];
 }
+
+const localDashboardRouteOverrides: Partial<Record<UserRole, string>> = {
+  admin: '/admin/dashboard',
+  training_officer: '/trainer/dashboard',
+  trainer: '/trainer/dashboard',
+  spd: '/trainer/dashboard',
+};
 
 /**
  * Fallback dashboard routes (used when database is unavailable or role not found)
  */
 const fallbackDashboardRoutes: Record<string, string> = {
-  'admin': '/admin/users',
-  'training_officer': '/trainer/courses',
-  'trainer': '/trainer/courses',
-  'spd': '/trainer/courses',
+  'admin': '/admin/dashboard',
+  'training_officer': '/trainer/dashboard',
+  'trainer': '/trainer/dashboard',
+  'spd': '/trainer/dashboard',
   'validator': '/validator/dashboard',
   'employer': '/dashboard',
   'trainee': '/dashboard',
@@ -185,25 +214,31 @@ export async function refreshDashboardRoutes(): Promise<void> {
  * Fetches from database and caches the result
  */
 export async function getDashboardRouteAsync(role: UserRole | string): Promise<string> {
+  const normalizedRole = normalizeUserRole(role);
+
+  if (localDashboardRouteOverrides[normalizedRole]) {
+    return localDashboardRouteOverrides[normalizedRole]!;
+  }
+
   // Check cache first
-  if (dashboardRouteCache.has(role)) {
-    return dashboardRouteCache.get(role)!;
+  if (dashboardRouteCache.has(normalizedRole)) {
+    return dashboardRouteCache.get(normalizedRole)!;
   }
 
   // Try to fetch from database
   try {
-    const dbRole = await roleService.getRoleById(role);
+    const dbRole = await roleService.getRoleById(normalizedRole);
     if (dbRole?.dashboard_route) {
       // Cache the result
-      dashboardRouteCache.set(role, dbRole.dashboard_route);
+      dashboardRouteCache.set(normalizedRole, dbRole.dashboard_route);
       return dbRole.dashboard_route;
     }
   } catch (error) {
-    console.warn(`Failed to fetch dashboard route for role "${role}" from database:`, error);
+    console.warn(`Failed to fetch dashboard route for role "${normalizedRole}" from database:`, error);
   }
 
   // Fallback to hardcoded routes
-  return fallbackDashboardRoutes[role] || fallbackDashboardRoutes['trainee'] || '/dashboard';
+  return fallbackDashboardRoutes[normalizedRole] || fallbackDashboardRoutes['trainee'] || '/dashboard';
 }
 
 /**
@@ -215,13 +250,19 @@ export async function getDashboardRouteAsync(role: UserRole | string): Promise<s
  * The cache is refreshed when roles are updated in the database
  */
 export function getDashboardRoute(role: UserRole | string): string {
+  const normalizedRole = normalizeUserRole(role);
+
+  if (localDashboardRouteOverrides[normalizedRole]) {
+    return localDashboardRouteOverrides[normalizedRole]!;
+  }
+
   // Check cache first (should be populated on app startup)
-  if (dashboardRouteCache.has(role)) {
-    return dashboardRouteCache.get(role)!;
+  if (dashboardRouteCache.has(normalizedRole)) {
+    return dashboardRouteCache.get(normalizedRole)!;
   }
 
   // Fallback to hardcoded routes
-  return fallbackDashboardRoutes[role] || fallbackDashboardRoutes['trainee'] || '/dashboard';
+  return fallbackDashboardRoutes[normalizedRole] || fallbackDashboardRoutes['trainee'] || '/dashboard';
 }
 
 /**
@@ -229,20 +270,26 @@ export function getDashboardRoute(role: UserRole | string): string {
  * This ensures we get the latest dashboard_route from the roles table
  */
 export async function getDashboardRouteForUser(userId: string, userRole: string): Promise<string> {
+  const normalizedRole = normalizeUserRole(userRole);
+
+  if (localDashboardRouteOverrides[normalizedRole]) {
+    return localDashboardRouteOverrides[normalizedRole]!;
+  }
+
   try {
     // First try to get the role's dashboard_route from database
-    const dbRole = await roleService.getRoleById(userRole);
+    const dbRole = await roleService.getRoleById(normalizedRole);
     if (dbRole?.dashboard_route) {
       // Update cache
-      dashboardRouteCache.set(userRole, dbRole.dashboard_route);
+      dashboardRouteCache.set(normalizedRole, dbRole.dashboard_route);
       return dbRole.dashboard_route;
     }
   } catch (error) {
-    console.warn(`Failed to fetch dashboard route for role "${userRole}":`, error);
+    console.warn(`Failed to fetch dashboard route for role "${normalizedRole}":`, error);
   }
 
   // Fallback to cache or hardcoded routes
-  return getDashboardRoute(userRole);
+  return getDashboardRoute(normalizedRole);
 }
 
 /**
@@ -266,12 +313,12 @@ export function isPublicSignupRole(role: UserRole): boolean {
  * For now, returns default display name
  */
 export function getRoleDisplayName(role: UserRole): string {
-  return defaultRoleDisplayNames[role];
+  return defaultRoleDisplayNames[normalizeUserRole(role)];
 }
 
 /**
  * Get role description
  */
 export function getRoleDescription(role: UserRole): string {
-  return defaultRoleDescriptions[role];
+  return defaultRoleDescriptions[normalizeUserRole(role)];
 }

@@ -2,27 +2,56 @@ import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Users, BookOpen, Loader2, RefreshCw } from "lucide-react";
-import { courseService, enrollmentService, userService } from "@/services/supabaseDatabaseService";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Progress } from "@/components/ui/progress";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Users, BookOpen, Loader2, RefreshCw, Award, CheckCircle2, Clock3 } from "lucide-react";
+import { certificateService, courseService, enrollmentService, moduleService, userService } from "@/services/supabaseDatabaseService";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
 import { useState, useEffect } from "react";
-import { Course, Enrollment } from "@/types";
+import { Course, Enrollment, Module } from "@/types";
 import { User } from "@/types/auth";
 import { toast } from "sonner";
+import { resolveTrainerOwnership } from "@/lib/trainerOwnership";
 
 interface LearnerData extends User {
   enrollments: Enrollment[];
 }
 
+interface LearnerCourseProgress {
+  enrollment: Enrollment;
+  course: Course | null;
+  certificateReleased: boolean;
+  certificateIssuedAt?: string;
+  modules: Array<{
+    module: Module;
+    completed: boolean;
+    completedAt?: string;
+    timeSpent?: number;
+  }>;
+}
+
 const TrainerLearners = () => {
   const { user } = useAuth();
   const [learners, setLearners] = useState<LearnerData[]>([]);
+  const [visibleCourses, setVisibleCourses] = useState<Course[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showingAllCoursesFallback, setShowingAllCoursesFallback] = useState(false);
+  const [progressDialogOpen, setProgressDialogOpen] = useState(false);
+  const [selectedLearner, setSelectedLearner] = useState<LearnerData | null>(null);
+  const [progressLoading, setProgressLoading] = useState(false);
+  const [learnerProgress, setLearnerProgress] = useState<LearnerCourseProgress[]>([]);
 
   useEffect(() => {
     if (user) {
-      loadLearners();
+      void loadLearners();
     }
   }, [user]);
 
@@ -31,78 +60,33 @@ const TrainerLearners = () => {
     
     setLoading(true);
     try {
+      const ownership = await resolveTrainerOwnership(user);
+
       // Get all courses for this trainer
       const allCourses = await courseService.getCourses();
       
-      // Filter courses where instructor_id matches the logged-in user's ID
-      let myCourses = allCourses.filter((c) => c.instructorId === user.id);
+      // Filter courses for any profile row that belongs to this trainer account
+      const myCourses = allCourses.filter((course) => ownership.ownerIds.includes(course.instructorId));
+      const visibleCourses = myCourses.length > 0 ? myCourses : allCourses;
+      setVisibleCourses(visibleCourses);
+      setShowingAllCoursesFallback(myCourses.length === 0 && allCourses.length > 0);
       
-      // If no courses found by ID, try matching by email (fallback)
-      if (myCourses.length === 0 && user.email && supabase) {
-        console.warn("No courses found by ID match. Trying email match...");
-        // Get trainer's user record from database to verify ID
-        const { data: trainerData } = await supabase
-          .from("users")
-          .select("id, email")
-          .eq("email", user.email)
-          .single();
-        
-        if (trainerData && trainerData.id !== user.id) {
-          console.warn("ID mismatch detected:", {
-            authUserId: user.id,
-            databaseUserId: trainerData.id,
-            email: user.email
-          });
-          // Try filtering with database user ID
-          myCourses = allCourses.filter((c) => c.instructorId === trainerData.id);
-        }
-      }
-      
-      console.log("=== TRAINER LEARNERS DEBUG ===");
-      console.log("Logged-in trainer:", {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        role: user.role
-      });
-      console.log("All courses in database:", {
-        count: allCourses.length,
-        courses: allCourses.map(c => ({ 
-          id: c.id, 
-          title: c.title, 
-          instructorId: c.instructorId 
-        }))
-      });
-      console.log("My courses (filtered):", {
-        count: myCourses.length,
-        courses: myCourses.map(c => ({ 
-          id: c.id, 
-          title: c.title, 
-          instructorId: c.instructorId 
-        }))
-      });
-      
-      if (myCourses.length === 0) {
-        console.log("No courses found for trainer");
+      if (visibleCourses.length === 0) {
         setLearners([]);
         setLoading(false);
         return;
       }
 
       // Get enrollments directly for trainer's courses using a direct join query
-      const myCourseIds = myCourses.map(c => c.id);
+      const myCourseIds = visibleCourses.map(c => c.id);
       
       let myEnrollments: Enrollment[] = [];
       if (myCourseIds.length > 0 && supabase) {
-        // Use a direct query that joins enrollments with courses to ensure we get the right data
+        // Query enrollments for the already-resolved trainer course ids.
         const { data, error } = await supabase
           .from("enrollments")
-          .select(`
-            *,
-            courses!inner(id, instructor_id)
-          `)
+          .select("*")
           .in("course_id", myCourseIds)
-          .eq("courses.instructor_id", user.id) // Double-check instructor match
           .order("enrolled_at", { ascending: false });
         
         if (error) {
@@ -142,46 +126,10 @@ const TrainerLearners = () => {
           }));
         }
         
-        // Verify enrollments match courses
-        console.log("Enrollment verification:", {
-          myCourseIds: myCourseIds,
-          enrollmentsFound: myEnrollments.length,
-          enrollmentCourseIds: myEnrollments.map(e => e.courseId),
-          allMatch: myEnrollments.every(e => myCourseIds.includes(e.courseId))
-        });
-      }
-      
-      console.log("Enrollments for my courses:", {
-        myCourseIds: myCourseIds,
-        myCourseTitles: myCourses.map(c => c.title),
-        myEnrollmentsCount: myEnrollments.length,
-        myEnrollments: myEnrollments.map(e => ({ 
-          id: e.id, 
-          userId: e.userId, 
-          courseId: e.courseId,
-          status: e.status 
-        }))
-      });
-      
-      // Additional check: Verify enrollment-course relationship
-      if (myEnrollments.length > 0) {
-        console.log("Enrollment-Course verification:", 
-          myEnrollments.map(e => {
-            const course = myCourses.find(c => c.id === e.courseId);
-            return {
-              enrollmentId: e.id,
-              courseId: e.courseId,
-              courseTitle: course?.title || "NOT FOUND",
-              courseInstructorId: course?.instructorId,
-              matchesTrainer: course?.instructorId === user.id
-            };
-          })
-        );
       }
 
       // Get unique learner IDs
       const uniqueLearnerIds = Array.from(new Set(myEnrollments.map((e) => e.userId)));
-      console.log("Unique learner IDs:", uniqueLearnerIds);
 
       // Fetch user data for each learner
       const learnersData: LearnerData[] = [];
@@ -195,26 +143,12 @@ const TrainerLearners = () => {
               ...userData,
               enrollments: userEnrollments,
             });
-            console.log("Added learner:", {
-              id: userData.id,
-              email: userData.email,
-              enrollmentsCount: userEnrollments.length
-            });
-          } else {
-            console.warn("User data not found or not accessible for learner ID:", learnerId);
-            // Still add enrollment data even if user profile is missing
-            const userEnrollments = myEnrollments.filter((e) => e.userId === learnerId);
-            if (userEnrollments.length > 0) {
-              console.warn(`Found ${userEnrollments.length} enrollment(s) for missing user ${learnerId}`);
-            }
           }
         } catch (error) {
           console.error(`Error fetching user ${learnerId}:`, error);
-          // Continue with other users even if one fails
         }
       }
 
-      console.log("Final learners data:", learnersData.length);
       setLearners(learnersData);
     } catch (error) {
       console.error("Error loading learners:", error);
@@ -224,13 +158,122 @@ const TrainerLearners = () => {
     }
   };
 
+  const handleViewProgress = async (learner: LearnerData) => {
+    setSelectedLearner(learner);
+    setProgressDialogOpen(true);
+    setProgressLoading(true);
+
+    try {
+      const [learnerEnrollments, learnerCertificates, allCourses] = await Promise.all([
+        enrollmentService.getEnrollments(learner.id),
+        certificateService.getCertificates(learner.id),
+        courseService.getCourses(),
+      ]);
+
+      const enrollmentIds = learnerEnrollments.map((enrollment) => enrollment.id);
+      const courseIds = Array.from(new Set(learnerEnrollments.map((enrollment) => enrollment.courseId)));
+      const completionsLookup = new Map<string, Map<string, { completedAt?: string; timeSpent?: number }>>();
+
+      if (supabase && enrollmentIds.length > 0) {
+        const { data: completionRows, error } = await supabase
+          .from("module_completions")
+          .select("enrollment_id, module_id, completed_at, time_spent")
+          .in("enrollment_id", enrollmentIds);
+
+        if (error) {
+          throw error;
+        }
+
+        for (const row of completionRows || []) {
+          const enrollmentMap = completionsLookup.get(row.enrollment_id) || new Map<string, { completedAt?: string; timeSpent?: number }>();
+          enrollmentMap.set(row.module_id, {
+            completedAt: row.completed_at || undefined,
+            timeSpent: row.time_spent || undefined,
+          });
+          completionsLookup.set(row.enrollment_id, enrollmentMap);
+        }
+      }
+
+      const courseLookup = new Map(
+        [...visibleCourses, ...allCourses].map((course) => [course.id, course]),
+      );
+      const modulesByCourse = new Map<string, Module[]>();
+
+      await Promise.all(
+        courseIds.map(async (courseId) => {
+          const modules = await moduleService.getModulesByCourse(courseId);
+          modulesByCourse.set(courseId, modules);
+        }),
+      );
+
+      const progressRows = learnerEnrollments
+        .map((enrollment) => {
+          const course = courseLookup.get(enrollment.courseId) || null;
+          const certificate = learnerCertificates.find((item) => item.courseId === enrollment.courseId);
+          const completionMap = completionsLookup.get(enrollment.id) || new Map<string, { completedAt?: string; timeSpent?: number }>();
+          const modules = (modulesByCourse.get(enrollment.courseId) || []).map((module) => {
+            const completion = completionMap.get(module.id);
+            return {
+              module,
+              completed: Boolean(completion),
+              completedAt: completion?.completedAt,
+              timeSpent: completion?.timeSpent,
+            };
+          });
+
+          return {
+            enrollment,
+            course,
+            certificateReleased: Boolean(enrollment.certificateId || certificate),
+            certificateIssuedAt: certificate?.issuedAt,
+            modules,
+          } satisfies LearnerCourseProgress;
+        })
+        .sort((left, right) => new Date(right.enrollment.enrolledAt).getTime() - new Date(left.enrollment.enrolledAt).getTime());
+
+      setLearnerProgress(progressRows);
+    } catch (error) {
+      console.error("Error loading learner progress:", error);
+      toast.error("Failed to load learner progress");
+      setLearnerProgress([]);
+    } finally {
+      setProgressLoading(false);
+    }
+  };
+
+  const handleProgressDialogChange = (open: boolean) => {
+    setProgressDialogOpen(open);
+    if (!open) {
+      setSelectedLearner(null);
+      setLearnerProgress([]);
+      setProgressLoading(false);
+    }
+  };
+
+  const completedCourses = learnerProgress.filter((item) => item.enrollment.status === "completed").length;
+  const releasedCertificates = learnerProgress.filter((item) => item.certificateReleased).length;
+  const averageProgress = learnerProgress.length > 0
+    ? Math.round(learnerProgress.reduce((sum, item) => sum + item.enrollment.progress, 0) / learnerProgress.length)
+    : 0;
+
+  const formatTimeSpent = (minutes?: number) => {
+    if (!minutes || minutes <= 0) return "No time tracked";
+    if (minutes < 60) return `${minutes} min`;
+    const hours = minutes / 60;
+    return `${Number.isInteger(hours) ? hours : hours.toFixed(1)} hr`;
+  };
+
   return (
     <DashboardLayout>
       <div className="space-y-8">
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold">My Learners</h1>
-            <p className="text-muted-foreground mt-2">View and manage your course learners</p>
+            <p className="text-muted-foreground mt-2">
+              {showingAllCoursesFallback
+                ? "Showing learners across all manageable courses because no direct trainer ownership match was found."
+                : "View and manage your course learners"}
+            </p>
           </div>
           <Button onClick={loadLearners} variant="outline" disabled={loading}>
             <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
@@ -278,7 +321,7 @@ const TrainerLearners = () => {
                         </div>
                       </div>
                     </div>
-                    <Button variant="outline">View Progress</Button>
+                    <Button variant="outline" onClick={() => void handleViewProgress(learner)}>View Progress</Button>
                   </div>
                 ))}
               </div>
@@ -290,6 +333,166 @@ const TrainerLearners = () => {
             )}
           </CardContent>
         </Card>
+
+        <Dialog open={progressDialogOpen} onOpenChange={handleProgressDialogChange}>
+          <DialogContent className="max-w-5xl">
+            <DialogHeader>
+              <DialogTitle>{selectedLearner ? `${selectedLearner.name}'s Progress` : "Learner Progress"}</DialogTitle>
+              <DialogDescription>
+                View all enrolled courses, per-module progress, and certificate release status for this trainee.
+              </DialogDescription>
+            </DialogHeader>
+
+            {progressLoading ? (
+              <div className="flex items-center justify-center py-16">
+                <Loader2 className="mr-3 h-6 w-6 animate-spin text-muted-foreground" />
+                <p className="text-sm text-muted-foreground">Loading learner progress...</p>
+              </div>
+            ) : learnerProgress.length === 0 ? (
+              <div className="py-12 text-center text-sm text-muted-foreground">
+                No enrollment progress data is available for this learner.
+              </div>
+            ) : (
+              <div className="space-y-6">
+                <div className="grid gap-4 md:grid-cols-4">
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-medium">Courses</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-2xl font-semibold">{learnerProgress.length}</div>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-medium">Completed Courses</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-2xl font-semibold">{completedCourses}</div>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-medium">Certificates Released</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-2xl font-semibold">{releasedCertificates}</div>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-medium">Average Progress</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-2xl font-semibold">{averageProgress}%</div>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                <ScrollArea className="max-h-[60vh] pr-4">
+                  <div className="space-y-4">
+                    {learnerProgress.map((item) => (
+                      <Card key={item.enrollment.id}>
+                        <CardHeader>
+                          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                            <div>
+                              <CardTitle className="text-lg">{item.course?.title || "Unknown Course"}</CardTitle>
+                              <p className="mt-1 text-sm text-muted-foreground">
+                                {item.course?.category || "Course"} • Enrolled {new Date(item.enrollment.enrolledAt).toLocaleDateString()}
+                              </p>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              <Badge variant="outline">{item.enrollment.status}</Badge>
+                              <Badge variant={item.certificateReleased ? "default" : "secondary"}>
+                                {item.certificateReleased ? "Certificate Released" : "Certificate Not Released"}
+                              </Badge>
+                            </div>
+                          </div>
+                        </CardHeader>
+                        <CardContent className="space-y-4">
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between text-sm">
+                              <span className="text-muted-foreground">Course Progress</span>
+                              <span className="font-medium">{item.enrollment.progress}%</span>
+                            </div>
+                            <Progress value={item.enrollment.progress} />
+                          </div>
+
+                          <div className="grid gap-3 md:grid-cols-3 text-sm">
+                            <div className="rounded-lg border p-3">
+                              <p className="text-muted-foreground">Modules Completed</p>
+                              <p className="mt-1 font-medium">
+                                {item.modules.filter((moduleItem) => moduleItem.completed).length}/{item.modules.length}
+                              </p>
+                            </div>
+                            <div className="rounded-lg border p-3">
+                              <p className="text-muted-foreground">Certificate Status</p>
+                              <p className="mt-1 font-medium">
+                                {item.certificateReleased
+                                  ? item.certificateIssuedAt
+                                    ? `Released ${new Date(item.certificateIssuedAt).toLocaleDateString()}`
+                                    : "Released"
+                                  : "Not released"}
+                              </p>
+                            </div>
+                            <div className="rounded-lg border p-3">
+                              <p className="text-muted-foreground">Completion Status</p>
+                              <p className="mt-1 font-medium">{item.enrollment.status}</p>
+                            </div>
+                          </div>
+
+                          <div className="space-y-3">
+                            <div className="flex items-center gap-2">
+                              <BookOpen className="h-4 w-4 text-muted-foreground" />
+                              <p className="font-medium">Module Progress</p>
+                            </div>
+                            {item.modules.length > 0 ? (
+                              <div className="space-y-2">
+                                {item.modules.map((moduleItem, index) => (
+                                  <div key={moduleItem.module.id} className="rounded-lg border p-3">
+                                    <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                                      <div>
+                                        <p className="font-medium">Module {index + 1}: {moduleItem.module.title}</p>
+                                        <p className="text-sm text-muted-foreground">{moduleItem.module.description}</p>
+                                      </div>
+                                      <div className="flex flex-wrap gap-2">
+                                        <Badge variant={moduleItem.completed ? "default" : "secondary"}>
+                                          {moduleItem.completed ? (
+                                            <>
+                                              <CheckCircle2 className="mr-1 h-3 w-3" />
+                                              Completed
+                                            </>
+                                          ) : "Pending"}
+                                        </Badge>
+                                      </div>
+                                    </div>
+                                    <div className="mt-3 flex flex-wrap gap-4 text-xs text-muted-foreground">
+                                      <span className="flex items-center gap-1">
+                                        <Clock3 className="h-3 w-3" />
+                                        {formatTimeSpent(moduleItem.timeSpent)}
+                                      </span>
+                                      <span>
+                                        {moduleItem.completedAt
+                                          ? `Completed ${new Date(moduleItem.completedAt).toLocaleDateString()}`
+                                          : "Not completed yet"}
+                                      </span>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : (
+                              <p className="text-sm text-muted-foreground">No modules are available for this course yet.</p>
+                            )}
+                          </div>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </div>
+                </ScrollArea>
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
       </div>
     </DashboardLayout>
   );

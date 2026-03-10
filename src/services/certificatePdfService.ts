@@ -31,6 +31,7 @@ export const generateCertificatePDF = async (
   const pageWidth = pdf.internal.pageSize.getWidth();
   const pageHeight = pdf.internal.pageSize.getHeight();
   const margin = 15;
+  const contentWidth = pageWidth - margin * 2;
 
   // Colors (RGB values)
   const primaryColorR = 30;
@@ -42,6 +43,17 @@ export const generateCertificatePDF = async (
   const mutedColorR = 75;
   const mutedColorG = 85;
   const mutedColorB = 99;
+
+  const drawCenteredLines = (
+    lines: string[],
+    y: number,
+    lineHeight: number
+  ) => {
+    lines.forEach((line, index) => {
+      pdf.text(line, pageWidth / 2, y + index * lineHeight, { align: "center" });
+    });
+    return y + Math.max(lines.length - 1, 0) * lineHeight;
+  };
 
   // Background border
   pdf.setDrawColor(primaryColorR, primaryColorG, primaryColorB);
@@ -76,22 +88,23 @@ export const generateCertificatePDF = async (
   pdf.text(certificateTypeText, (pageWidth - typeWidth) / 2, margin + 50);
 
   // Main content
+  let currentY = margin + 74;
+
   pdf.setFontSize(14);
   pdf.setTextColor(textColorR, textColorG, textColorB);
   pdf.setFont("helvetica", "normal");
-  pdf.text("This is to certify that", pageWidth / 2, margin + 80, {
+  pdf.text("This is to certify that", pageWidth / 2, currentY, {
     align: "center",
   });
+  currentY += 18;
 
   // User name
-  pdf.setFontSize(32);
+  pdf.setFontSize(28);
   pdf.setTextColor(primaryColorR, primaryColorG, primaryColorB);
   pdf.setFont("helvetica", "bold");
   const userName = certificateData.userName.toUpperCase();
-  pdf.text(userName, pageWidth / 2, margin + 100, {
-    align: "center",
-    maxWidth: pageWidth - margin * 4,
-  });
+  const userNameLines = pdf.splitTextToSize(userName, contentWidth - 60);
+  currentY = drawCenteredLines(userNameLines, currentY, 12) + 10;
 
   // Course description
   pdf.setFontSize(14);
@@ -101,16 +114,15 @@ export const generateCertificatePDF = async (
     certificateData.certificateType === "completion"
       ? "has successfully completed"
       : "has successfully participated in";
-  pdf.text(hasText, pageWidth / 2, margin + 120, { align: "center" });
+  pdf.text(hasText, pageWidth / 2, currentY, { align: "center" });
+  currentY += 14;
 
   // Course title
-  pdf.setFontSize(20);
+  pdf.setFontSize(18);
   pdf.setTextColor(primaryColorR, primaryColorG, primaryColorB);
   pdf.setFont("helvetica", "bold");
-  pdf.text(certificateData.courseTitle, pageWidth / 2, margin + 140, {
-    align: "center",
-    maxWidth: pageWidth - margin * 4,
-  });
+  const courseTitleLines = pdf.splitTextToSize(certificateData.courseTitle, contentWidth - 70);
+  currentY = drawCenteredLines(courseTitleLines, currentY, 10) + 12;
 
   // Issued date
   pdf.setFontSize(12);
@@ -120,10 +132,17 @@ export const generateCertificatePDF = async (
     new Date(certificateData.issuedDate),
     "MMMM dd, yyyy"
   )}`;
-  pdf.text(dateText, pageWidth / 2, margin + 160, { align: "center" });
+  pdf.text(dateText, pageWidth / 2, currentY, { align: "center" });
 
   // Footer - Signatures and certificate number
-  const footerY = pageHeight - margin - 40;
+  const footerY = pageHeight - margin - 28;
+  const footerTextLines = [
+    ...pdf.splitTextToSize(`Certificate No: ${certificateData.certificateNumber}`, 95),
+    ...(certificateData.verificationCode
+      ? pdf.splitTextToSize(`Verification Code: ${certificateData.verificationCode}`, 95)
+      : []),
+  ];
+  const footerTextStartY = footerY - 9 - Math.max(footerTextLines.length - 1, 0) * 3.5;
 
   // Left signature
   pdf.setDrawColor(primaryColorR, primaryColorG, primaryColorB);
@@ -134,23 +153,9 @@ export const generateCertificatePDF = async (
   pdf.text("Training Officer", margin + 45, footerY + 8, { align: "center" });
 
   // Certificate number (center)
-  pdf.setFontSize(9);
+  pdf.setFontSize(7);
   pdf.setTextColor(mutedColorR, mutedColorG, mutedColorB);
-  pdf.text(
-    `Certificate No: ${certificateData.certificateNumber}`,
-    pageWidth / 2,
-    footerY - 5,
-    { align: "center" }
-  );
-  if (certificateData.verificationCode) {
-    pdf.setFontSize(8);
-    pdf.text(
-      `Verification Code: ${certificateData.verificationCode}`,
-      pageWidth / 2,
-      footerY + 5,
-      { align: "center" }
-    );
-  }
+  drawCenteredLines(footerTextLines, footerTextStartY, 3.5);
 
   // Right signature
   pdf.setDrawColor(primaryColorR, primaryColorG, primaryColorB);

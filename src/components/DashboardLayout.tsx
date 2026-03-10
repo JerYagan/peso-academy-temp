@@ -2,7 +2,8 @@ import { ReactNode } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
-import { GraduationCap, LogOut, User, BookOpen, Settings, BarChart3, Users, FileText, FileSpreadsheet, Award, TrendingUp } from "lucide-react";
+import { GraduationCap, LogOut, User, BookOpen, Settings, BarChart3, Users, FileText, FileSpreadsheet, Award, TrendingUp, ClipboardList } from "lucide-react";
+import { useTheme } from "next-themes";
 import NotificationCenter from "./NotificationCenter";
 import {
   DropdownMenu,
@@ -19,8 +20,10 @@ interface DashboardLayoutProps {
 
 const DashboardLayout = ({ children }: DashboardLayoutProps) => {
   const { user, logout } = useAuth();
+  const { resolvedTheme } = useTheme();
   const navigate = useNavigate();
   const location = useLocation();
+  const logoSrc = resolvedTheme === "dark" ? "/images/logo_dark.png" : "/images/logo.png";
 
   const handleLogout = async () => {
     await logout();
@@ -41,16 +44,22 @@ const DashboardLayout = ({ children }: DashboardLayoutProps) => {
         ];
       case "admin":
         return [
-          { path: "/dashboard", label: "Admin Dashboard", icon: BarChart3 },
+          { path: "/admin/dashboard", label: "Admin Dashboard", icon: BarChart3 },
           { path: "/admin/users", label: "Users", icon: Users },
-          { path: "/admin/courses", label: "Courses", icon: BookOpen },
+          { path: "/admin/enrollments", label: "Enrollments", icon: ClipboardList },
           { path: "/admin/reports", label: "Reports", icon: FileSpreadsheet },
           // { path: "/admin/jobs", label: "Jobs", icon: Briefcase }, // Hidden - Future Phase
           { path: "/profile", label: "Profile", icon: User },
         ];
       case "training_officer":
+      case "trainer":
+      case "spd":
         return [
-          { path: "/dashboard", label: "Training Officer Dashboard", icon: BarChart3 },
+          {
+            path: "/trainer/dashboard",
+            label: "Trainer Dashboard",
+            icon: BarChart3,
+          },
           { path: "/trainer/courses", label: "My Courses", icon: BookOpen },
           { path: "/trainer/learners", label: "Learners", icon: Users },
           { path: "/profile", label: "Profile", icon: User },
@@ -76,12 +85,11 @@ const DashboardLayout = ({ children }: DashboardLayoutProps) => {
         <div className="container mx-auto px-4">
           <div className="flex items-center justify-between h-16">
             <Link to="/" className="flex items-center gap-2">
-              <div className="w-10 h-10 rounded-xl hero-gradient flex items-center justify-center">
-                <GraduationCap className="w-6 h-6 text-primary-foreground" />
-              </div>
-              <span className="text-xl font-bold text-foreground">
-                PESO <span className="text-primary">Academy</span>
-              </span>
+              <img
+                src={logoSrc}
+                alt="PESO Academy"
+                className="h-9 w-auto object-contain sm:h-10"
+              />
             </Link>
 
             <nav className="hidden md:flex items-center gap-1">

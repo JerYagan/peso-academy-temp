@@ -27,6 +27,7 @@ export interface Enrollment {
   enrolledAt: string;
   completedAt?: string;
   certificateId?: string;
+  sourceRecommendationId?: string;
 }
 
 export type ModuleStatus = "draft" | "finalized";
@@ -40,6 +41,7 @@ export interface Module {
   content?: string;
   materials: string[]; // Array of file URLs or material references
   prerequisites: string[]; // Array of module IDs that must be completed first
+  module_thumbnail?: string; // Optional thumbnail shown in module management and previews
   module_document?: string; // URL to the module document (PDF/PPTX)
   created_at: string;
   /** When set, last update time (for "Last modified" in Module Management) */

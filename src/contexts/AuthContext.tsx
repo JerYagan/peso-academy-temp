@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, ReactNode } from "react";
+import { createContext, useContext, useState, useEffect, ReactNode, useRef } from "react";
 import { User, AuthState, UserRole } from "@/types/auth";
 import { supabaseAuthService } from "@/services/supabaseAuthService";
 import { auditService } from "@/services/auditService";
@@ -9,7 +9,7 @@ interface AuthContextType extends AuthState {
   login: (email: string, password: string) => Promise<{ success: boolean; error?: string; user?: User | null }>;
   loginWithGoogle: (redirectTo?: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => Promise<void>;
-  signup: (email: string, password: string, name: string, role: UserRole) => Promise<{ success: boolean; error?: string; user?: User | null }>;
+  signup: (email: string, password: string, name: string, role: UserRole, profile?: Partial<User>) => Promise<{ success: boolean; error?: string; user?: User | null }>;
   updateUser: (user: Partial<User>) => Promise<void>;
   loading: boolean;
   role: UserRole;
@@ -19,28 +19,6 @@ interface AuthContextType extends AuthState {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// Helper function to create user from Supabase user (moved outside component)
-const createUserFromSupabaseUser = (supabaseUser: SupabaseUser): User => {
-  const rawRole = supabaseUser.user_metadata?.role || 'trainee';
-  const roleFromMetadata = typeof rawRole === 'string' ? rawRole.toLowerCase().trim() : 'trainee';
-  const validRoles: UserRole[] = ["admin", "training_officer", "validator", "trainee"];
-  const userRole = validRoles.includes(roleFromMetadata) ? roleFromMetadata : 'trainee';
-  
-  // Full name: from Google (full_name) or custom name or email prefix
-  const displayName =
-    supabaseUser.user_metadata?.full_name ??
-    supabaseUser.user_metadata?.name ??
-    supabaseUser.email!.split("@")[0];
-
-  return {
-    id: supabaseUser.id,
-    email: supabaseUser.email!,
-    name: displayName,
-    role: userRole,
-    createdAt: supabaseUser.created_at || new Date().toISOString(),
-  };
-};
-
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [authState, setAuthState] = useState<AuthState>({
     user: null,
@@ -48,25 +26,52 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   });
   const [authUser, setAuthUser] = useState<SupabaseUser | null>(null); // Supabase auth user
   const [loading, setLoading] = useState(true);
+  const authStateRef = useRef<AuthState>({ user: null, isAuthenticated: false });
 
-  // Get role and permissions from auth user metadata (payroll-pal approach)
-  const role = authUser ? getUserRole(authUser) : 'trainee';
-  const permissions = authUser ? getUserPermissions(authUser) : getUserPermissions(null);
+  const role = authState.user?.role ?? (authUser ? getUserRole(authUser) : 'trainee');
+  const permissions = authState.user ? getUserPermissions(authState.user) : getUserPermissions(null);
+
+  useEffect(() => {
+    authStateRef.current = authState;
+  }, [authState]);
 
   useEffect(() => {
     let isMounted = true;
     let subscription: { unsubscribe: () => void } | null = null;
 
     // Helper function to update state from Supabase user
-    const updateStateFromSupabaseUser = (supabaseUser: SupabaseUser | null) => {
+    const updateStateFromSupabaseUser = async (supabaseUser: SupabaseUser | null, event?: string) => {
       if (!isMounted) return;
+
+      const currentUser = authStateRef.current.user;
+      const adminCreateInProgress =
+        typeof window !== "undefined" && sessionStorage.getItem("admin_creating_user") === "1";
+
+      if (adminCreateInProgress && currentUser?.role === "admin") {
+        const switchedAwayFromAdmin = !supabaseUser || supabaseUser.id !== currentUser.id;
+
+        if (switchedAwayFromAdmin) {
+          console.info("Ignoring transient auth change during admin user creation", {
+            event,
+            nextUserId: supabaseUser?.id ?? null,
+            currentAdminId: currentUser.id,
+          });
+          setLoading(false);
+          return;
+        }
+      }
+
       if (supabaseUser) {
         // Ensure Google OAuth users have trainee role and name in metadata (fire-and-forget)
         supabaseAuthService.ensureGoogleUserMetadata().then(({ error }) => {
           if (error) console.warn("ensureGoogleUserMetadata:", error);
         });
+
         setAuthUser(supabaseUser);
-        const user = createUserFromSupabaseUser(supabaseUser);
+
+        const user = await supabaseAuthService.hydrateUserFromAuthUser(supabaseUser);
+
+        if (!isMounted) return;
         setAuthState({ user, isAuthenticated: true });
       } else {
         setAuthUser(null);
@@ -78,14 +83,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Get initial session (like payroll-pal does - SIMPLE!)
     supabaseAuthService.getSession().then(({ data: { session } }) => {
       if (!isMounted) return;
-      updateStateFromSupabaseUser(session?.user ?? null);
+      void updateStateFromSupabaseUser(session?.user ?? null, "INITIAL_SESSION");
     });
 
     // Listen for auth changes (like payroll-pal does - SIMPLE!)
     try {
-      const authStateChangeResult = supabaseAuthService.onAuthStateChange((_user, supabaseUser) => {
+      const authStateChangeResult = supabaseAuthService.onAuthStateChange((_user, supabaseUser, event) => {
         if (!isMounted) return;
-        updateStateFromSupabaseUser(supabaseUser);
+        void updateStateFromSupabaseUser(supabaseUser, event);
       });
       
       subscription = authStateChangeResult.data?.subscription || null;
@@ -156,9 +161,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // Get the current user after login
       // The auth state change listener will also update state, but we get user here for return value
       const { data: { user: supabaseUser } } = await supabaseAuthService.getSupabaseUser();
-      
+
       if (supabaseUser) {
-        const user = createUserFromSupabaseUser(supabaseUser);
+        const user = await supabaseAuthService.hydrateUserFromAuthUser(supabaseUser);
         
         // Log successful login (non-blocking)
         auditService.logLogin(user.id, true).catch((err) => {
@@ -206,6 +211,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         user: null,
         isAuthenticated: false,
       });
+      authStateRef.current = { user: null, isAuthenticated: false };
       
       // Log logout event (non-blocking, only if we had a user)
       if (userId) {
@@ -221,6 +227,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         user: null,
         isAuthenticated: false,
       });
+      authStateRef.current = { user: null, isAuthenticated: false };
     }
   };
 
@@ -228,11 +235,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     email: string,
     password: string,
     name: string,
-    role: UserRole
+    role: UserRole,
+    profile?: Partial<User>
   ): Promise<{ success: boolean; error?: string; user?: User | null }> => {
     try {
       setLoading(true);
-      const { user, error } = await supabaseAuthService.signup(email, password, name, role);
+      const { user, error } = await supabaseAuthService.signup(email, password, name, role, profile);
       if (error || !user) {
         setLoading(false);
         return {
@@ -246,6 +254,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         user,
         isAuthenticated: true,
       });
+      authStateRef.current = { user, isAuthenticated: true };
       setLoading(false);
       return { success: true, user };
     } catch (error) {
@@ -272,6 +281,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           user,
           isAuthenticated: true,
         });
+        authStateRef.current = { user, isAuthenticated: true };
       }
     } catch (error) {
       console.error("Update user error:", error);

@@ -40,6 +40,27 @@ npx tsx scripts/create-test-users.ts
 - `validator@peso.academy` / `validator123`
 - `spd@peso.academy` / `spd123`
 
+### `seed-analytics-demo.ts`
+
+Creates a fuller demo dataset for dashboard analytics and cross-role testing.
+
+**Usage:**
+
+```bash
+npm run seed:analytics
+```
+
+**What it does:**
+- Ensures admin, trainer, validator, SPD, and multiple trainee accounts exist
+- Creates or updates demo courses, modules, assessments, and assessment questions
+- Seeds enrollments across several months to populate trend charts
+- Seeds module completions, assessment attempts, certificates, notifications, submissions, validations, and feedback
+- Produces realistic enough data for trainee, trainer, validator, and admin dashboards
+
+**Environment Variables Required:**
+- `SUPABASE_URL` or `VITE_SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+
 ## Security Notes
 
 ⚠️ **Never commit your service role key to version control!**

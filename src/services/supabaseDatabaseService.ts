@@ -1,6 +1,8 @@
 import { supabase, handleSupabaseError } from "@/lib/supabase";
+import { resolveCourseMaterialUrl, resolveCourseMaterialUrls } from "@/lib/courseAssets";
+import { analyticsService } from "@/services/analyticsService";
 import { Course, Enrollment, Certificate, Module } from "@/types";
-import { User } from "@/types/auth";
+import { User, normalizeUserRole } from "@/types/auth";
 import { notificationHelpers } from "@/services/notificationService";
 
 if (!supabase) {
@@ -42,8 +44,8 @@ export const courseService = {
         duration: course.duration,
         instructor: "", // Will be populated via join if needed
         instructorId: course.instructor_id,
-        thumbnail: course.thumbnail || undefined,
-        courseDocument: course.course_document || undefined,
+        thumbnail: resolveCourseMaterialUrl(course.thumbnail),
+        courseDocument: resolveCourseMaterialUrl(course.course_document),
         isTESDAAccredited: course.is_tesda_accredited,
         skills: course.skills,
         enrolledCount: course.enrolled_count,
@@ -80,8 +82,8 @@ export const courseService = {
       duration: data.duration,
       instructor: "", // Will be populated via join if needed
       instructorId: data.instructor_id,
-      thumbnail: data.thumbnail || undefined,
-      courseDocument: data.course_document || undefined,
+      thumbnail: resolveCourseMaterialUrl(data.thumbnail),
+      courseDocument: resolveCourseMaterialUrl(data.course_document),
       isTESDAAccredited: data.is_tesda_accredited,
       skills: data.skills,
       enrolledCount: data.enrolled_count,
@@ -111,7 +113,7 @@ export const courseService = {
         enrolled_count: 0,
         rating: 0,
         certificate_type: "completion",
-        published: course.published ?? false,
+        published: course.published ?? true,
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       })
@@ -132,14 +134,14 @@ export const courseService = {
       duration: data.duration,
       instructor: course.instructor,
       instructorId: data.instructor_id,
-      thumbnail: data.thumbnail || undefined,
-      courseDocument: data.course_document || undefined,
+      thumbnail: resolveCourseMaterialUrl(data.thumbnail),
+      courseDocument: resolveCourseMaterialUrl(data.course_document),
       isTESDAAccredited: data.is_tesda_accredited,
       skills: data.skills,
       enrolledCount: data.enrolled_count,
       rating: data.rating,
       createdAt: data.created_at,
-      published: data.published ?? false,
+      published: data.published ?? true,
     };
   },
 
@@ -184,8 +186,8 @@ export const courseService = {
       duration: data.duration,
       instructor: updates.instructor || "",
       instructorId: data.instructor_id,
-      thumbnail: data.thumbnail || undefined,
-      courseDocument: data.course_document || undefined,
+      thumbnail: resolveCourseMaterialUrl(data.thumbnail),
+      courseDocument: resolveCourseMaterialUrl(data.course_document),
       isTESDAAccredited: data.is_tesda_accredited,
       skills: data.skills,
       enrolledCount: data.enrolled_count,
@@ -238,9 +240,10 @@ export const moduleService = {
         description: module.description,
         order: module.order,
         content: module.content || undefined,
-        materials: module.materials || [],
+        materials: resolveCourseMaterialUrls(module.materials),
         prerequisites: module.prerequisites || [],
-        module_document: module.module_document || undefined,
+        module_thumbnail: resolveCourseMaterialUrl((module as any).module_thumbnail),
+        module_document: resolveCourseMaterialUrl(module.module_document),
         created_at: module.created_at,
         updated_at: module.updated_at || module.created_at,
         status: (module.status === "finalized" ? "finalized" : "draft") as "draft" | "finalized",
@@ -277,8 +280,10 @@ export const moduleService = {
       description: data.description,
       order: data.order,
       content: data.content || undefined,
-      materials: data.materials || [],
+      materials: resolveCourseMaterialUrls(data.materials),
       prerequisites: data.prerequisites || [],
+      module_thumbnail: resolveCourseMaterialUrl((data as any).module_thumbnail),
+      module_document: resolveCourseMaterialUrl((data as any).module_document),
       created_at: data.created_at,
       updated_at: (data as any).updated_at || data.created_at,
       status: ((data as any).status === "finalized" ? "finalized" : "draft") as Module["status"],
@@ -318,6 +323,7 @@ export const moduleService = {
         content: module.content || null,
         materials: module.materials || [],
         prerequisites: module.prerequisites || [],
+        module_thumbnail: (module as any).module_thumbnail || null,
         module_document: (module as any).module_document || null,
         status: (module as any).status || "draft",
         created_at: new Date().toISOString(),
@@ -339,9 +345,10 @@ export const moduleService = {
       description: data.description,
       order: data.order,
       content: data.content || undefined,
-      materials: data.materials || [],
+      materials: resolveCourseMaterialUrls(data.materials),
       prerequisites: data.prerequisites || [],
-      module_document: data.module_document || undefined,
+      module_thumbnail: resolveCourseMaterialUrl((data as any).module_thumbnail),
+      module_document: resolveCourseMaterialUrl(data.module_document),
       created_at: data.created_at,
       updated_at: row.updated_at || data.created_at,
       status: (row.status === "finalized" ? "finalized" : "draft") as Module["status"],
@@ -362,6 +369,7 @@ export const moduleService = {
     if (updates.description !== undefined) updateData.description = updates.description;
     if (updates.order !== undefined) updateData.order = updates.order;
     if (updates.content !== undefined) updateData.content = updates.content;
+    if (updates.module_thumbnail !== undefined) updateData.module_thumbnail = updates.module_thumbnail;
     if (updates.module_document !== undefined) updateData.module_document = updates.module_document;
     if (updates.materials !== undefined) updateData.materials = updates.materials;
     if (updates.prerequisites !== undefined) updateData.prerequisites = updates.prerequisites;
@@ -387,9 +395,10 @@ export const moduleService = {
       description: data.description,
       order: data.order,
       content: data.content || undefined,
-      materials: data.materials || [],
+      materials: resolveCourseMaterialUrls(data.materials),
       prerequisites: data.prerequisites || [],
-      module_document: data.module_document || undefined,
+      module_thumbnail: resolveCourseMaterialUrl((data as any).module_thumbnail),
+      module_document: resolveCourseMaterialUrl(data.module_document),
       created_at: data.created_at,
       updated_at: row.updated_at || data.created_at,
       status: (row.status === "finalized" ? "finalized" : "draft") as Module["status"],
@@ -456,19 +465,53 @@ export const moduleCompletionService = {
     // Check if already completed
     const { data: existing } = await supabase
       .from("module_completions")
-      .select("id")
+      .select("id, completed_at, time_spent")
       .eq("enrollment_id", enrollmentId)
       .eq("module_id", moduleId)
       .single();
 
     if (existing) {
-      // Update time spent if provided
-      if (timeSpent !== undefined) {
-        await supabase
-          .from("module_completions")
-          .update({ time_spent: timeSpent })
-          .eq("id", existing.id);
+      const nextTimeSpent =
+        timeSpent !== undefined
+          ? Math.max(existing.time_spent || 0, timeSpent)
+          : existing.time_spent;
+
+      const { error: updateError } = await supabase
+        .from("module_completions")
+        .update({
+          time_spent: nextTimeSpent,
+          completed_at: existing.completed_at || new Date().toISOString(),
+        })
+        .eq("id", existing.id);
+
+      if (updateError) {
+        handleSupabaseError(updateError);
+        throw updateError;
       }
+
+      await updateEnrollmentProgress(enrollmentId);
+
+      const { data: enrollment } = await supabase
+        .from("enrollments")
+        .select("user_id, course_id")
+        .eq("id", enrollmentId)
+        .single();
+
+      if (enrollment) {
+        await analyticsService.trackEvent({
+          eventName: "module_complete",
+          userId: enrollment.user_id,
+          courseId: enrollment.course_id,
+          moduleId,
+          enrollmentId,
+          surface: "course_module_viewer",
+          metadata: {
+            timeSpent: nextTimeSpent || 0,
+          },
+        });
+        await analyticsService.refreshPhase1Analytics(enrollment.user_id);
+      }
+
       return;
     }
 
@@ -487,6 +530,27 @@ export const moduleCompletionService = {
 
     // Calculate and update enrollment progress
     await updateEnrollmentProgress(enrollmentId);
+
+    const { data: enrollment } = await supabase
+      .from("enrollments")
+      .select("user_id, course_id")
+      .eq("id", enrollmentId)
+      .single();
+
+    if (enrollment) {
+      await analyticsService.trackEvent({
+        eventName: "module_complete",
+        userId: enrollment.user_id,
+        courseId: enrollment.course_id,
+        moduleId,
+        enrollmentId,
+        surface: "course_module_viewer",
+        metadata: {
+          timeSpent: timeSpent || 0,
+        },
+      });
+      await analyticsService.refreshPhase1Analytics(enrollment.user_id);
+    }
   },
 
   /**
@@ -501,7 +565,8 @@ export const moduleCompletionService = {
     const { data, error } = await supabase
       .from("module_completions")
       .select("module_id")
-      .eq("enrollment_id", enrollmentId);
+      .eq("enrollment_id", enrollmentId)
+      .not("completed_at", "is", null);
 
     if (error) {
       handleSupabaseError(error);
@@ -527,6 +592,7 @@ export const moduleCompletionService = {
       .select("id")
       .eq("enrollment_id", enrollmentId)
       .eq("module_id", moduleId)
+      .not("completed_at", "is", null)
       .single();
 
     return !!data;
@@ -751,6 +817,7 @@ export const enrollmentService = {
         enrolledAt: enrollment.enrolled_at,
         completedAt: enrollment.completed_at || undefined,
         certificateId: enrollment.certificate_id || undefined,
+        sourceRecommendationId: enrollment.originating_recommendation_id || undefined,
         lastActivityAt: enrollment.updated_at || enrollment.enrolled_at,
       })) || []
     );
@@ -764,7 +831,14 @@ export const enrollmentService = {
   /**
    * Enroll a user in a course
    */
-  enrollInCourse: async (userId: string, courseId: string): Promise<Enrollment> => {
+  enrollInCourse: async (
+    userId: string,
+    courseId: string,
+    options?: {
+      originatingRecommendationId?: string;
+      sourceSurface?: string;
+    },
+  ): Promise<Enrollment> => {
     const { data, error } = await supabase
       .from("enrollments")
       .insert({
@@ -773,6 +847,8 @@ export const enrollmentService = {
         progress: 0,
         status: "enrolled",
         enrolled_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+        originating_recommendation_id: options?.originatingRecommendationId || null,
       })
       .select()
       .single();
@@ -805,6 +881,33 @@ export const enrollmentService = {
       // Don't throw - notification failure shouldn't block enrollment
     }
 
+    if (options?.originatingRecommendationId) {
+      await analyticsService.trackEvent({
+        eventName: "recommendation_accept",
+        userId,
+        courseId,
+        enrollmentId: data.id,
+        recommendationId: options.originatingRecommendationId,
+        surface: options.sourceSurface || "course_recommendations",
+        metadata: {
+          action: "direct_enroll",
+        },
+      });
+    }
+
+    await analyticsService.trackEvent({
+      eventName: "course_enroll",
+      userId,
+      courseId,
+      enrollmentId: data.id,
+      recommendationId: options?.originatingRecommendationId,
+      surface: options?.sourceSurface || "course_catalog",
+      metadata: {
+        fromRecommendation: Boolean(options?.originatingRecommendationId),
+      },
+    });
+    await analyticsService.refreshPhase1Analytics(userId);
+
     return {
       id: data.id,
       userId: data.user_id,
@@ -814,6 +917,7 @@ export const enrollmentService = {
       enrolledAt: data.enrolled_at,
       completedAt: data.completed_at || undefined,
       certificateId: data.certificate_id || undefined,
+      sourceRecommendationId: data.originating_recommendation_id || undefined,
     };
   },
 
@@ -849,6 +953,7 @@ export const enrollmentService = {
       enrolledAt: data.enrolled_at,
       completedAt: data.completed_at || undefined,
       certificateId: data.certificate_id || undefined,
+      sourceRecommendationId: data.originating_recommendation_id || undefined,
     };
   },
 
@@ -955,7 +1060,7 @@ export const enrollmentService = {
     // Get enrollment details before deletion
     const { data: enrollment } = await supabase
       .from("enrollments")
-      .select("course_id, user_id, progress")
+      .select("course_id, user_id, progress, status")
       .eq("id", enrollmentId)
       .single();
 
@@ -963,18 +1068,32 @@ export const enrollmentService = {
       throw new Error("Enrollment not found");
     }
 
-    // If not preserving progress, delete the enrollment
-    // Otherwise, mark as dropped but keep the record
-    if (preserveProgress) {
+    const markAsDropped = async () => {
       const { error: updateError } = await supabase
         .from("enrollments")
-        .update({ status: "dropped" })
+        .update({ status: "dropped", updated_at: new Date().toISOString() })
         .eq("id", enrollmentId);
 
       if (updateError) {
         handleSupabaseError(updateError);
         throw updateError;
       }
+
+      if (enrollment.status !== "dropped") {
+        try {
+          await supabase.rpc("decrement_enrolled_count", {
+            course_id: enrollment.course_id,
+          });
+        } catch (err) {
+          console.error("Error decrementing enrolled count for dropped enrollment:", err);
+        }
+      }
+    };
+
+    // If not preserving progress, delete the enrollment.
+    // If delete is blocked by RLS, fall back to marking the enrollment as dropped.
+    if (preserveProgress) {
+      await markAsDropped();
     } else {
       // Delete the enrollment
       const { error } = await supabase
@@ -983,8 +1102,21 @@ export const enrollmentService = {
         .eq("id", enrollmentId);
 
       if (error) {
-        handleSupabaseError(error);
-        throw error;
+        const message = error.message?.toLowerCase() || "";
+        const shouldFallbackToDrop =
+          message.includes("row-level security") ||
+          message.includes("permission") ||
+          message.includes("policy") ||
+          message.includes("forbidden") ||
+          message.includes("unauthorized");
+
+        if (!shouldFallbackToDrop) {
+          handleSupabaseError(error);
+          throw error;
+        }
+
+        await markAsDropped();
+        return;
       }
 
       // Decrement course enrolled count
@@ -1031,6 +1163,7 @@ export const enrollmentService = {
         enrolledAt: data.enrolled_at,
         completedAt: data.completed_at || undefined,
         certificateId: data.certificate_id || undefined,
+        sourceRecommendationId: data.originating_recommendation_id || undefined,
       },
       user: data.users,
       course: data.courses,
@@ -1070,8 +1203,69 @@ export const enrollmentService = {
         enrolledAt: item.enrolled_at,
         completedAt: item.completed_at || undefined,
         certificateId: item.certificate_id || undefined,
+        sourceRecommendationId: item.originating_recommendation_id || undefined,
         userName: item.users?.name,
         userEmail: item.users?.email,
+        lastActivityAt: item.updated_at || item.enrolled_at,
+      })) || []
+    );
+  },
+
+  /**
+   * Get enrollments with joined user and course details.
+   */
+  getEnrollmentsWithDetails: async (filters?: {
+    userId?: string;
+    courseId?: string;
+  }): Promise<Array<Enrollment & {
+    userName?: string;
+    userEmail?: string;
+    courseTitle?: string;
+    lastActivityAt?: string;
+  }>> => {
+    if (!supabase) {
+      console.warn("Supabase not initialized");
+      return [];
+    }
+
+    let query = supabase
+      .from("enrollments")
+      .select(`
+        *,
+        users:user_id (name, email),
+        courses:course_id (title)
+      `)
+      .order("enrolled_at", { ascending: false });
+
+    if (filters?.userId) {
+      query = query.eq("user_id", filters.userId);
+    }
+
+    if (filters?.courseId) {
+      query = query.eq("course_id", filters.courseId);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      handleSupabaseError(error);
+      return [];
+    }
+
+    return (
+      data?.map((item: any) => ({
+        id: item.id,
+        userId: item.user_id,
+        courseId: item.course_id,
+        progress: item.progress,
+        status: item.status,
+        enrolledAt: item.enrolled_at,
+        completedAt: item.completed_at || undefined,
+        certificateId: item.certificate_id || undefined,
+        sourceRecommendationId: item.originating_recommendation_id || undefined,
+        userName: item.users?.name || undefined,
+        userEmail: item.users?.email || undefined,
+        courseTitle: item.courses?.title || undefined,
         lastActivityAt: item.updated_at || item.enrolled_at,
       })) || []
     );
@@ -1113,7 +1307,7 @@ export const certificateService = {
           certificateType: cert.certificate_type,
           verificationCode: cert.verification_code,
           courseCategory: course?.category,
-          courseThumbnail: course?.thumbnail,
+          courseThumbnail: resolveCourseMaterialUrl(course?.thumbnail),
         };
       }) || []
     );
@@ -1199,7 +1393,7 @@ export const certificateService = {
       certificateType: data.certificate_type,
       verificationCode: data.verification_code,
       courseCategory: course?.category,
-      courseThumbnail: course?.thumbnail,
+      courseThumbnail: resolveCourseMaterialUrl(course?.thumbnail),
     };
   },
 
@@ -1327,10 +1521,20 @@ export const userService = {
         id: user.id,
         email: user.email,
         name: user.name,
-        role: user.role as User["role"],
+        role: normalizeUserRole(user.role),
         avatar: user.avatar || undefined,
         phone: user.phone || undefined,
         address: user.address || undefined,
+        dateOfBirth: user.date_of_birth || undefined,
+        gender: user.gender || undefined,
+        civilStatus: user.civil_status || undefined,
+        employmentStatus: user.employment_status || undefined,
+        occupation: user.occupation || undefined,
+        educationLevel: user.education_level || undefined,
+        barangay: user.barangay || undefined,
+        cityMunicipality: user.city_municipality || undefined,
+        province: user.province || undefined,
+        postalCode: user.postal_code || undefined,
         skills: user.skills || undefined,
         createdAt: user.created_at,
       })) || []
@@ -1368,10 +1572,20 @@ export const userService = {
       id: data.id,
       email: data.email,
       name: data.name,
-      role: data.role as User["role"],
+      role: normalizeUserRole(data.role),
       avatar: data.avatar || undefined,
       phone: data.phone || undefined,
       address: data.address || undefined,
+      dateOfBirth: data.date_of_birth || undefined,
+      gender: data.gender || undefined,
+      civilStatus: data.civil_status || undefined,
+      employmentStatus: data.employment_status || undefined,
+      occupation: data.occupation || undefined,
+      educationLevel: data.education_level || undefined,
+      barangay: data.barangay || undefined,
+      cityMunicipality: data.city_municipality || undefined,
+      province: data.province || undefined,
+      postalCode: data.postal_code || undefined,
       skills: data.skills || undefined,
       createdAt: data.created_at,
     };
@@ -1393,6 +1607,16 @@ export const userService = {
     if (updates.name !== undefined) updateData.name = updates.name;
     if (updates.phone !== undefined) updateData.phone = updates.phone;
     if (updates.address !== undefined) updateData.address = updates.address;
+    if (updates.dateOfBirth !== undefined) updateData.date_of_birth = updates.dateOfBirth || null;
+    if (updates.gender !== undefined) updateData.gender = updates.gender || null;
+    if (updates.civilStatus !== undefined) updateData.civil_status = updates.civilStatus || null;
+    if (updates.employmentStatus !== undefined) updateData.employment_status = updates.employmentStatus || null;
+    if (updates.occupation !== undefined) updateData.occupation = updates.occupation || null;
+    if (updates.educationLevel !== undefined) updateData.education_level = updates.educationLevel || null;
+    if (updates.barangay !== undefined) updateData.barangay = updates.barangay || null;
+    if (updates.cityMunicipality !== undefined) updateData.city_municipality = updates.cityMunicipality || null;
+    if (updates.province !== undefined) updateData.province = updates.province || null;
+    if (updates.postalCode !== undefined) updateData.postal_code = updates.postalCode || null;
     if (updates.avatar !== undefined) updateData.avatar = updates.avatar;
     if (updates.skills !== undefined) updateData.skills = updates.skills;
     if (updates.role !== undefined) updateData.role = updates.role;
@@ -1427,10 +1651,20 @@ export const userService = {
       id: data.id,
       email: data.email,
       name: data.name,
-      role: data.role as User["role"],
+      role: normalizeUserRole(data.role),
       avatar: data.avatar || undefined,
       phone: data.phone || undefined,
       address: data.address || undefined,
+      dateOfBirth: data.date_of_birth || undefined,
+      gender: data.gender || undefined,
+      civilStatus: data.civil_status || undefined,
+      employmentStatus: data.employment_status || undefined,
+      occupation: data.occupation || undefined,
+      educationLevel: data.education_level || undefined,
+      barangay: data.barangay || undefined,
+      cityMunicipality: data.city_municipality || undefined,
+      province: data.province || undefined,
+      postalCode: data.postal_code || undefined,
       skills: data.skills || undefined,
       createdAt: data.created_at,
     };

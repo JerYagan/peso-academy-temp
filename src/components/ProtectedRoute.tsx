@@ -19,15 +19,37 @@ export const ProtectedRoute = ({ children, allowedRoles, requiredPermissions }: 
   const location = useLocation();
   const [permissionLoading, setPermissionLoading] = useState(true);
   const [hasAccess, setHasAccess] = useState(false);
-  const [dashboardRoute, setDashboardRoute] = useState<string>("/dashboard");
+  const [dashboardRoute, setDashboardRoute] = useState<string>(user?.role ? getDashboardRoute(user.role) : "/dashboard");
 
   // Load dashboard route from database when user changes
   useEffect(() => {
-    if (user?.id && user?.role) {
-      getDashboardRouteForUser(user.id, user.role).then(route => {
-        setDashboardRoute(route);
-      });
+    if (!user?.role) {
+      setDashboardRoute("/dashboard");
+      return;
     }
+
+    const fallbackRoute = getDashboardRoute(user.role);
+    setDashboardRoute(fallbackRoute);
+
+    if (!user.id) {
+      return;
+    }
+
+    let isActive = true;
+
+    getDashboardRouteForUser(user.id, user.role).then(route => {
+      if (isActive) {
+        setDashboardRoute(route);
+      }
+    }).catch(() => {
+      if (isActive) {
+        setDashboardRoute(fallbackRoute);
+      }
+    });
+
+    return () => {
+      isActive = false;
+    };
   }, [user?.id, user?.role]);
 
   // Determine required permissions for this route
@@ -229,7 +251,7 @@ export const ProtectedRoute = ({ children, allowedRoles, requiredPermissions }: 
     });
     
     // Ensure dashboardRoute is valid before redirecting
-    const targetRoute = dashboardRoute && dashboardRoute !== "/dashboard" ? dashboardRoute : "/dashboard";
+    const targetRoute = dashboardRoute || getDashboardRoute(user.role);
     
     // Redirect to user's appropriate dashboard (from database)
     return <Navigate to={targetRoute} replace />;

@@ -73,7 +73,7 @@ $$ LANGUAGE plpgsql;
 -- UUID: Replace with actual UUID from Supabase Auth
 DO $$
 DECLARE
-  jobseeker_id UUID;
+  jobseeker_id UUID = '2e133441-2cc4-4144-aeb7-4f3e4ca3ccd5';
 BEGIN
   -- Try to find existing user by email, or use a placeholder UUID
   SELECT id INTO jobseeker_id FROM auth.users WHERE email = 'jobseeker@peso.academy' LIMIT 1;
@@ -100,7 +100,7 @@ END $$;
 -- Password: admin123
 DO $$
 DECLARE
-  admin_id UUID;
+  admin_id UUID = '30fb80d9-e811-4fab-be1c-9e8de4f96fc2';
 BEGIN
   SELECT id INTO admin_id FROM auth.users WHERE email = 'admin@peso.academy' LIMIT 1;
   
@@ -125,7 +125,7 @@ END $$;
 -- Password: trainer123
 DO $$
 DECLARE
-  trainer_id UUID;
+  trainer_id UUID= '0bb6e450-8781-471c-aabb-d97a683e80b7';
 BEGIN
   SELECT id INTO trainer_id FROM auth.users WHERE email = 'trainer@peso.academy' LIMIT 1;
   
@@ -150,7 +150,7 @@ END $$;
 -- Password: employer123
 DO $$
 DECLARE
-  employer_id UUID;
+  employer_id UUID= 'a6646dec-4279-4d94-9c2c-3641fd9dbaa8';
 BEGIN
   SELECT id INTO employer_id FROM auth.users WHERE email = 'employer@peso.academy' LIMIT 1;
   
@@ -175,7 +175,7 @@ END $$;
 -- Password: validator123
 DO $$
 DECLARE
-  validator_id UUID;
+  validator_id UUID= '9a479ed0-fc09-4a50-b795-48fb94d9cf2a';
 BEGIN
   SELECT id INTO validator_id FROM auth.users WHERE email = 'validator@peso.academy' LIMIT 1;
   
@@ -200,7 +200,7 @@ END $$;
 -- Password: spd123
 DO $$
 DECLARE
-  spd_id UUID;
+  spd_id UUID = 'ca85b938-7f22-4680-868b-a630be915176';
 BEGIN
   SELECT id INTO spd_id FROM auth.users WHERE email = 'spd@peso.academy' LIMIT 1;
   

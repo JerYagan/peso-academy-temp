@@ -6,12 +6,15 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { X, Plus, Upload, FileText, Loader2, Eye } from "lucide-react";
+import { X, Plus, Loader2, Eye } from "lucide-react";
 import { Course } from "@/types";
 import { courseService } from "@/services/supabaseDatabaseService";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
+import { resolveTrainerOwnership } from "@/lib/trainerOwnership";
+
+type CourseSaveMode = "draft" | "finalized";
 
 interface CourseCreateEditDialogProps {
   open: boolean;
@@ -40,9 +43,6 @@ export const CourseCreateEditDialog = ({
 }: CourseCreateEditDialogProps) => {
   const { user } = useAuth();
   const [loading, setLoading] = useState(false);
-  const [uploadingDocument, setUploadingDocument] = useState(false);
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [currentDocumentUrl, setCurrentDocumentUrl] = useState<string | null>(null);
   const [formData, setFormData] = useState({
     title: "",
     description: "",
@@ -56,7 +56,93 @@ export const CourseCreateEditDialog = ({
   const [newSkill, setNewSkill] = useState("");
   const [selectedThumbnailFile, setSelectedThumbnailFile] = useState<File | null>(null);
   const [thumbnailPreviewUrl, setThumbnailPreviewUrl] = useState<string | null>(null);
-  const [documentPreviewUrl, setDocumentPreviewUrl] = useState<string | null>(null);
+
+  const buildCoursePayload = async (published: boolean) => {
+    if (!user) {
+      throw new Error("You must be logged in to create/edit courses");
+    }
+
+    const ownership = await resolveTrainerOwnership(user);
+    const categoryValue = formData.category === "Other" ? categoryOther.trim() : formData.category;
+
+    return {
+      title: formData.title,
+      description: formData.description,
+      category: categoryValue,
+      level: formData.level,
+      duration: parseInt(formData.duration, 10),
+      instructorId: ownership.primaryOwnerId || user.id,
+      instructor: user.name || user.email,
+      thumbnail: thumbnailPreviewUrl || formData.thumbnail || undefined,
+      courseDocument: course?.courseDocument || undefined,
+      isTESDAAccredited: false,
+      skills: formData.skills,
+      published,
+    };
+  };
+
+  const handlePreview = async () => {
+    if (!formData.title || !formData.description || !formData.category || !formData.duration) {
+      toast.error("Complete the required course fields before previewing");
+      return;
+    }
+
+    if (formData.category === "Other" && !categoryOther.trim()) {
+      toast.error("Please specify the category when selecting Other");
+      return;
+    }
+
+    try {
+      const payload = await buildCoursePayload(course?.published ?? false);
+      const previewKey = `course-preview-${course?.id || "new"}-${Date.now()}`;
+      const previewPayload = {
+        ...payload,
+        id: course?.id || "__preview__",
+        createdAt: course?.createdAt || new Date().toISOString(),
+        enrolledCount: course?.enrolledCount || 0,
+        rating: course?.rating || 0,
+        previewSourceCourseId: course?.id || null,
+      };
+
+      if (typeof window === "undefined") {
+        return;
+      }
+
+      window.sessionStorage.setItem(previewKey, JSON.stringify(previewPayload));
+      const previewTargetId = course?.id || "__preview__";
+      const previewUrl = new URL(
+        `/courses/preview/${previewTargetId}?preview=course-draft&previewKey=${encodeURIComponent(previewKey)}`,
+        window.location.origin,
+      );
+      window.open(previewUrl.toString(), "_blank", "noopener,noreferrer");
+    } catch (error) {
+      console.error("Error preparing course preview:", error);
+      toast.error("Failed to open course preview");
+    }
+  };
+
+  const ensureCourseStorageReady = async () => {
+    if (!supabase) {
+      throw new Error("Supabase is not initialized. Check your environment variables first.");
+    }
+
+    const { error } = await supabase.storage.from("course-materials").list("", { limit: 1 });
+
+    if (!error) return;
+
+    const message = error.message?.toLowerCase() || "";
+    if (message.includes("bucket not found")) {
+      throw new Error(
+        "Storage bucket 'course-materials' is missing. Create it in Supabase Storage, then apply the course-materials storage policies from STORAGE_SETUP.md or migration 022_add_course_materials_storage_policies.sql.",
+      );
+    }
+
+    if (message.includes("row-level security") || message.includes("permission") || message.includes("unauthorized")) {
+      throw new Error(
+        "Storage is reachable, but this account cannot access the 'course-materials' bucket. Confirm the course-materials storage policies are applied for admin, trainer, SPD, or training officer roles, including migration 028_fix_course_and_storage_rls_roles.sql.",
+      );
+    }
+  };
 
   useEffect(() => {
     if (course) {
@@ -72,7 +158,6 @@ export const CourseCreateEditDialog = ({
         thumbnail: course.thumbnail || "",
       });
       setCategoryOther(isOther ? cat : "");
-      setCurrentDocumentUrl(course.courseDocument || null);
     } else {
       setFormData({
         title: "",
@@ -84,12 +169,9 @@ export const CourseCreateEditDialog = ({
         thumbnail: "",
       });
       setCategoryOther("");
-      setCurrentDocumentUrl(null);
     }
-    setSelectedFile(null);
     setSelectedThumbnailFile(null);
     setThumbnailPreviewUrl(null);
-    setDocumentPreviewUrl(null);
   }, [course, open]);
 
   // Preview URLs for selected files (revoke on unmount/change)
@@ -102,44 +184,6 @@ export const CourseCreateEditDialog = ({
     setThumbnailPreviewUrl(formData.thumbnail || null);
     return () => {};
   }, [selectedThumbnailFile, formData.thumbnail]);
-
-  useEffect(() => {
-    if (selectedFile) {
-      const url = URL.createObjectURL(selectedFile);
-      setDocumentPreviewUrl(url);
-      return () => URL.revokeObjectURL(url);
-    }
-    setDocumentPreviewUrl(currentDocumentUrl || null);
-    return () => {};
-  }, [selectedFile, currentDocumentUrl]);
-
-  const ACCEPTED_DOC_TYPES = [
-    "application/pdf",
-    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-    "video/mp4",
-    "video/webm",
-    "image/jpeg",
-    "image/png",
-    "image/webp",
-    "image/gif",
-  ];
-  const ACCEPTED_DOC_EXT = [".pdf", ".pptx", ".mp4", ".webm", ".jpg", ".jpeg", ".png", ".webp", ".gif"];
-
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const ext = file.name.toLowerCase().substring(file.name.lastIndexOf("."));
-    if (!ACCEPTED_DOC_TYPES.includes(file.type) && !ACCEPTED_DOC_EXT.includes(ext)) {
-      toast.error("Please upload a file (PDF/PPTX), video (MP4/WebM), or image (JPG/PNG/WebP/GIF)");
-      return;
-    }
-    if (file.size > 100 * 1024 * 1024) {
-      toast.error("File size must be less than 100MB");
-      return;
-    }
-    setSelectedFile(file);
-    setCurrentDocumentUrl(null);
-  };
 
   const handleThumbnailSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -155,9 +199,7 @@ export const CourseCreateEditDialog = ({
     if (!file.name) setFormData((prev) => ({ ...prev, thumbnail: "" }));
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
+  const saveCourse = async (mode: CourseSaveMode) => {
     if (!user) {
       toast.error("You must be logged in to create/edit courses");
       return;
@@ -173,7 +215,6 @@ export const CourseCreateEditDialog = ({
     }
 
     setLoading(true);
-    let documentUrl = currentDocumentUrl || undefined;
     let thumbnailUrl = formData.thumbnail || undefined;
 
     const uploadToStorage = async (file: File, folder: string): Promise<string> => {
@@ -194,54 +235,48 @@ export const CourseCreateEditDialog = ({
       return urlData.publicUrl;
     };
 
-    setUploadingDocument(true);
     try {
+      if (selectedThumbnailFile) {
+        await ensureCourseStorageReady();
+      }
       if (selectedThumbnailFile && supabase) {
         thumbnailUrl = await uploadToStorage(selectedThumbnailFile, "thumb");
       }
-      if (selectedFile && supabase) {
-        documentUrl = await uploadToStorage(selectedFile, "doc");
-        toast.success("File uploaded successfully");
-      }
     } catch (error: any) {
       console.error("Upload error:", error);
-      toast.error(error.message || "Failed to upload file");
+      toast.error(error.message || "Failed to upload thumbnail");
       setLoading(false);
-      setUploadingDocument(false);
       return;
-    } finally {
-      setUploadingDocument(false);
     }
 
     try {
-      const categoryValue = formData.category === "Other" ? categoryOther.trim() : formData.category;
       const courseData = {
-        title: formData.title,
-        description: formData.description,
-        category: categoryValue,
-        level: formData.level,
-        duration: parseInt(formData.duration),
-        instructorId: user.id,
-        instructor: user.name || user.email,
+        ...(await buildCoursePayload(mode === "finalized")),
         thumbnail: thumbnailUrl,
-        courseDocument: documentUrl,
-        isTESDAAccredited: false,
-        skills: formData.skills,
       };
 
       if (course) {
         await courseService.updateCourse(course.id, courseData);
-        toast.success("Course updated successfully");
+        toast.success(mode === "finalized" ? "Course finalized successfully" : "Course saved as draft");
       } else {
         await courseService.createCourse(courseData);
-        toast.success("Course created successfully");
+        toast.success(mode === "finalized" ? "Course created successfully" : "Course draft created successfully");
       }
 
       onOpenChange(false);
       onSuccess?.();
     } catch (error) {
       console.error("Error saving course:", error);
-      toast.error(course ? "Failed to update course" : "Failed to create course");
+      const message = error instanceof Error ? error.message.toLowerCase() : "";
+      if (message.includes("row-level security") || message.includes("permission denied")) {
+        toast.error(
+          course
+            ? "Failed to update course due to Supabase RLS. Apply migration 028_fix_course_and_storage_rls_roles.sql."
+            : "Failed to create course due to Supabase RLS. Apply migration 028_fix_course_and_storage_rls_roles.sql.",
+        );
+      } else {
+        toast.error(course ? "Failed to save course" : "Failed to create course");
+      }
     } finally {
       setLoading(false);
     }
@@ -265,7 +300,13 @@ export const CourseCreateEditDialog = ({
           <DialogTitle>{course ? "Edit Course" : "Create New Course"}</DialogTitle>
         </DialogHeader>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            void saveCourse("finalized");
+          }}
+          className="space-y-4"
+        >
           <div className="space-y-2">
             <Label htmlFor="title">Course Title *</Label>
             <Input
@@ -368,57 +409,13 @@ export const CourseCreateEditDialog = ({
                 accept=".jpg,.jpeg,.png,.webp,.gif,image/jpeg,image/png,image/webp,image/gif"
                 onChange={handleThumbnailSelect}
                 className="flex-1"
-                disabled={uploadingDocument}
+                disabled={loading}
               />
               {selectedThumbnailFile && (
                 <Badge variant="secondary" className="gap-1 mt-1">
                   {selectedThumbnailFile.name}
                 </Badge>
               )}
-            </div>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="courseDocument">Upload file, video, or image</Label>
-            <div className="space-y-2">
-              <div className="flex items-center gap-2">
-                <Input
-                  id="courseDocument"
-                  type="file"
-                  accept=".pdf,.pptx,.mp4,.webm,.jpg,.jpeg,.png,.webp,.gif,application/pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation,video/mp4,video/webm,image/jpeg,image/png,image/webp,image/gif"
-                  onChange={handleFileSelect}
-                  className="flex-1"
-                  disabled={uploadingDocument}
-                />
-                {selectedFile && (
-                  <Badge variant="secondary" className="gap-1">
-                    <FileText className="w-3 h-3" />
-                    {selectedFile.name}
-                  </Badge>
-                )}
-              </div>
-              {currentDocumentUrl && !selectedFile && (
-                <div className="flex items-center gap-2 p-2 bg-muted rounded-md">
-                  <FileText className="w-4 h-4 text-muted-foreground" />
-                  <span className="text-sm text-muted-foreground flex-1 truncate">
-                    Current: {currentDocumentUrl.split("/").pop()}
-                  </span>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => {
-                      setCurrentDocumentUrl(null);
-                      setSelectedFile(null);
-                    }}
-                  >
-                    <X className="w-4 h-4" />
-                  </Button>
-                </div>
-              )}
-              <p className="text-xs text-muted-foreground">
-                PDF, PPTX, video (MP4/WebM), or image (JPG/PNG/WebP/GIF). Max 100MB
-              </p>
             </div>
           </div>
 
@@ -490,53 +487,34 @@ export const CourseCreateEditDialog = ({
                 )}
               </div>
             </div>
-            {(documentPreviewUrl || selectedFile) && (
-              <div className="text-xs space-y-1">
-                <span className="text-muted-foreground">Uploaded file / media:</span>
-                {selectedFile && (
-                  <span className="block font-medium">{selectedFile.name}</span>
-                )}
-                {documentPreviewUrl && (
-                  <div className="mt-2 rounded border overflow-hidden bg-background max-h-40">
-                    {documentPreviewUrl.startsWith("blob:") && selectedFile?.type.startsWith("image/") && (
-                      <img src={documentPreviewUrl} alt="Upload preview" className="w-full h-auto max-h-36 object-contain" />
-                    )}
-                    {documentPreviewUrl.startsWith("blob:") && selectedFile?.type.startsWith("video/") && (
-                      <video src={documentPreviewUrl} controls className="w-full max-h-36" />
-                    )}
-                    {(!selectedFile || selectedFile.type.startsWith("application/")) && (
-                      <a
-                        href={documentPreviewUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="flex items-center gap-2 p-2 text-primary hover:underline"
-                      >
-                        <FileText className="w-4 h-4" />
-                        {documentPreviewUrl.startsWith("blob:") ? selectedFile?.name || "File" : documentPreviewUrl.split("/").pop()}
-                      </a>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
           </div>
 
           <DialogFooter>
+            <Button type="button" variant="outline" onClick={handlePreview}>
+              <Eye className="w-4 h-4 mr-2" />
+              Preview as Trainee
+            </Button>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <Button type="submit" disabled={loading || uploadingDocument}>
-              {uploadingDocument ? (
+            <Button type="button" variant="outline" disabled={loading} onClick={() => void saveCourse("draft")}>
+              {loading ? (
                 <>
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                  Uploading...
+                  Saving...
                 </>
-              ) : loading ? (
-                "Saving..."
-              ) : course ? (
-                "Update Course"
               ) : (
-                "Create Course"
+                "Save as Draft"
+              )}
+            </Button>
+            <Button type="submit" disabled={loading}>
+              {loading ? (
+                <>
+                  <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                "Finalize"
               )}
             </Button>
           </DialogFooter>

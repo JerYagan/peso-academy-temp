@@ -16,6 +16,8 @@ interface VideoPlayerProps {
   moduleId?: string;
 }
 
+const isHostedVideoFile = (value: string) => /\.(mp4|webm|ogg|mov|m4v)(\?|#|$)/i.test(value);
+
 const VideoPlayer = ({ url, title, enrollmentId, moduleId }: VideoPlayerProps) => {
   const { user } = useAuth();
   const [isReady, setIsReady] = useState(false);
@@ -146,6 +148,21 @@ const VideoPlayer = ({ url, title, enrollmentId, moduleId }: VideoPlayerProps) =
     }
   };
 
+  const handleNativeLoadedMetadata = (event: React.SyntheticEvent<HTMLVideoElement>) => {
+    setIsReady(true);
+    const nextDuration = event.currentTarget.duration;
+    if (Number.isFinite(nextDuration)) {
+      setDuration(nextDuration);
+    }
+    if (progress > 0) {
+      event.currentTarget.currentTime = progress;
+    }
+  };
+
+  const handleNativeTimeUpdate = (event: React.SyntheticEvent<HTMLVideoElement>) => {
+    setProgress(event.currentTarget.currentTime);
+  };
+
   // Check if URL is valid
   if (!url || url.trim() === "") {
     return (
@@ -164,38 +181,51 @@ const VideoPlayer = ({ url, title, enrollmentId, moduleId }: VideoPlayerProps) =
               <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
             </div>
           )}
-          <TypedReactPlayer
-            ref={playerRef}
-            url={url}
-            width="100%"
-            height="100%"
-            controls
-            playing={false}
-            onReady={() => {
-              setIsReady(true);
-              // Seek to saved progress if available
-              if (progress > 0 && duration > 0) {
-                handleSeek(progress);
-              }
-            }}
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any -- ReactPlayer onProgress type
-            onProgress={handleProgress as any}
-            onDuration={handleDuration}
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any -- ReactPlayer config types are incomplete
-            config={{
-              youtube: {
-                playerVars: {
-                  modestbranding: 1,
-                  rel: 0,
+          {isHostedVideoFile(url) ? (
+            <video
+              src={url}
+              controls
+              playsInline
+              preload="metadata"
+              className="h-full w-full"
+              onLoadedMetadata={handleNativeLoadedMetadata}
+              onTimeUpdate={handleNativeTimeUpdate}
+            >
+              Your browser does not support the video tag.
+            </video>
+          ) : (
+            <TypedReactPlayer
+              ref={playerRef}
+              url={url}
+              width="100%"
+              height="100%"
+              controls
+              playing={false}
+              onReady={() => {
+                setIsReady(true);
+                if (progress > 0 && duration > 0) {
+                  handleSeek(progress);
+                }
+              }}
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any -- ReactPlayer onProgress type
+              onProgress={handleProgress as any}
+              onDuration={handleDuration}
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any -- ReactPlayer config types are incomplete
+              config={{
+                youtube: {
+                  playerVars: {
+                    modestbranding: 1,
+                    rel: 0,
+                  },
                 },
-              },
-              vimeo: {
-                playerOptions: {
-                  responsive: true,
+                vimeo: {
+                  playerOptions: {
+                    responsive: true,
+                  },
                 },
-              },
-            } as any}
-          />
+              } as any}
+            />
+          )}
         </div>
       </div>
       {title && (

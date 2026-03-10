@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -6,13 +6,141 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { User, Save, Award, BookOpen, Loader2, Lock } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Award,
+  BadgeCheck,
+  BookOpen,
+  BriefcaseBusiness,
+  Building2,
+  CalendarDays,
+  Clock3,
+  GraduationCap,
+  Loader2,
+  Lock,
+  Mail,
+  MapPin,
+  PencilLine,
+  Phone,
+  Save,
+  ShieldCheck,
+  Target,
+  TrendingUp,
+  User,
+} from "lucide-react";
 import { enrollmentService, certificateService } from "@/services/supabaseDatabaseService";
 import { supabaseAuthService } from "@/services/supabaseAuthService";
 import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
 import { Certificate, Enrollment } from "@/types";
+import { User as AuthUser } from "@/types/auth";
+import { reportingService, type LearnerPerformanceSummary } from "@/services/reportingService";
+
+const genderOptions: Array<{ value: NonNullable<AuthUser["gender"]>; label: string }> = [
+  { value: "male", label: "Male" },
+  { value: "female", label: "Female" },
+  { value: "non_binary", label: "Non-binary" },
+  { value: "prefer_not_to_say", label: "Prefer not to say" },
+  { value: "other", label: "Other" },
+];
+
+const civilStatusOptions: Array<{ value: NonNullable<AuthUser["civilStatus"]>; label: string }> = [
+  { value: "single", label: "Single" },
+  { value: "married", label: "Married" },
+  { value: "widowed", label: "Widowed" },
+  { value: "separated", label: "Separated" },
+  { value: "divorced", label: "Divorced" },
+  { value: "annulled", label: "Annulled" },
+  { value: "prefer_not_to_say", label: "Prefer not to say" },
+];
+
+const employmentStatusOptions: Array<{ value: NonNullable<AuthUser["employmentStatus"]>; label: string }> = [
+  { value: "employed", label: "Employed" },
+  { value: "unemployed", label: "Unemployed" },
+  { value: "self_employed", label: "Self-employed" },
+  { value: "student", label: "Student" },
+  { value: "underemployed", label: "Underemployed" },
+  { value: "not_applicable", label: "Not applicable" },
+  { value: "prefer_not_to_say", label: "Prefer not to say" },
+];
+
+const prettifyValue = (value?: string) => {
+  if (!value) return "Not provided";
+
+  return value
+    .split("_")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+};
+
+const formatDateValue = (value?: string) => {
+  if (!value) return "Not provided";
+
+  const parsedDate = new Date(value);
+  if (Number.isNaN(parsedDate.getTime())) {
+    return value;
+  }
+
+  return new Intl.DateTimeFormat("en-PH", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  }).format(parsedDate);
+};
+
+const calculateAge = (dateOfBirth?: string) => {
+  if (!dateOfBirth) return null;
+
+  const birthDate = new Date(dateOfBirth);
+  if (Number.isNaN(birthDate.getTime())) return null;
+
+  const today = new Date();
+  let age = today.getFullYear() - birthDate.getFullYear();
+  const hasBirthdayPassed =
+    today.getMonth() > birthDate.getMonth() ||
+    (today.getMonth() === birthDate.getMonth() && today.getDate() >= birthDate.getDate());
+
+  if (!hasBirthdayPassed) {
+    age -= 1;
+  }
+
+  return age >= 0 ? age : null;
+};
+
+type InfoCardItem = {
+  label: string;
+  value: string;
+  icon: typeof Mail;
+};
+
+const renderInfoGrid = (items: InfoCardItem[]) => {
+  return (
+    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+      {items.map((item) => {
+        const Icon = item.icon;
+
+        return (
+          <div key={item.label} className="rounded-2xl border border-border/60 bg-background/50 p-4">
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <Icon className="h-4 w-4" />
+              <p className="text-xs uppercase tracking-[0.16em]">{item.label}</p>
+            </div>
+            <p className="mt-3 text-sm font-medium leading-6">{item.value}</p>
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
+const formatLearningTime = (minutes: number) => {
+  if (minutes <= 0) return "0m";
+  if (minutes < 60) return `${minutes}m`;
+
+  const hours = minutes / 60;
+  return `${Number.isInteger(hours) ? hours : hours.toFixed(1)}h`;
+};
 
 const Profile = () => {
   const { user, updateUser } = useAuth();
@@ -20,12 +148,23 @@ const Profile = () => {
   const [loading, setLoading] = useState(false);
   const [certificates, setCertificates] = useState<Certificate[]>([]);
   const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
+  const [performanceSummary, setPerformanceSummary] = useState<LearnerPerformanceSummary | null>(null);
   const [loadingData, setLoadingData] = useState(true);
   const [formData, setFormData] = useState({
     name: "",
     email: "",
     phone: "",
     address: "",
+    dateOfBirth: "",
+    gender: "" as AuthUser["gender"] | "",
+    civilStatus: "" as AuthUser["civilStatus"] | "",
+    employmentStatus: "" as AuthUser["employmentStatus"] | "",
+    occupation: "",
+    educationLevel: "",
+    barangay: "",
+    cityMunicipality: "",
+    province: "",
+    postalCode: "",
   });
   const [passwordForm, setPasswordForm] = useState({
     currentPassword: "",
@@ -33,18 +172,6 @@ const Profile = () => {
     confirmPassword: "",
   });
   const [changingPassword, setChangingPassword] = useState(false);
-
-  useEffect(() => {
-    if (user) {
-      setFormData({
-        name: user.name || "",
-        email: user.email || "",
-        phone: user.phone || "",
-        address: user.address || "",
-      });
-      loadProfileData();
-    }
-  }, [user]);
 
   const isLearner = user?.role === "trainee" || user?.role === "jobseeker";
 
@@ -54,15 +181,18 @@ const Profile = () => {
     setLoadingData(true);
     try {
       if (isLearner) {
-        const [certs, enrolls] = await Promise.all([
+        const [certs, enrolls, learnerPerformance] = await Promise.all([
           certificateService.getCertificates(user.id),
           enrollmentService.getEnrollments(user.id),
+          reportingService.getLearnerPerformanceSummary(user.id),
         ]);
         setCertificates(certs);
         setEnrollments(enrolls);
+        setPerformanceSummary(learnerPerformance);
       } else {
         setCertificates([]);
         setEnrollments([]);
+        setPerformanceSummary(null);
       }
     } catch (error) {
       console.error("Error loading profile data:", error);
@@ -72,16 +202,59 @@ const Profile = () => {
     }
   };
 
+  useEffect(() => {
+    if (!user) return;
+
+    setFormData({
+      name: user.name || "",
+      email: user.email || "",
+      phone: user.phone || "",
+      address: user.address || "",
+      dateOfBirth: user.dateOfBirth || "",
+      gender: user.gender || "",
+      civilStatus: user.civilStatus || "",
+      employmentStatus: user.employmentStatus || "",
+      occupation: user.occupation || "",
+      educationLevel: user.educationLevel || "",
+      barangay: user.barangay || "",
+      cityMunicipality: user.cityMunicipality || "",
+      province: user.province || "",
+      postalCode: user.postalCode || "",
+    });
+
+    void loadProfileData();
+  }, [user]);
+
   const handleSave = async () => {
     if (!user) return;
-    
+
     setLoading(true);
     try {
+      if (formData.dateOfBirth) {
+        const birthDate = new Date(formData.dateOfBirth);
+        if (Number.isNaN(birthDate.getTime()) || birthDate > new Date()) {
+          toast.error("Date of birth must be a valid past date.");
+          setLoading(false);
+          return;
+        }
+      }
+
       await updateUser({
         name: formData.name,
         phone: formData.phone,
         address: formData.address,
+        dateOfBirth: formData.dateOfBirth || undefined,
+        gender: formData.gender || undefined,
+        civilStatus: formData.civilStatus || undefined,
+        employmentStatus: formData.employmentStatus || undefined,
+        occupation: formData.occupation,
+        educationLevel: formData.educationLevel,
+        barangay: formData.barangay,
+        cityMunicipality: formData.cityMunicipality,
+        province: formData.province,
+        postalCode: formData.postalCode,
       });
+
       setIsEditing(false);
       toast.success("Profile updated successfully!");
     } catch (error) {
@@ -95,6 +268,7 @@ const Profile = () => {
   const handleChangePassword = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user?.email) return;
+
     const { currentPassword, newPassword, confirmPassword } = passwordForm;
     if (!currentPassword || !newPassword || !confirmPassword) {
       toast.error("Please fill in all password fields");
@@ -121,11 +295,13 @@ const Profile = () => {
           return;
         }
       }
+
       const { error } = await supabaseAuthService.updatePassword(newPassword);
       if (error) {
         toast.error(error.message || "Failed to update password");
         return;
       }
+
       toast.success("Password updated successfully");
       setPasswordForm({ currentPassword: "", newPassword: "", confirmPassword: "" });
     } catch (err) {
@@ -138,216 +314,596 @@ const Profile = () => {
 
   if (!user) return null;
 
+  const completedEnrollments = enrollments.filter((enrollment) => enrollment.status === "completed").length;
+  const inProgressEnrollments = enrollments.filter((enrollment) => enrollment.status === "in-progress").length;
+  const age = calculateAge(user.dateOfBirth);
+  const completionRate = enrollments.length > 0 ? Math.round((completedEnrollments / enrollments.length) * 100) : 0;
+  const averageAssessmentScore = performanceSummary?.averageAssessmentScore || 0;
+  const completedModules = performanceSummary?.modulesCompleted || 0;
+  const totalModules = performanceSummary?.totalModules || 0;
+  const totalLearningMinutes = performanceSummary?.totalLearningMinutes || 0;
+  const moduleCompletionRate = performanceSummary?.overallModuleCompletionRate || 0;
+  const strongestTopic = performanceSummary?.strongestTopic?.topic || null;
+  const needsImprovementTopic = performanceSummary?.needsImprovementTopic?.topic || null;
+  const profileCompletionFields = [
+    user.phone,
+    user.address,
+    user.dateOfBirth,
+    user.gender,
+    user.civilStatus,
+    user.employmentStatus,
+    user.occupation,
+    user.educationLevel,
+    user.barangay,
+    user.cityMunicipality,
+    user.province,
+    user.postalCode,
+  ];
+  const completedProfileFields = profileCompletionFields.filter(
+    (field) => typeof field === "string" && field.trim().length > 0,
+  ).length;
+  const profileCompletion = Math.round((completedProfileFields / profileCompletionFields.length) * 100);
+
+  const identityItems: InfoCardItem[] = [
+    { label: "Email", value: user.email, icon: Mail },
+    { label: "Phone", value: user.phone || "Not provided", icon: Phone },
+    { label: "Date of Birth", value: formatDateValue(user.dateOfBirth), icon: CalendarDays },
+    { label: "Age", value: age !== null ? `${age} years old` : "Not provided", icon: BadgeCheck },
+    { label: "Gender", value: prettifyValue(user.gender), icon: User },
+    { label: "Civil Status", value: prettifyValue(user.civilStatus), icon: BadgeCheck },
+  ];
+
+  const workItems: InfoCardItem[] = [
+    { label: "Employment Status", value: prettifyValue(user.employmentStatus), icon: BriefcaseBusiness },
+    { label: "Occupation", value: user.occupation || "Not provided", icon: BriefcaseBusiness },
+    { label: "Education Level", value: user.educationLevel || "Not provided", icon: GraduationCap },
+  ];
+
+  const locationItems: InfoCardItem[] = [
+    { label: "Address", value: user.address || "Not provided", icon: MapPin },
+    { label: "Barangay", value: user.barangay || "Not provided", icon: Building2 },
+    { label: "City / Municipality", value: user.cityMunicipality || "Not provided", icon: Building2 },
+    { label: "Province", value: user.province || "Not provided", icon: MapPin },
+    { label: "Postal Code", value: user.postalCode || "Not provided", icon: MapPin },
+  ];
+
   return (
     <DashboardLayout>
-      <div className="space-y-8">
-        <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-3xl font-bold">Profile</h1>
-            <p className="text-muted-foreground mt-2">Manage your account information</p>
+      <div className="space-y-6">
+        <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+          <div className="space-y-2">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge className="rounded-full bg-primary/10 px-3 py-1 text-primary hover:bg-primary/10">
+                {prettifyValue(user.role)} profile
+              </Badge>
+              {isLearner && (
+                <Badge variant="outline" className="rounded-full px-3 py-1">
+                  {profileCompletion}% complete
+                </Badge>
+              )}
+            </div>
+            <div>
+              <h1 className="text-3xl font-semibold tracking-tight">Profile</h1>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground sm:text-base">
+                Maintain your learner information, keep your demographic details current, and review your training activity in one place.
+              </p>
+            </div>
           </div>
           {!isEditing && (
-            <Button onClick={() => setIsEditing(true)}>Edit Profile</Button>
+            <Button className="gap-2 self-start md:self-auto" onClick={() => setIsEditing(true)}>
+              <PencilLine className="h-4 w-4" />
+              Edit Profile
+            </Button>
           )}
         </div>
 
-        <div className="grid gap-6 md:grid-cols-3">
-          {/* Profile Info */}
-          <Card className="md:col-span-2">
-            <CardHeader>
-              <CardTitle>Personal Information</CardTitle>
-              <CardDescription>Update your profile details</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="flex items-center gap-4 mb-6">
-                <div className="w-20 h-20 rounded-full bg-primary/10 flex items-center justify-center">
-                  <User className="w-10 h-10 text-primary" />
-                </div>
-                <div>
-                  <p className="font-semibold text-lg">{user.name}</p>
-                  <p className="text-sm text-muted-foreground">{user.email}</p>
-                  <Badge className="mt-2">{user.role}</Badge>
-                </div>
-              </div>
-
-              {isEditing ? (
-                <>
-                  <div className="space-y-2">
-                    <Label htmlFor="name">Full Name</Label>
-                    <Input
-                      id="name"
-                      value={formData.name}
-                      onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="email">Email</Label>
-                    <Input
-                      id="email"
-                      type="email"
-                      value={formData.email}
-                      onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                      disabled
-                    />
-                    <p className="text-xs text-muted-foreground">Email cannot be changed</p>
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="phone">Phone</Label>
-                    <Input
-                      id="phone"
-                      value={formData.phone}
-                      onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                      placeholder="+63 912 345 6789"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label htmlFor="address">Address</Label>
-                    <Textarea
-                      id="address"
-                      value={formData.address}
-                      onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                      placeholder="City, Province, Philippines"
-                    />
-                  </div>
-
-                  <div className="flex gap-2">
-                    <Button onClick={handleSave} disabled={loading}>
-                      {loading ? (
-                        <>
-                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                          Saving...
-                        </>
-                      ) : (
-                        <>
-                          <Save className="w-4 h-4 mr-2" />
-                          Save Changes
-                        </>
-                      )}
-                    </Button>
-                    <Button variant="outline" onClick={() => setIsEditing(false)} disabled={loading}>
-                      Cancel
-                    </Button>
-                  </div>
-                </>
-              ) : (
-                <div className="space-y-4">
-                  <div>
-                    <Label className="text-muted-foreground">Phone</Label>
-                    <p className="font-medium">{user.phone || "Not provided"}</p>
-                  </div>
-                  <div>
-                    <Label className="text-muted-foreground">Address</Label>
-                    <p className="font-medium">{user.address || "Not provided"}</p>
-                  </div>
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Stats – only for learner roles (trainee, jobseeker); admins/trainers don't need enrolled courses / certificates here */}
-          {isLearner && (
-            <Card>
-              <CardHeader>
-                <CardTitle>Statistics</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {loadingData ? (
-                  <div className="flex items-center justify-center py-8">
-                    <Loader2 className="w-6 h-6 text-muted-foreground animate-spin" />
-                  </div>
-                ) : (
-                  <>
-                    <div className="flex items-center gap-3">
-                      <div className="w-12 h-12 rounded-lg bg-primary/10 flex items-center justify-center">
-                        <BookOpen className="w-6 h-6 text-primary" />
+        <div className="grid gap-6 xl:grid-cols-[1.45fr_0.85fr]">
+          <div className="space-y-6">
+            <Card className="overflow-hidden border-primary/15 bg-gradient-to-br from-primary/10 via-card to-card">
+              <CardContent className="p-0">
+                <div className="border-b border-border/60 px-6 py-5">
+                  <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
+                    <div className="flex items-center gap-4">
+                      <div className="flex h-20 w-20 items-center justify-center rounded-3xl bg-primary/15 text-primary shadow-inner">
+                        <User className="h-10 w-10" />
                       </div>
-                      <div>
-                        <p className="text-2xl font-bold">{enrollments.length}</p>
-                        <p className="text-sm text-muted-foreground">Enrolled Courses</p>
+                      <div className="space-y-2">
+                        <div>
+                          <h2 className="text-2xl font-semibold tracking-tight">{user.name}</h2>
+                          <p className="text-sm text-muted-foreground">{user.email}</p>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Badge className="rounded-full">{prettifyValue(user.role)}</Badge>
+                          {user.cityMunicipality && (
+                            <Badge variant="outline" className="rounded-full">
+                              {user.cityMunicipality}
+                            </Badge>
+                          )}
+                          {user.employmentStatus && (
+                            <Badge variant="outline" className="rounded-full">
+                              {prettifyValue(user.employmentStatus)}
+                            </Badge>
+                          )}
+                        </div>
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-3">
-                      <div className="w-12 h-12 rounded-lg bg-accent/10 flex items-center justify-center">
-                        <Award className="w-6 h-6 text-accent" />
+                    <div className="grid gap-3 sm:grid-cols-3">
+                      <div className="rounded-2xl border border-border/60 bg-background/60 px-4 py-3">
+                        <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Age</p>
+                        <p className="mt-2 text-lg font-semibold">{age !== null ? age : "--"}</p>
                       </div>
-                      <div>
-                        <p className="text-2xl font-bold">{certificates.length}</p>
-                        <p className="text-sm text-muted-foreground">Certificates</p>
+                      <div className="rounded-2xl border border-border/60 bg-background/60 px-4 py-3">
+                        <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Status</p>
+                        <p className="mt-2 text-lg font-semibold">{prettifyValue(user.civilStatus)}</p>
+                      </div>
+                      <div className="rounded-2xl border border-border/60 bg-background/60 px-4 py-3">
+                        <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Location</p>
+                        <p className="mt-2 text-lg font-semibold">{user.province || "--"}</p>
                       </div>
                     </div>
-                  </>
-                )}
+                  </div>
+                </div>
+
+                <div className="px-6 py-6">
+                  {isEditing ? (
+                    <div className="space-y-6">
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <div className="space-y-2">
+                          <Label htmlFor="name">Full Name</Label>
+                          <Input
+                            id="name"
+                            value={formData.name}
+                            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                          />
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label htmlFor="email">Email</Label>
+                          <Input
+                            id="email"
+                            type="email"
+                            value={formData.email}
+                            onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                            disabled
+                          />
+                          <p className="text-xs text-muted-foreground">Email cannot be changed</p>
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label htmlFor="phone">Phone</Label>
+                          <Input
+                            id="phone"
+                            value={formData.phone}
+                            onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                            placeholder="+63 912 345 6789"
+                          />
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label htmlFor="date-of-birth">Date of Birth</Label>
+                          <Input
+                            id="date-of-birth"
+                            type="date"
+                            value={formData.dateOfBirth}
+                            onChange={(e) => setFormData({ ...formData, dateOfBirth: e.target.value })}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="address">Address</Label>
+                        <Textarea
+                          id="address"
+                          value={formData.address}
+                          onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                          placeholder="House number, street, subdivision"
+                        />
+                      </div>
+
+                      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                        <div className="space-y-2">
+                          <Label htmlFor="gender">Gender</Label>
+                          <Select value={formData.gender} onValueChange={(value) => setFormData({ ...formData, gender: value as AuthUser["gender"] })}>
+                            <SelectTrigger id="gender">
+                              <SelectValue placeholder="Select gender" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {genderOptions.map((option) => (
+                                <SelectItem key={option.value} value={option.value}>
+                                  {option.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label htmlFor="civil-status">Civil Status</Label>
+                          <Select value={formData.civilStatus} onValueChange={(value) => setFormData({ ...formData, civilStatus: value as AuthUser["civilStatus"] })}>
+                            <SelectTrigger id="civil-status">
+                              <SelectValue placeholder="Select civil status" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {civilStatusOptions.map((option) => (
+                                <SelectItem key={option.value} value={option.value}>
+                                  {option.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label htmlFor="employment-status">Employment Status</Label>
+                          <Select
+                            value={formData.employmentStatus}
+                            onValueChange={(value) => setFormData({ ...formData, employmentStatus: value as AuthUser["employmentStatus"] })}
+                          >
+                            <SelectTrigger id="employment-status">
+                              <SelectValue placeholder="Select employment status" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {employmentStatusOptions.map((option) => (
+                                <SelectItem key={option.value} value={option.value}>
+                                  {option.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        <div className="space-y-2 xl:col-span-2">
+                          <Label htmlFor="occupation">Occupation</Label>
+                          <Input
+                            id="occupation"
+                            value={formData.occupation}
+                            onChange={(e) => setFormData({ ...formData, occupation: e.target.value })}
+                            placeholder="Current job or primary occupation"
+                          />
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label htmlFor="education-level">Education Level</Label>
+                          <Input
+                            id="education-level"
+                            value={formData.educationLevel}
+                            onChange={(e) => setFormData({ ...formData, educationLevel: e.target.value })}
+                            placeholder="Highest level completed"
+                          />
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label htmlFor="barangay">Barangay</Label>
+                          <Input
+                            id="barangay"
+                            value={formData.barangay}
+                            onChange={(e) => setFormData({ ...formData, barangay: e.target.value })}
+                          />
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label htmlFor="city-municipality">City / Municipality</Label>
+                          <Input
+                            id="city-municipality"
+                            value={formData.cityMunicipality}
+                            onChange={(e) => setFormData({ ...formData, cityMunicipality: e.target.value })}
+                          />
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label htmlFor="province">Province</Label>
+                          <Input
+                            id="province"
+                            value={formData.province}
+                            onChange={(e) => setFormData({ ...formData, province: e.target.value })}
+                          />
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label htmlFor="postal-code">Postal Code</Label>
+                          <Input
+                            id="postal-code"
+                            value={formData.postalCode}
+                            onChange={(e) => setFormData({ ...formData, postalCode: e.target.value })}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap gap-2 border-t border-border/60 pt-4">
+                        <Button className="gap-2" onClick={handleSave} disabled={loading}>
+                          {loading ? (
+                            <>
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                              Saving...
+                            </>
+                          ) : (
+                            <>
+                              <Save className="h-4 w-4" />
+                              Save Changes
+                            </>
+                          )}
+                        </Button>
+                        <Button variant="outline" onClick={() => setIsEditing(false)} disabled={loading}>
+                          Cancel
+                        </Button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="space-y-6">
+                      <div>
+                        <div className="mb-3 flex items-center gap-2">
+                          <Badge variant="outline" className="rounded-full px-3 py-1">
+                            Identity
+                          </Badge>
+                        </div>
+                        {renderInfoGrid(identityItems)}
+                      </div>
+
+                      <div>
+                        <div className="mb-3 flex items-center gap-2">
+                          <Badge variant="outline" className="rounded-full px-3 py-1">
+                            Education & Work
+                          </Badge>
+                        </div>
+                        {renderInfoGrid(workItems)}
+                      </div>
+
+                      <div>
+                        <div className="mb-3 flex items-center gap-2">
+                          <Badge variant="outline" className="rounded-full px-3 py-1">
+                            Location
+                          </Badge>
+                        </div>
+                        {renderInfoGrid(locationItems)}
+                      </div>
+                    </div>
+                  )}
+                </div>
               </CardContent>
             </Card>
-          )}
 
-          {/* Security - Change password */}
-          <Card className="md:col-span-2">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Lock className="w-5 h-5" />
-                Security
-              </CardTitle>
-              <CardDescription>Change your password</CardDescription>
-            </CardHeader>
-            <CardContent>
-              <form onSubmit={handleChangePassword} className="space-y-4 max-w-sm">
-                <div className="space-y-2">
-                  <Label htmlFor="current-password">Current password</Label>
-                  <Input
-                    id="current-password"
-                    type="password"
-                    placeholder="Enter current password"
-                    value={passwordForm.currentPassword}
-                    onChange={(e) =>
-                      setPasswordForm({ ...passwordForm, currentPassword: e.target.value })
-                    }
-                    autoComplete="current-password"
-                  />
+            <Card className="border-border/70">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2 text-xl">
+                  <ShieldCheck className="h-5 w-5 text-primary" />
+                  Security
+                </CardTitle>
+                <CardDescription>Change your password and keep your account protected.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <form onSubmit={handleChangePassword} className="grid gap-4 lg:grid-cols-[1fr_1.35fr_auto] lg:items-end">
+                  <div className="space-y-2">
+                    <Label htmlFor="current-password">Current password</Label>
+                    <Input
+                      id="current-password"
+                      type="password"
+                      placeholder="Enter current password"
+                      value={passwordForm.currentPassword}
+                      onChange={(e) => setPasswordForm({ ...passwordForm, currentPassword: e.target.value })}
+                      autoComplete="current-password"
+                    />
+                  </div>
+
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="space-y-2">
+                      <Label htmlFor="new-password">New password</Label>
+                      <Input
+                        id="new-password"
+                        type="password"
+                        placeholder="At least 6 characters"
+                        value={passwordForm.newPassword}
+                        onChange={(e) => setPasswordForm({ ...passwordForm, newPassword: e.target.value })}
+                        autoComplete="new-password"
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="confirm-password">Confirm new password</Label>
+                      <Input
+                        id="confirm-password"
+                        type="password"
+                        placeholder="Confirm new password"
+                        value={passwordForm.confirmPassword}
+                        onChange={(e) => setPasswordForm({ ...passwordForm, confirmPassword: e.target.value })}
+                        autoComplete="new-password"
+                      />
+                    </div>
+                  </div>
+
+                  <Button type="submit" className="gap-2" disabled={changingPassword}>
+                    {changingPassword ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Updating...
+                      </>
+                    ) : (
+                      <>
+                        <Lock className="h-4 w-4" />
+                        Change password
+                      </>
+                    )}
+                  </Button>
+                </form>
+              </CardContent>
+            </Card>
+          </div>
+
+          <div className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-xl">Profile Health</CardTitle>
+                <CardDescription>Track how complete and ready your learner record is.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-5">
+                <div>
+                  <div className="mb-2 flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">Profile completion</span>
+                    <span className="font-medium">{profileCompletion}%</span>
+                  </div>
+                  <div className="h-2 rounded-full bg-muted">
+                    <div className="h-2 rounded-full bg-primary transition-all" style={{ width: `${profileCompletion}%` }} />
+                  </div>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="new-password">New password</Label>
-                  <Input
-                    id="new-password"
-                    type="password"
-                    placeholder="At least 6 characters"
-                    value={passwordForm.newPassword}
-                    onChange={(e) =>
-                      setPasswordForm({ ...passwordForm, newPassword: e.target.value })
-                    }
-                    autoComplete="new-password"
-                  />
+
+                <div className="grid gap-3">
+                  <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
+                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Required coverage</p>
+                    <p className="mt-2 text-lg font-semibold">
+                      {completedProfileFields} of {profileCompletionFields.length} fields filled
+                    </p>
+                  </div>
+                  <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
+                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Recommended action</p>
+                    <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                      {profileCompletion < 100
+                        ? "Complete missing demographic and location details to support trainee analytics and reporting."
+                        : "Your trainee record is fully populated and ready for reporting use."}
+                    </p>
+                  </div>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="confirm-password">Confirm new password</Label>
-                  <Input
-                    id="confirm-password"
-                    type="password"
-                    placeholder="Confirm new password"
-                    value={passwordForm.confirmPassword}
-                    onChange={(e) =>
-                      setPasswordForm({ ...passwordForm, confirmPassword: e.target.value })
-                    }
-                    autoComplete="new-password"
-                  />
-                </div>
-                <Button type="submit" disabled={changingPassword}>
-                  {changingPassword ? (
-                    <>
-                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                      Updating...
-                    </>
+              </CardContent>
+            </Card>
+
+            {isLearner && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-xl">Training Snapshot</CardTitle>
+                  <CardDescription>Your learning activity and completion metrics.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {loadingData ? (
+                    <div className="flex items-center justify-center py-10">
+                      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                    </div>
                   ) : (
-                    "Change password"
+                    <>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
+                          <div className="flex items-center justify-between">
+                            <p className="text-sm text-muted-foreground">Enrolled Courses</p>
+                            <BookOpen className="h-4 w-4 text-primary" />
+                          </div>
+                          <p className="mt-3 text-3xl font-semibold">{enrollments.length}</p>
+                        </div>
+                        <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
+                          <div className="flex items-center justify-between">
+                            <p className="text-sm text-muted-foreground">Certificates</p>
+                            <Award className="h-4 w-4 text-amber-500" />
+                          </div>
+                          <p className="mt-3 text-3xl font-semibold">{certificates.length}</p>
+                        </div>
+                        <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
+                          <div className="flex items-center justify-between">
+                            <p className="text-sm text-muted-foreground">Completed</p>
+                            <BadgeCheck className="h-4 w-4 text-emerald-500" />
+                          </div>
+                          <p className="mt-3 text-3xl font-semibold">{completedEnrollments}</p>
+                        </div>
+                        <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
+                          <div className="flex items-center justify-between">
+                            <p className="text-sm text-muted-foreground">In Progress</p>
+                            <GraduationCap className="h-4 w-4 text-sky-500" />
+                          </div>
+                          <p className="mt-3 text-3xl font-semibold">{inProgressEnrollments}</p>
+                        </div>
+                        <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
+                          <div className="flex items-center justify-between">
+                            <p className="text-sm text-muted-foreground">Average Assessment Score</p>
+                            <Target className="h-4 w-4 text-primary" />
+                          </div>
+                          <p className="mt-3 text-3xl font-semibold">{averageAssessmentScore}%</p>
+                        </div>
+                        <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
+                          <div className="flex items-center justify-between">
+                            <p className="text-sm text-muted-foreground">Total Learning Time</p>
+                            <Clock3 className="h-4 w-4 text-primary" />
+                          </div>
+                          <p className="mt-3 text-3xl font-semibold">{formatLearningTime(totalLearningMinutes)}</p>
+                        </div>
+                        <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
+                          <div className="flex items-center justify-between">
+                            <p className="text-sm text-muted-foreground">Completed Modules</p>
+                            <BookOpen className="h-4 w-4 text-primary" />
+                          </div>
+                          <p className="mt-3 text-3xl font-semibold">{completedModules}</p>
+                        </div>
+                        <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
+                          <div className="flex items-center justify-between">
+                            <p className="text-sm text-muted-foreground">Module Progress</p>
+                            <TrendingUp className="h-4 w-4 text-primary" />
+                          </div>
+                          <p className="mt-3 text-3xl font-semibold">{moduleCompletionRate}%</p>
+                          <p className="mt-2 text-xs text-muted-foreground">{completedModules} of {totalModules} modules completed</p>
+                        </div>
+                      </div>
+
+                      <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
+                        <div className="mb-2 flex items-center justify-between text-sm">
+                          <span className="text-muted-foreground">Completion rate</span>
+                          <span className="font-medium">{completionRate}%</span>
+                        </div>
+                        <div className="h-2 rounded-full bg-muted">
+                          <div className="h-2 rounded-full bg-emerald-500 transition-all" style={{ width: `${completionRate}%` }} />
+                        </div>
+                      </div>
+
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-900/40 dark:bg-emerald-950/20">
+                          <p className="text-xs uppercase tracking-[0.16em] text-emerald-700 dark:text-emerald-300">Strong Skill</p>
+                          <p className="mt-2 text-lg font-semibold text-emerald-900 dark:text-emerald-100">{strongestTopic || "Build more history"}</p>
+                          <p className="mt-2 text-sm leading-6 text-emerald-800/80 dark:text-emerald-200/80">
+                            {strongestTopic
+                              ? "Your recommendation signals currently treat this as a strength to extend with higher-fit follow-on courses."
+                              : "Complete more scored work to identify a reliable strength signal."}
+                          </p>
+                        </div>
+                        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/40 dark:bg-amber-950/20">
+                          <p className="text-xs uppercase tracking-[0.16em] text-amber-700 dark:text-amber-300">Needs Improvement</p>
+                          <p className="mt-2 text-lg font-semibold text-amber-900 dark:text-amber-100">{needsImprovementTopic || "No focus area yet"}</p>
+                          <p className="mt-2 text-sm leading-6 text-amber-800/80 dark:text-amber-200/80">
+                            {needsImprovementTopic
+                              ? "This focus area now feeds remedial course suggestions and progress tracking across your learner profile."
+                              : "Finish more than one scored topic to surface a consistent improvement target."}
+                          </p>
+                        </div>
+                      </div>
+                    </>
                   )}
-                </Button>
-              </form>
-            </CardContent>
-          </Card>
+                </CardContent>
+              </Card>
+            )}
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-xl">Account Summary</CardTitle>
+                <CardDescription>Quick details tied to your current learner account.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="flex items-center gap-3 rounded-2xl border border-border/60 bg-background/60 p-4">
+                  <Mail className="h-4 w-4 text-primary" />
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Primary email</p>
+                    <p className="mt-1 text-sm font-medium">{user.email}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 rounded-2xl border border-border/60 bg-background/60 p-4">
+                  <Phone className="h-4 w-4 text-primary" />
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Contact number</p>
+                    <p className="mt-1 text-sm font-medium">{user.phone || "Not provided"}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 rounded-2xl border border-border/60 bg-background/60 p-4">
+                  <MapPin className="h-4 w-4 text-primary" />
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Primary location</p>
+                    <p className="mt-1 text-sm font-medium">{user.cityMunicipality || user.province || "Not provided"}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
         </div>
       </div>
     </DashboardLayout>
@@ -355,4 +911,3 @@ const Profile = () => {
 };
 
 export default Profile;
-

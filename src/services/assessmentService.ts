@@ -1,4 +1,5 @@
 import { supabase, handleSupabaseError } from "@/lib/supabase";
+import { analyticsService } from "@/services/analyticsService";
 import { notificationHelpers } from "@/services/notificationService";
 
 export interface Assessment {
@@ -319,6 +320,30 @@ export const assessmentService = {
     } catch (notifError) {
       console.error("Error sending assessment notification:", notifError);
       // Don't throw - notification failure shouldn't block assessment submission
+    }
+
+    try {
+      const courseId = (attemptData as any).enrollments?.course_id;
+      const userId = (attemptData as any).user_id;
+      const enrollmentId = (attemptData as any).enrollment_id;
+
+      await analyticsService.trackEvent({
+        eventName: "assessment_submit",
+        userId,
+        courseId,
+        assessmentId: attemptData.assessment_id,
+        enrollmentId,
+        surface: "assessment_interface",
+        metadata: {
+          attemptId,
+          score,
+          passed,
+        },
+      });
+
+      await analyticsService.refreshPhase1Analytics(userId);
+    } catch (analyticsError) {
+      console.error("Error tracking assessment analytics:", analyticsError);
     }
 
     return { score, passed };

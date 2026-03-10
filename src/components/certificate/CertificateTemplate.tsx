@@ -144,7 +144,7 @@ const CertificateTemplate = ({
       <div
         style={{
           position: "absolute",
-          bottom: "80px",
+          bottom: "72px",
           left: "60px",
           right: "60px",
         }}
@@ -166,12 +166,14 @@ const CertificateTemplate = ({
           </div>
 
           {/* Certificate Number */}
-          <div className="text-center">
+          <div className="text-center" style={{ width: "360px", padding: "0 12px" }}>
             <div
               style={{
-                fontSize: "12px",
+                fontSize: "11px",
                 color: "#6b7280",
                 marginBottom: "5px",
+                lineHeight: "1.4",
+                wordBreak: "break-word",
               }}
             >
               Certificate No: {certificateNumber}
@@ -179,9 +181,11 @@ const CertificateTemplate = ({
             {verificationCode && (
               <div
                 style={{
-                  fontSize: "10px",
+                  fontSize: "9px",
                   color: "#9ca3af",
                   marginTop: "5px",
+                  lineHeight: "1.4",
+                  wordBreak: "break-word",
                 }}
               >
                 Verification Code: {verificationCode}
@@ -228,7 +232,7 @@ const CertificateTemplate = ({
       >
         TESDA
         <br />
-        Supported
+        Accredited
       </div>
     </div>
   );

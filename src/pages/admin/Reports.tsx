@@ -849,7 +849,7 @@ const Reports = () => {
                           <tbody>
                             {certificateReports.map((report) => (
                               <tr key={report.certificateId} className="border-t">
-                                <td className="p-3 text-sm font-mono text-xs">
+                                <td className="p-3 font-mono text-xs">
                                   {report.certificateNumber}
                                 </td>
                                 <td className="p-3 text-sm">{report.userName}</td>
