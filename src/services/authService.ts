@@ -8,9 +8,9 @@ const USERS_STORAGE_KEY = "peso_academy_users";
 const DEFAULT_USERS: User[] = [
   {
     id: "1",
-    email: "jobseeker@peso.academy",
+    email: "trainee@peso.academy",
     name: "Juan Dela Cruz",
-    role: "jobseeker",
+    role: "trainee",
     phone: "+63 912 345 6789",
     address: "Manila, Philippines",
     skills: ["Basic Computer Skills", "Communication"],
@@ -34,9 +34,9 @@ const DEFAULT_USERS: User[] = [
   },
   {
     id: "4",
-    email: "employer@peso.academy",
-    name: "ABC Company",
-    role: "employer",
+    email: "trainee2@peso.academy",
+    name: "Trainee User",
+    role: "trainee",
     phone: "+63 912 345 6786",
     createdAt: new Date().toISOString(),
   },
@@ -44,10 +44,10 @@ const DEFAULT_USERS: User[] = [
 
 // Default passwords (email prefix before @)
 const DEFAULT_PASSWORDS: Record<string, string> = {
-  "jobseeker@peso.academy": "password123",
+  "trainee@peso.academy": "password123",
   "admin@peso.academy": "admin123",
   "trainer@peso.academy": "trainer123",
-  "employer@peso.academy": "employer123",
+  "trainee2@peso.academy": "trainee2123",
 };
 
 // Initialize users in localStorage if not exists

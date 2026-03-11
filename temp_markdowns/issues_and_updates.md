@@ -13,18 +13,203 @@ User credentials:
 
 ### Admin
 
-### Registration &
-- [ ] Make the login and register UI the same as the one in the photo
-- [ ] Remove "I am a" and the note below it. All users who register will be registered as trainee, and the admin can change their role later on.
- 
-### Trainer & Admin
-- [ ] Course preview results in course not found. This is for creating a course, naturally the course hasn't been made yet, but we should still be able to preview the course as the trainer/admin while creating it. The course preview should be the same as the trainee's course preview.
+### Registration
+- [ ] Registered account goes to Auth but not in the users table. This causes issues for admin when trying to manage users and for trainers when trying to assign courses to users.
+
+### Trainer & Admin & Course Creation
+- [ ] Assessment score should be the quiz block score and not a separate field that the trainer has to fill in. This is to avoid discrepancies and extra work for the trainer. The quiz block score should be automatically calculated based on the questions and answers in the quiz block. Assessment is the quizzes in each modules. Create an implementation plan so we can address this problem.
+	- Root cause
+		- The platform currently has two parallel quiz systems: module `quiz` content blocks inside module content, and a separate assessment builder backed by `assessments` and `assessment_questions`.
+		- Learners are graded from the separate assessment tables, while quiz blocks are only rendered inline inside module content. This creates duplicate authoring work and allows module quiz content and recorded assessment scores to drift apart.
+	- Target decision
+		- Make module quiz blocks the single source of truth for module assessments.
+		- Keep `assessment_attempts` as the scored learner-attempt record so existing reporting, dashboards, and recommendation features continue to work.
+		- Replace manual question entry in the assessment editor with an auto-generated assessment derived from quiz blocks in the module content.
+	- Phase 1: define the canonical model
+		- [x] Extend the quiz block schema so each quiz block can fully represent a graded assessment question. Added shared quiz block fields for `points`, `questionType`, `sourceQuestionKey`, and `isGradable` in a shared content-block utility.
+		- Decide the supported grading scope for v1. Recommended: auto-grade only `multiple_choice` and `true_false`, and either block `short_answer`/`essay` from module quiz assessments or clearly mark them as not counted until manual grading is designed.
+		- [x] Keep `passingScore` as the pass/fail threshold, but stop treating question creation as a separate assessment-authoring workflow.
+		- [x] Add a shared parser/normalizer so legacy module content with older quiz blocks is normalized into the canonical quiz-block shape before editor, preview, and viewer rendering.
+		- Phase 1 implementation status on March 12, 2026
+			- Added `src/lib/contentBlocks.ts` as the shared content-block model and parser.
+			- Reused the shared parser in trainer module editing, trainer module management, module preview, learner module viewer, and trainer module list block counting.
+			- Added canonical quiz block defaults for newly created quiz blocks so new content starts with `points`, `questionType`, `sourceQuestionKey`, and `isGradable`.
+			- Updated the quiz block editor UI to expose `questionType` and `points` so newly authored content follows the canonical model immediately.
+			- Validation result: editor diagnostics were clean after the change, and a clean-shell `npm run build` completed without reported errors. Existing chunk-size warning remains.
+	- Phase 2: authoring UX changes for admin and trainer
+		- [x] Update the module editor and module management dialog so quiz blocks include all grading fields needed for assessment use.
+		- [x] Remove or heavily simplify the separate assessment question editor. The assessment panel now acts as assessment metadata plus a read-only derived quiz summary.
+		- [x] Add validation before save/publish: a graded module assessment must have at least one valid quiz block, each quiz block must have at least two options for multiple choice, one correct answer, and a positive point value.
+		- [x] Show a computed assessment summary in the editor such as total questions, total points, auto-calculated score basis, and which blocks are counted.
+		- Phase 2 implementation status on March 12, 2026
+			- Added shared validation and summary helpers in `src/lib/contentBlocks.ts` for gradable quiz blocks.
+			- Added `src/components/course/DerivedAssessmentSummary.tsx` and reused it in both trainer authoring surfaces.
+			- Updated `src/pages/trainer/ModuleEditorPage.tsx` so the assessment panel is metadata-only and blocks invalid assessment saves or invalid finalize flows when an assessment already exists.
+			- Updated `src/components/course/ModuleManagementDialog.tsx` so the assessment tab no longer acts as a separate question bank editor.
+			- Validation result: editor diagnostics were clean after the change, and a clean-shell `npm run build` completed without reported errors.
+	- Phase 3: derived assessment sync layer
+		- [x] On module save, parse the saved content blocks and derive the module assessment payload automatically.
+		- [x] Create or update the module's `assessments` row from module quiz metadata instead of manual question form entry.
+		- [x] Create, update, reorder, or deactivate `assessment_questions` rows from the quiz blocks so the learner assessment runtime can keep using the existing tables and attempt flow.
+		- [x] Add a stable mapping between quiz blocks and `assessment_questions` rows to avoid duplicating questions on every edit.
+		- Phase 3 implementation status on March 12, 2026
+			- Added `supabase/migrations/052_add_derived_assessment_question_mapping.sql` to store stable derived-assessment mapping fields on `assessments` and `assessment_questions`.
+			- Extended `src/services/assessmentService.ts` with row mappers plus `syncDerivedAssessmentFromQuizBlocks(...)`, which derives assessment metadata from module quiz blocks and performs deterministic create, update, reorder, and soft-deactivate behavior for questions.
+			- Updated both trainer save surfaces so module saves and assessment metadata saves now run the derived sync flow automatically from the current quiz blocks.
+			- Validation result: editor diagnostics were clean after the change, and a clean-shell `npm run build` completed without reported errors. Existing chunk-size warning remains.
+	- Phase 4: learner runtime and scoring
+		- [x] Keep the learner-facing assessment runner backed by `assessmentService`, but ensure it loads questions generated from module quiz blocks.
+		- [x] Continue calculating score automatically from correct answers and points in `submitAttempt`, since this already computes percentage scores from question totals.
+		- [x] Decide whether inline content-block quizzes in the module content tab remain as practice-only items or become read-only previews of the same graded questions. Chosen behavior: gradable quiz blocks render as read-only assessment previews and the recorded attempt stays in the assessment flow.
+		- Phase 4 implementation status on March 12, 2026
+			- Updated `src/components/course/ModuleContentViewer.tsx` so the learner Activities tab now appears from the actual module assessment record instead of only from material URL heuristics.
+			- Updated graded quiz blocks in the learner content tab to render as read-only previews with a direct action into the assessment flow, removing the duplicate answer path for the same scored question.
+			- Kept non-gradable inline quiz behavior unchanged, so practice-only quiz content can still stay in the content tab when authors intentionally mark it as non-gradable.
+			- Validation result: editor diagnostics were clean after the change, and a clean-shell `npm run build` completed without reported errors. Existing chunk-size warning remains.
+	- Phase 5: migration and backward compatibility
+		- [x] Audit existing modules for three states: quiz blocks only, assessment tables only, and both present with mismatched questions.
+		- [x] Write a one-time migration script that backfills `assessment_questions` from module quiz blocks for modules that already use quiz blocks.
+		- [x] For modules that only have assessment-table questions, either convert them into module quiz blocks automatically or flag them for manual cleanup in an admin report. Current implementation flags them for manual cleanup in the generated report.
+		- [x] Add a mismatch report so staff can detect modules where content quiz blocks and assessment records diverge before the old manual editor is removed.
+		- Phase 5 implementation status on March 12, 2026
+			- Added `scripts/audit-derived-assessments.ts` with two modes: audit-only classification/reporting and optional `--apply-backfill` for safe `quiz_blocks_only` modules.
+			- Added package commands `npm run audit:derived-assessments` and `npm run backfill:derived-assessments`, plus script documentation in `scripts/README.md`.
+			- The audit script classifies modules into `quiz_blocks_only`, `assessment_tables_only`, `both_in_sync`, `both_mismatched`, and `no_assessment_source`, then writes a markdown cleanup report under `temp_markdowns/`.
+			- The backfill path intentionally updates only safe quiz-block-derived modules and leaves legacy assessment-table-only or mismatched modules untouched for manual review.
+			- While implementing the audit, fixed `src/services/assessmentService.ts` so derived assessments store and compare the actual correct option text instead of a quiz-block index, while still accepting older numeric-index rows during grading.
+			- Validation result: editor diagnostics were clean, the new script compiled and started successfully, and a clean-shell `npm run build` completed without reported errors. Live audit/backfill execution still requires `SUPABASE_URL` or `VITE_SUPABASE_URL` plus `SUPABASE_SERVICE_ROLE_KEY` in the shell.
+	- Phase 6: reporting and analytics protection
+		- Verify that dashboards, learner profile summaries, trainer analytics, admin reports, and assessment-only recommendations still read from `assessment_attempts` unchanged.
+		- Regression-test score aggregation because reporting currently relies on `assessment_attempts.score`, not module content directly.
+		- Preserve analytics events such as `assessment_submit`; only the question source changes, not the attempt event contract.
+	- Phase 7: rollout order
+		- Step 1: add quiz block grading fields and editor validation.
+		- Step 2: build the derivation/sync utility from module quiz blocks to `assessments` plus `assessment_questions`.
+		- Step 3: switch trainer/admin UI from manual assessment-question editing to derived assessment summaries.
+		- Step 4: run migration and mismatch audit on existing module data.
+		- Step 5: remove deprecated manual question-entry paths after verification.
+	- Verification checklist
+		- Creating a module with quiz blocks should automatically create or update the linked assessment and questions with no duplicate trainer input.
+		- Editing quiz text, options, answers, order, or points should update the derived assessment questions deterministically.
+		- Submitting a learner assessment should still write the same `assessment_attempts` and `assessment_answers` records and produce the expected percentage score.
+		- Trainer/admin reports and learner dashboard metrics should remain consistent before and after the change.
+	- Key implementation files to touch
+		- `src/components/course/ContentBlock.tsx`
+		- `src/pages/trainer/ModuleEditorPage.tsx`
+		- `src/components/course/ModuleManagementDialog.tsx`
+		- `src/components/course/ModuleContentViewer.tsx`
+		- `src/services/assessmentService.ts`
+		- related Supabase migration files for any new mapping fields or constraints
+	- Engineering checklist
+		- Workstream A: canonical quiz-block assessment model
+			- [ ] Add grading fields to the `ContentBlock` quiz schema: `points`, `questionType`, `sourceQuestionKey`, and `isGradable`.
+			- [ ] Define normalization rules for legacy quiz blocks that only have `options` and numeric `correctAnswer`.
+			- [ ] Add a shared parser/normalizer utility for module quiz blocks so editor, sync, and learner runtime all read the same structure.
+			- Estimated file changes
+				- `src/components/course/ContentBlock.tsx`
+				- new shared utility under `src/lib/` or `src/services/`
+				- `src/components/course/ModulePreview.tsx`
+			- Estimate
+				- 2 to 4 frontend files
+				- 0 to 1 migration if question mapping is stored in JSON only
+		- Workstream B: trainer and admin authoring UX
+			- [x] Update quiz block editor UI to expose points and supported question type.
+			- [x] Add editor validation for missing options, missing correct answer, invalid points, and unsupported question types.
+			- [x] Replace manual assessment question entry with a derived summary panel showing counted quiz blocks, total questions, total points, and pass threshold.
+			- [x] Keep assessment settings limited to metadata such as title, description, passing score, max attempts, active state, and taxonomy tags.
+			- Estimated file changes
+				- `src/components/course/ContentBlock.tsx`
+				- `src/pages/trainer/ModuleEditorPage.tsx`
+				- `src/components/course/ModuleManagementDialog.tsx`
+			- Estimate
+				- 3 to 5 frontend files
+				- no DB migration by itself
+		- Workstream C: derived assessment sync service
+			- [x] Create a sync function that converts module quiz blocks into an `assessments` record plus ordered `assessment_questions` rows.
+			- [x] Run the sync whenever a module is created or updated and content blocks are saved.
+			- [x] Ensure sync handles create, update, reorder, and delete without duplicating question rows.
+			- [x] Add idempotency rules so repeated saves produce the same derived assessment state.
+			- Estimated file changes
+				- `src/services/assessmentService.ts`
+				- `src/pages/trainer/ModuleEditorPage.tsx`
+				- `src/components/course/ModuleManagementDialog.tsx`
+				- new sync helper file if kept separate
+			- Estimate
+				- 3 to 6 application files
+				- 1 migration strongly recommended for persistent source mapping
+		- Workstream D: learner assessment runtime
+			- [x] Make sure `AssessmentInterface` continues to load the derived questions with no learner-facing schema break.
+			- [x] Decide and implement one learner experience: either hide inline module quiz answering when a graded assessment exists, or render inline quizzes as non-graded previews only.
+			- [x] Prevent duplicate answering paths for the same graded question.
+			- Estimated file changes
+				- `src/components/course/AssessmentInterface.tsx`
+				- `src/components/course/ModuleContentViewer.tsx`
+			- Estimate
+				- 2 to 3 frontend files
+				- no DB migration expected
+		- Workstream E: migration and audit
+			- [x] Build a one-time audit script to classify modules into `quiz_blocks_only`, `assessment_tables_only`, `both_in_sync`, and `both_mismatched`.
+			- [x] Backfill `assessment_questions` from quiz blocks for `quiz_blocks_only` modules.
+			- [x] For `assessment_tables_only`, either auto-convert DB questions into quiz blocks or emit a staff cleanup report before rollout.
+			- [x] Add a temporary admin or script-based mismatch report for cleanup verification.
+			- Estimated file changes
+				- new script under `scripts/`
+				- at least one new Supabase migration or SQL helper
+			- Estimate
+				- 1 to 3 scripts
+				- 1 to 2 SQL files or migrations
+		- Workstream F: regression protection
+			- [ ] Verify reporting still uses `assessment_attempts.score` and does not require downstream aggregation rewrites.
+			- [ ] Regression test trainer analytics, admin reports, learner profile, dashboard score summaries, and assessment-only recommendations.
+			- [ ] Verify analytics events and notifications still fire on submission and grading.
+			- Estimated file changes
+				- mostly tests or targeted smoke-check scripts
+				- possible small adjustments in `src/services/reportingService.ts`
+			- Estimate
+				- 1 to 4 files depending on how much automated coverage is added
+	- Suggested implementation sequence
+		- Sprint task 1: define the shared quiz block schema and normalizer.
+		- Sprint task 2: update trainer/admin authoring UI and validation.
+		- Sprint task 3: implement the derived assessment sync service.
+		- Sprint task 4: adjust learner runtime so there is only one graded answering path.
+		- Sprint task 5: run migration and mismatch audit on existing content.
+		- Sprint task 6: regression test reporting, analytics, and notifications.
+	- Supabase migration steps
+		- Migration 1: add persistent source mapping
+			- Add `source_question_key text` to `assessment_questions`.
+			- Add a uniqueness constraint on `(assessment_id, source_question_key)` so sync can upsert deterministically.
+			- Optional: add `derived_from_module_quiz boolean not null default false` to `assessments` so derived records are distinguishable from legacy/manual records.
+		- Migration 2: backfill derived mappings
+			- Populate `source_question_key` for existing `assessment_questions` where possible.
+			- Mark existing assessment rows as derived or legacy depending on audit classification.
+		- Migration 3: cleanup guardrails
+			- Add comments or constraints documenting that derived module assessments should not be manually edited outside the sync flow.
+			- If needed, add an index on `assessment_questions(assessment_id, order)` and `assessment_questions(assessment_id, source_question_key)` for sync performance.
+	- Concrete DB rollout notes
+		- Run the schema migration first.
+		- Deploy application code that can read both pre-migration and post-migration question rows.
+		- Run `npm run audit:derived-assessments` in a shell that has `SUPABASE_URL` or `VITE_SUPABASE_URL` plus `SUPABASE_SERVICE_ROLE_KEY`, then export the mismatch report.
+		- Run `npm run backfill:derived-assessments` for the safe `quiz_blocks_only` modules after reviewing the audit output.
+		- Enable the new derived sync path for trainer/admin saves.
+		- Remove deprecated manual-question editing only after mismatches are cleaned up.
+	- Practical file estimate by phase
+		- Phase 1 to 2: about 4 to 6 frontend files.
+		- Phase 3: about 3 to 5 service and page files plus 1 migration.
+		- Phase 4: about 2 frontend files.
+		- Phase 5: 1 to 3 scripts plus 1 to 2 SQL migrations.
+		- Phase 6: 0 to 4 files depending on whether automated tests are added.
+	- Definition of done
+		- Trainers and admins only define quiz content once, inside module quiz blocks.
+		- Saving module quiz blocks deterministically updates the linked assessment question set.
+		- Learner submission score is still auto-calculated from question points and correct answers.
+		- Existing score-based dashboards, reports, and recommendation features continue to work without schema-specific UI regressions.
+		- Legacy modules are either migrated or explicitly flagged for cleanup.
 
 ### Trainer
-
+- [ ] Viewing progress modal should be vertically scrollable
 
 ### Trainee
-- [ ] Remove course recommendation in dashboard, also course recommendation should show the course thumbnail
+- [ ] Certificate is available even though the trainee has not completed the course yet.
 
 ### Courses Module
 - [ ] Learners Enrolled shows 0 even though there are learners enrolled in the course

@@ -119,11 +119,16 @@ const CourseDetail = () => {
             id: previewData.id || id,
             title: previewData.title || "Course Preview",
             description: previewData.description || "",
-            category: previewData.category || "Other",
+            category: previewData.category || "Digital Skills",
             level: previewData.level || "Beginner",
             duration: previewData.duration || 0,
             instructor: previewData.instructor || "",
             instructorId: previewData.instructorId || "",
+            assignedTrainer: previewData.assignedTrainer || {
+              id: previewData.instructorId || null,
+              displayName: previewData.instructor || "PESO Training Team",
+              roleLabel: "Trainer",
+            },
             thumbnail: previewData.thumbnail,
             courseDocument: previewData.courseDocument,
             isTESDAAccredited: previewData.isTESDAAccredited || false,
@@ -348,6 +353,9 @@ const CourseDetail = () => {
     );
   }
 
+  const assignedTrainerName = course.assignedTrainer?.displayName || course.instructor || "PESO Training Team";
+  const assignedTrainerRoleLabel = course.assignedTrainer?.roleLabel || "Trainer";
+
   // Course description view: not enrolled (guest or logged-in)
   if (!enrollment) {
     const signupUrl = `/signup?redirect=${encodeURIComponent(`/courses/${id}`)}`;
@@ -388,6 +396,10 @@ const CourseDetail = () => {
                 <span className="flex items-center gap-1 text-sm text-muted-foreground">
                   <Users className="w-4 h-4" />
                   {course.enrolledCount ?? 0} enrolled
+                </span>
+                <span className="flex items-center gap-1 text-sm text-muted-foreground">
+                  <Users className="w-4 h-4" />
+                  Assigned {assignedTrainerRoleLabel.toLowerCase()}: {assignedTrainerName}
                 </span>
               </div>
             </CardHeader>
@@ -517,6 +529,10 @@ const CourseDetail = () => {
             <div className="flex items-center gap-1 text-sm text-muted-foreground">
               <Users className="w-4 h-4" />
               {course.enrolledCount} enrolled
+            </div>
+            <div className="flex items-center gap-1 text-sm text-muted-foreground">
+              <Users className="w-4 h-4" />
+              Assigned {assignedTrainerRoleLabel.toLowerCase()}: {assignedTrainerName}
             </div>
             <div className="flex items-center gap-1 text-sm text-muted-foreground">
               <Star className="w-4 h-4 fill-yellow-400 text-yellow-400" />

@@ -83,6 +83,33 @@ npm run seed:courses
 - `SUPABASE_URL` or `VITE_SUPABASE_URL`
 - `SUPABASE_SERVICE_ROLE_KEY`
 
+### `audit-derived-assessments.ts`
+
+Audits module quiz blocks against `assessments` and `assessment_questions`, then optionally backfills safe `quiz_blocks_only` modules.
+
+**Usage:**
+
+```bash
+# Audit only and write a markdown report under temp_markdowns/
+npm run audit:derived-assessments
+
+# Audit and backfill modules that only have valid gradable quiz blocks
+npm run backfill:derived-assessments
+
+# Optional custom report path
+npx tsx scripts/audit-derived-assessments.ts --report temp_markdowns/custom-derived-audit.md
+```
+
+**What it does:**
+- Classifies modules into `quiz_blocks_only`, `assessment_tables_only`, `both_in_sync`, `both_mismatched`, or `no_assessment_source`
+- Writes a cleanup-oriented markdown report for legacy and mismatched modules
+- Backfills derived assessment rows/questions only for safe `quiz_blocks_only` modules when `--apply-backfill` is used
+- Leaves `assessment_tables_only` and mismatched modules untouched so staff can review them before cleanup
+
+**Environment Variables Required:**
+- `SUPABASE_URL` or `VITE_SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+
 ## Security Notes
 
 ⚠️ **Never commit your service role key to version control!**

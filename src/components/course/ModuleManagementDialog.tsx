@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   DndContext,
   closestCenter,
@@ -40,18 +40,22 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { X, Plus, GripVertical, Edit, Trash2, Copy, MoreVertical, BookOpen, Eye, FileText, FileQuestion, Clock, Target, CheckCircle2 } from "lucide-react";
+import { X, Plus, GripVertical, Edit, Trash2, Copy, MoreVertical, BookOpen, Eye, FileText, FileQuestion } from "lucide-react";
 import { Module, Course } from "@/types";
 import { moduleService } from "@/services/supabaseDatabaseService";
-import { assessmentService, Assessment, AssessmentQuestion } from "@/services/assessmentService";
+import { assessmentService, Assessment } from "@/services/assessmentService";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { RichTextEditor } from "./RichTextEditor";
 import { ContentBlockComponent, ContentBlock, ContentBlockType } from "./ContentBlock";
+import { DerivedAssessmentSummary } from "./DerivedAssessmentSummary";
 import { ModulePreview } from "./ModulePreview";
+import { TaxonomyTagField } from "./TaxonomyTagField";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { createDefaultContentBlock, getQuizAssessmentSummary, parseModuleContentBlocks } from "@/lib/contentBlocks";
+import { getAllowedSkillTagsForCategory, getAllowedTopicTagsForCategory } from "@/lib/taxonomy";
 
 interface ModuleManagementDialogProps {
   open: boolean;
@@ -201,6 +205,8 @@ export const ModuleManagementDialog = ({
     content: "",
     materials: [] as string[],
     prerequisites: [] as string[],
+    skillTags: [] as string[],
+    topicTags: [] as string[],
   });
   const [contentBlocks, setContentBlocks] = useState<ContentBlock[]>([]);
   const [useRichEditor, setUseRichEditor] = useState(true);
@@ -212,7 +218,6 @@ export const ModuleManagementDialog = ({
   
   // Assessment management state
   const [currentAssessment, setCurrentAssessment] = useState<Assessment | null>(null);
-  const [assessmentQuestions, setAssessmentQuestions] = useState<AssessmentQuestion[]>([]);
   const [loadingAssessment, setLoadingAssessment] = useState(false);
   const [assessmentFormData, setAssessmentFormData] = useState({
     title: "",
@@ -221,16 +226,12 @@ export const ModuleManagementDialog = ({
     passingScore: 70,
     maxAttempts: 3,
     isActive: true,
+    skillTags: [] as string[],
+    topicTags: [] as string[],
   });
-  const [editingQuestion, setEditingQuestion] = useState<AssessmentQuestion | null>(null);
-  const [questionFormData, setQuestionFormData] = useState({
-    question: "",
-    questionType: "multiple_choice" as "multiple_choice" | "true_false" | "short_answer" | "essay",
-    options: [""] as string[],
-    correctAnswer: "",
-    points: 1,
-    explanation: "",
-  });
+  const allowedSkillOptions = getAllowedSkillTagsForCategory(course.category);
+  const allowedTopicOptions = getAllowedTopicTagsForCategory(course.category);
+  const derivedAssessmentSummary = useMemo(() => getQuizAssessmentSummary(contentBlocks), [contentBlocks]);
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -265,6 +266,8 @@ export const ModuleManagementDialog = ({
       content: "",
       materials: [],
       prerequisites: [],
+      skillTags: [],
+      topicTags: [],
     });
     setContentBlocks([]);
     setEditingModule(null);
@@ -274,7 +277,6 @@ export const ModuleManagementDialog = ({
     setUseContentBlocks(false);
     setActiveTab("edit");
     setCurrentAssessment(null);
-    setAssessmentQuestions([]);
     setAssessmentFormData({
       title: "",
       description: "",
@@ -282,15 +284,8 @@ export const ModuleManagementDialog = ({
       passingScore: 70,
       maxAttempts: 3,
       isActive: true,
-    });
-    setEditingQuestion(null);
-    setQuestionFormData({
-      question: "",
-      questionType: "multiple_choice",
-      options: [""],
-      correctAnswer: "",
-      points: 1,
-      explanation: "",
+      skillTags: [],
+      topicTags: [],
     });
   };
 
@@ -307,21 +302,17 @@ export const ModuleManagementDialog = ({
       content: module.content || "",
       materials: module.materials || [],
       prerequisites: module.prerequisites || [],
+      skillTags: module.skillTags || [],
+      topicTags: module.topicTags || [],
     });
     
     // Try to parse content blocks
-    try {
-      const parsed = JSON.parse(module.content || "[]");
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        setContentBlocks(parsed);
-        setUseContentBlocks(true);
-        setUseRichEditor(false);
-      } else {
-        setContentBlocks([]);
-        setUseContentBlocks(false);
-        setUseRichEditor(true);
-      }
-    } catch {
+    const parsedBlocks = parseModuleContentBlocks(module.content);
+    if (parsedBlocks.length > 0) {
+      setContentBlocks(parsedBlocks);
+      setUseContentBlocks(true);
+      setUseRichEditor(false);
+    } else {
       setContentBlocks([]);
       setUseContentBlocks(false);
       setUseRichEditor(true);
@@ -346,12 +337,11 @@ export const ModuleManagementDialog = ({
           passingScore: assessment.passingScore,
           maxAttempts: assessment.maxAttempts,
           isActive: assessment.isActive,
+          skillTags: assessment.skillTags || [],
+          topicTags: assessment.topicTags || [],
         });
-        const questions = await assessmentService.getAssessmentQuestions(assessment.id);
-        setAssessmentQuestions(questions);
       } else {
         setCurrentAssessment(null);
-        setAssessmentQuestions([]);
       }
     } catch (error) {
       console.error("Error loading assessment:", error);
@@ -371,6 +361,8 @@ export const ModuleManagementDialog = ({
         content: module.content || undefined,
         materials: module.materials,
         prerequisites: module.prerequisites,
+        skillTags: module.skillTags || [],
+        topicTags: module.topicTags || [],
         order: modules.length + 1,
       });
       toast.success("Module duplicated successfully");
@@ -387,6 +379,10 @@ export const ModuleManagementDialog = ({
   const handleSaveModule = async () => {
     if (!formData.title || !formData.description) {
       toast.error("Please fill in title and description");
+      return;
+    }
+    if (formData.skillTags.length === 0 || formData.topicTags.length === 0) {
+      toast.error("Please add at least one approved skill tag and one approved topic tag");
       return;
     }
 
@@ -406,18 +402,46 @@ export const ModuleManagementDialog = ({
           content: finalContent || undefined,
           materials: formData.materials,
           prerequisites: formData.prerequisites,
+          skillTags: formData.skillTags,
+          topicTags: formData.topicTags,
         });
+        if (derivedAssessmentSummary.readyForAssessment) {
+          await assessmentService.syncDerivedAssessmentFromQuizBlocks(
+            editingModule.id,
+            formData.title,
+            contentBlocks,
+            {
+              ...assessmentFormData,
+              skillTags: assessmentFormData.skillTags.length > 0 ? assessmentFormData.skillTags : formData.skillTags,
+              topicTags: assessmentFormData.topicTags.length > 0 ? assessmentFormData.topicTags : formData.topicTags,
+            },
+          );
+        }
         toast.success("Module updated successfully");
       } else {
-        await moduleService.createModule({
+        const createdModule = await moduleService.createModule({
           course_id: course.id,
           title: formData.title,
           description: formData.description,
           content: finalContent || undefined,
           materials: formData.materials,
           prerequisites: formData.prerequisites,
+          skillTags: formData.skillTags,
+          topicTags: formData.topicTags,
           order: modules.length + 1,
         });
+        if (derivedAssessmentSummary.readyForAssessment) {
+          await assessmentService.syncDerivedAssessmentFromQuizBlocks(
+            createdModule.id,
+            formData.title,
+            contentBlocks,
+            {
+              ...assessmentFormData,
+              skillTags: assessmentFormData.skillTags.length > 0 ? assessmentFormData.skillTags : formData.skillTags,
+              topicTags: assessmentFormData.topicTags.length > 0 ? assessmentFormData.topicTags : formData.topicTags,
+            },
+          );
+        }
         toast.success("Module created successfully");
       }
       resetForm();
@@ -433,14 +457,7 @@ export const ModuleManagementDialog = ({
   };
 
   const addContentBlock = (type: ContentBlockType) => {
-    const newBlock: ContentBlock = {
-      id: Date.now().toString(),
-      type,
-      content: "",
-      ...(type === "code" && { language: "javascript" }),
-      ...(type === "quiz" && { title: "", options: [""], correctAnswer: 0 }),
-      ...(type === "video" && { videoUrl: "" }),
-    };
+    const newBlock = createDefaultContentBlock(type, Date.now().toString());
     setContentBlocks([...contentBlocks, newBlock]);
     setUseContentBlocks(true);
     setUseRichEditor(false);
@@ -547,17 +564,25 @@ export const ModuleManagementDialog = ({
       toast.error("Please enter an assessment title");
       return;
     }
+    if (assessmentFormData.topicTags.length === 0) {
+      toast.error("Please assign at least one approved topic tag to the assessment");
+      return;
+    }
+    if (!derivedAssessmentSummary.readyForAssessment) {
+      toast.error(derivedAssessmentSummary.invalidIssues[0]?.message || "Add at least one valid quiz block before saving assessment settings.");
+      return;
+    }
 
     setLoading(true);
     try {
-      if (currentAssessment) {
-        await assessmentService.updateAssessment(currentAssessment.id, assessmentFormData);
-        toast.success("Assessment updated successfully");
-      } else {
-        const newAssessment = await assessmentService.createAssessment(editingModule.id, assessmentFormData);
-        setCurrentAssessment(newAssessment);
-        toast.success("Assessment created successfully");
-      }
+      const syncedAssessment = await assessmentService.syncDerivedAssessmentFromQuizBlocks(
+        editingModule.id,
+        formData.title || editingModule.title,
+        contentBlocks,
+        assessmentFormData,
+      );
+      setCurrentAssessment(syncedAssessment);
+      toast.success(currentAssessment ? "Assessment updated successfully" : "Assessment created successfully");
       await loadModuleAssessment(editingModule.id);
     } catch (error) {
       console.error("Error saving assessment:", error);
@@ -575,7 +600,6 @@ export const ModuleManagementDialog = ({
       await assessmentService.deleteAssessment(currentAssessment.id);
       toast.success("Assessment deleted successfully");
       setCurrentAssessment(null);
-      setAssessmentQuestions([]);
       setAssessmentFormData({
         title: "",
         description: "",
@@ -583,6 +607,8 @@ export const ModuleManagementDialog = ({
         passingScore: 70,
         maxAttempts: 3,
         isActive: true,
+        skillTags: [],
+        topicTags: [],
       });
     } catch (error) {
       console.error("Error deleting assessment:", error);
@@ -590,84 +616,6 @@ export const ModuleManagementDialog = ({
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleSaveQuestion = async () => {
-    if (!currentAssessment) {
-      toast.error("Please create an assessment first");
-      return;
-    }
-    if (!questionFormData.question.trim()) {
-      toast.error("Please enter a question");
-      return;
-    }
-
-    setLoading(true);
-    try {
-      if (editingQuestion) {
-        await assessmentService.updateQuestion(editingQuestion.id, {
-          question: questionFormData.question,
-          questionType: questionFormData.questionType,
-          options: questionFormData.questionType === "multiple_choice" ? questionFormData.options : undefined,
-          correctAnswer: questionFormData.correctAnswer || undefined,
-          points: questionFormData.points,
-          explanation: questionFormData.explanation || undefined,
-        });
-        toast.success("Question updated successfully");
-      } else {
-        await assessmentService.createQuestion(currentAssessment.id, {
-          question: questionFormData.question,
-          questionType: questionFormData.questionType,
-          options: questionFormData.questionType === "multiple_choice" ? questionFormData.options : undefined,
-          correctAnswer: questionFormData.correctAnswer || undefined,
-          points: questionFormData.points,
-          order: assessmentQuestions.length,
-          explanation: questionFormData.explanation || undefined,
-        });
-        toast.success("Question added successfully");
-      }
-      await loadModuleAssessment(editingModule!.id);
-      setEditingQuestion(null);
-      setQuestionFormData({
-        question: "",
-        questionType: "multiple_choice",
-        options: [""],
-        correctAnswer: "",
-        points: 1,
-        explanation: "",
-      });
-    } catch (error) {
-      console.error("Error saving question:", error);
-      toast.error("Failed to save question");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleDeleteQuestion = async (questionId: string) => {
-    setLoading(true);
-    try {
-      await assessmentService.deleteQuestion(questionId);
-      toast.success("Question deleted successfully");
-      await loadModuleAssessment(editingModule!.id);
-    } catch (error) {
-      console.error("Error deleting question:", error);
-      toast.error("Failed to delete question");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleEditQuestion = (question: AssessmentQuestion) => {
-    setEditingQuestion(question);
-    setQuestionFormData({
-      question: question.question,
-      questionType: question.questionType,
-      options: question.options || [""],
-      correctAnswer: question.correctAnswer || "",
-      points: question.points,
-      explanation: question.explanation || "",
-    });
   };
 
   return (
@@ -793,6 +741,24 @@ export const ModuleManagementDialog = ({
                         rows={3}
                       />
                     </div>
+
+                    <TaxonomyTagField
+                      label="Module Skill Tags"
+                      options={allowedSkillOptions}
+                      values={formData.skillTags}
+                      onChange={(skillTags) => setFormData({ ...formData, skillTags })}
+                      placeholder="Select approved skill tags"
+                      description="Use only approved skill tags so module analytics stay consistent across courses."
+                    />
+
+                    <TaxonomyTagField
+                      label="Module Topic Tags"
+                      options={allowedTopicOptions}
+                      values={formData.topicTags}
+                      onChange={(topicTags) => setFormData({ ...formData, topicTags })}
+                      placeholder="Select approved topic tags"
+                      description="Topic-level learner performance depends on these tags, not on free-text titles."
+                    />
 
                     {/* Content Mode Toggle */}
                     <div className="space-y-2">
@@ -1000,6 +966,8 @@ export const ModuleManagementDialog = ({
                           </div>
                         </CardHeader>
                         <CardContent className="space-y-4">
+                          <DerivedAssessmentSummary contentBlocks={contentBlocks} />
+
                           <div className="space-y-2">
                             <Label htmlFor="assessment-title">Assessment Title *</Label>
                             <Input
@@ -1024,6 +992,24 @@ export const ModuleManagementDialog = ({
                               rows={2}
                             />
                           </div>
+
+                          <TaxonomyTagField
+                            label="Assessment Skill Tags"
+                            options={allowedSkillOptions}
+                            values={assessmentFormData.skillTags}
+                            onChange={(skillTags) => setAssessmentFormData({ ...assessmentFormData, skillTags })}
+                            placeholder="Select approved skill tags"
+                            description="Keep assessment skill tags aligned with the approved course taxonomy."
+                          />
+
+                          <TaxonomyTagField
+                            label="Assessment Topic Tags"
+                            options={allowedTopicOptions}
+                            values={assessmentFormData.topicTags}
+                            onChange={(topicTags) => setAssessmentFormData({ ...assessmentFormData, topicTags })}
+                            placeholder="Select approved topic tags"
+                            description="Assessment topic tags are required for stable topic-performance analytics."
+                          />
 
                           <div className="grid grid-cols-2 gap-4">
                             <div className="space-y-2">
@@ -1093,277 +1079,12 @@ export const ModuleManagementDialog = ({
                           <Button onClick={handleSaveAssessment} disabled={loading} className="w-full">
                             {currentAssessment ? "Update Assessment" : "Create Assessment"}
                           </Button>
+
+                          <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+                            Quiz blocks in the Edit tab are now the source of assessment questions. This panel only stores assessment metadata such as passing score, time limit, attempts, active state, and taxonomy tags.
+                          </div>
                         </CardContent>
                       </Card>
-
-                      {/* Questions Section */}
-                      {currentAssessment && (
-                        <Card>
-                          <CardHeader>
-                            <CardTitle className="text-lg">Questions ({assessmentQuestions.length})</CardTitle>
-                          </CardHeader>
-                          <CardContent className="space-y-4">
-                            {/* Question Form */}
-                            <div className="space-y-4 p-4 border rounded-lg bg-muted/30">
-                              <div className="space-y-2">
-                                <Label>Question</Label>
-                                <Textarea
-                                  value={questionFormData.question}
-                                  onChange={(e) =>
-                                    setQuestionFormData({ ...questionFormData, question: e.target.value })
-                                  }
-                                  placeholder="Enter question..."
-                                  rows={2}
-                                />
-                              </div>
-
-                              <div className="grid grid-cols-2 gap-4">
-                                <div className="space-y-2">
-                                  <Label>Question Type</Label>
-                                  <Select
-                                    value={questionFormData.questionType}
-                                    onValueChange={(value: any) => {
-                                      setQuestionFormData({
-                                        ...questionFormData,
-                                        questionType: value,
-                                        options: value === "multiple_choice" ? [""] : [],
-                                        correctAnswer: "",
-                                      });
-                                    }}
-                                  >
-                                    <SelectTrigger>
-                                      <SelectValue />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      <SelectItem value="multiple_choice">Multiple Choice</SelectItem>
-                                      <SelectItem value="true_false">True/False</SelectItem>
-                                      <SelectItem value="short_answer">Short Answer</SelectItem>
-                                      <SelectItem value="essay">Essay</SelectItem>
-                                    </SelectContent>
-                                  </Select>
-                                </div>
-
-                                <div className="space-y-2">
-                                  <Label>Points</Label>
-                                  <Input
-                                    type="number"
-                                    min="1"
-                                    value={questionFormData.points}
-                                    onChange={(e) =>
-                                      setQuestionFormData({
-                                        ...questionFormData,
-                                        points: parseInt(e.target.value) || 1,
-                                      })
-                                    }
-                                  />
-                                </div>
-                              </div>
-
-                              {/* Multiple Choice Options */}
-                              {questionFormData.questionType === "multiple_choice" && (
-                                <div className="space-y-2">
-                                  <Label>Options</Label>
-                                  {questionFormData.options.map((option, idx) => (
-                                    <div key={idx} className="flex gap-2">
-                                      <Input
-                                        value={option}
-                                        onChange={(e) => {
-                                          const newOptions = [...questionFormData.options];
-                                          newOptions[idx] = e.target.value;
-                                          setQuestionFormData({ ...questionFormData, options: newOptions });
-                                        }}
-                                        placeholder={`Option ${idx + 1}`}
-                                      />
-                                      <Button
-                                        type="button"
-                                        variant="ghost"
-                                        size="sm"
-                                        onClick={() => {
-                                          const newOptions = questionFormData.options.filter((_, i) => i !== idx);
-                                          setQuestionFormData({ ...questionFormData, options: newOptions });
-                                        }}
-                                      >
-                                        <X className="w-4 h-4" />
-                                      </Button>
-                                    </div>
-                                  ))}
-                                  <Button
-                                    type="button"
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => {
-                                      setQuestionFormData({
-                                        ...questionFormData,
-                                        options: [...questionFormData.options, ""],
-                                      });
-                                    }}
-                                  >
-                                    <Plus className="w-4 h-4 mr-1" />
-                                    Add Option
-                                  </Button>
-
-                                  <div className="space-y-2">
-                                    <Label>Correct Answer</Label>
-                                    <Select
-                                      value={questionFormData.correctAnswer}
-                                      onValueChange={(value) =>
-                                        setQuestionFormData({ ...questionFormData, correctAnswer: value })
-                                      }
-                                    >
-                                      <SelectTrigger>
-                                        <SelectValue placeholder="Select correct answer" />
-                                      </SelectTrigger>
-                                      <SelectContent>
-                                        {questionFormData.options.map((_, idx) => (
-                                          <SelectItem key={idx} value={idx.toString()}>
-                                            Option {idx + 1}
-                                          </SelectItem>
-                                        ))}
-                                      </SelectContent>
-                                    </Select>
-                                  </div>
-                                </div>
-                              )}
-
-                              {/* True/False Options */}
-                              {questionFormData.questionType === "true_false" && (
-                                <div className="space-y-2">
-                                  <Label>Correct Answer</Label>
-                                  <Select
-                                    value={questionFormData.correctAnswer}
-                                    onValueChange={(value) =>
-                                      setQuestionFormData({ ...questionFormData, correctAnswer: value })
-                                    }
-                                  >
-                                    <SelectTrigger>
-                                      <SelectValue placeholder="Select correct answer" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                      <SelectItem value="true">True</SelectItem>
-                                      <SelectItem value="false">False</SelectItem>
-                                    </SelectContent>
-                                  </Select>
-                                </div>
-                              )}
-
-                              {/* Short Answer / Essay */}
-                              {(questionFormData.questionType === "short_answer" ||
-                                questionFormData.questionType === "essay") && (
-                                <div className="space-y-2">
-                                  <Label>Expected Answer (optional, for reference)</Label>
-                                  <Input
-                                    value={questionFormData.correctAnswer}
-                                    onChange={(e) =>
-                                      setQuestionFormData({ ...questionFormData, correctAnswer: e.target.value })
-                                    }
-                                    placeholder="Expected answer (for manual grading)"
-                                  />
-                                </div>
-                              )}
-
-                              <div className="space-y-2">
-                                <Label>Explanation (optional)</Label>
-                                <Textarea
-                                  value={questionFormData.explanation}
-                                  onChange={(e) =>
-                                    setQuestionFormData({ ...questionFormData, explanation: e.target.value })
-                                  }
-                                  placeholder="Explanation shown after answering..."
-                                  rows={2}
-                                />
-                              </div>
-
-                              <div className="flex gap-2">
-                                <Button onClick={handleSaveQuestion} disabled={loading} className="flex-1">
-                                  {editingQuestion ? "Update Question" : "Add Question"}
-                                </Button>
-                                {editingQuestion && (
-                                  <Button
-                                    variant="outline"
-                                    onClick={() => {
-                                      setEditingQuestion(null);
-                                      setQuestionFormData({
-                                        question: "",
-                                        questionType: "multiple_choice",
-                                        options: [""],
-                                        correctAnswer: "",
-                                        points: 1,
-                                        explanation: "",
-                                      });
-                                    }}
-                                  >
-                                    Cancel
-                                  </Button>
-                                )}
-                              </div>
-                            </div>
-
-                            {/* Questions List */}
-                            {assessmentQuestions.length > 0 ? (
-                              <div className="space-y-2">
-                                {assessmentQuestions.map((question, idx) => (
-                                  <Card key={question.id}>
-                                    <CardContent className="p-4">
-                                      <div className="flex items-start justify-between">
-                                        <div className="flex-1">
-                                          <div className="flex items-center gap-2 mb-2">
-                                            <Badge variant="outline">Q{idx + 1}</Badge>
-                                            <Badge variant="secondary">{question.questionType}</Badge>
-                                            <Badge variant="outline">{question.points} pts</Badge>
-                                          </div>
-                                          <p className="font-medium mb-2">{question.question}</p>
-                                          {question.options && question.options.length > 0 && (
-                                            <div className="text-sm text-muted-foreground space-y-1">
-                                              {question.options.map((opt, optIdx) => (
-                                                <div key={optIdx} className="flex items-center gap-2">
-                                                  <span>{optIdx + 1}.</span>
-                                                  <span className={optIdx.toString() === question.correctAnswer ? "font-semibold text-primary" : ""}>
-                                                    {opt}
-                                                  </span>
-                                                  {optIdx.toString() === question.correctAnswer && (
-                                                    <CheckCircle2 className="w-4 h-4 text-primary" />
-                                                  )}
-                                                </div>
-                                              ))}
-                                            </div>
-                                          )}
-                                          {question.explanation && (
-                                            <p className="text-xs text-muted-foreground mt-2">
-                                              <strong>Explanation:</strong> {question.explanation}
-                                            </p>
-                                          )}
-                                        </div>
-                                        <div className="flex gap-1">
-                                          <Button
-                                            variant="ghost"
-                                            size="sm"
-                                            onClick={() => handleEditQuestion(question)}
-                                          >
-                                            <Edit className="w-4 h-4" />
-                                          </Button>
-                                          <Button
-                                            variant="ghost"
-                                            size="sm"
-                                            onClick={() => handleDeleteQuestion(question.id)}
-                                            className="text-destructive"
-                                          >
-                                            <Trash2 className="w-4 h-4" />
-                                          </Button>
-                                        </div>
-                                      </div>
-                                    </CardContent>
-                                  </Card>
-                                ))}
-                              </div>
-                            ) : (
-                              <div className="text-center py-8 text-muted-foreground border rounded-lg">
-                                <FileQuestion className="w-12 h-12 mx-auto mb-2 opacity-50" />
-                                <p>No questions yet. Add questions above.</p>
-                              </div>
-                            )}
-                          </CardContent>
-                        </Card>
-                      )}
                     </TabsContent>
                   )}
                 </Tabs>

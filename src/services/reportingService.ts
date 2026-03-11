@@ -3,11 +3,93 @@ import { format, subDays, subMonths, startOfMonth, endOfMonth, startOfYear, endO
 import type { User } from "@/types/auth";
 import type { Course, Enrollment } from "@/types";
 import { CURATED_STARTER_CATEGORIES } from "@/lib/onboarding";
+import { canonicalizeCourseCategory, canonicalizeTopicTag, deriveTopicTags, normalizeCourseCategories, normalizeSkillTags, normalizeTopicTags } from "@/lib/taxonomy";
 import type { ModuleSessionAggregate } from "@/services/moduleSessionService";
+import { moduleSessionService } from "@/services/moduleSessionService";
 
 if (!supabase) {
   console.warn("Supabase client not initialized. Please set up environment variables.");
 }
+
+const loadTrainerVisibleEnrollments = async (courseIds: string[]) => {
+  if (!supabase || courseIds.length === 0) {
+    return [] as Array<any>;
+  }
+
+  const { data: rpcData, error: rpcError } = await supabase.rpc("get_course_manager_enrollments", {
+    p_course_ids: courseIds,
+    p_user_id: null,
+  });
+
+  if (!rpcError && Array.isArray(rpcData)) {
+    return rpcData as Array<any>;
+  }
+
+  const { data, error } = await supabase
+    .from("enrollments")
+    .select("id, user_id, course_id, progress, status, enrolled_at, completed_at, updated_at")
+    .in("course_id", courseIds)
+    .order("enrolled_at", { ascending: false });
+
+  if (error) {
+    throw error;
+  }
+
+  return data || [];
+};
+
+const loadTrainerVisibleCertificates = async (courseIds: string[]) => {
+  if (!supabase || courseIds.length === 0) {
+    return [] as Array<any>;
+  }
+
+  const { data: rpcData, error: rpcError } = await supabase.rpc("get_course_manager_certificates", {
+    p_course_ids: courseIds,
+    p_user_id: null,
+  });
+
+  if (!rpcError && Array.isArray(rpcData)) {
+    return rpcData as Array<any>;
+  }
+
+  const { data, error } = await supabase
+    .from("certificates")
+    .select("id, course_id, issued_at")
+    .in("course_id", courseIds);
+
+  if (error) {
+    throw error;
+  }
+
+  return data || [];
+};
+
+const loadTrainerVisibleAssessmentAttempts = async (courseIds: string[], enrollmentIds: string[]) => {
+  if (!supabase || courseIds.length === 0 || enrollmentIds.length === 0) {
+    return [] as Array<any>;
+  }
+
+  const { data: rpcData, error: rpcError } = await supabase.rpc("get_course_manager_assessment_attempts", {
+    p_course_ids: courseIds,
+    p_enrollment_ids: enrollmentIds,
+  });
+
+  if (!rpcError && Array.isArray(rpcData)) {
+    return rpcData as Array<any>;
+  }
+
+  const { data, error } = await supabase
+    .from("assessment_attempts")
+    .select("assessment_id, enrollment_id, score, passed, submitted_at")
+    .in("enrollment_id", enrollmentIds)
+    .not("submitted_at", "is", null);
+
+  if (error) {
+    throw error;
+  }
+
+  return data || [];
+};
 
 /**
  * Reporting Service
@@ -79,6 +161,147 @@ export interface EnrollmentReport {
   progress: number;
   status: string;
   timeSpent: number; // in minutes
+}
+
+export interface ModuleContentCompletenessCheck {
+  moduleId: string;
+  moduleTitle: string;
+  status: "draft" | "finalized";
+  hasContentBody: boolean;
+  hasMediaAsset: boolean;
+  hasAssessmentOrActivity: boolean;
+  hasTags: boolean;
+  isPublishReady: boolean;
+  missingItems: string[];
+}
+
+export interface CourseContentCompletenessReport {
+  courseId: string;
+  courseTitle: string;
+  courseCategory: string;
+  published: boolean;
+  hasTrainerOwnership: boolean;
+  totalModules: number;
+  finalizedModules: number;
+  draftModules: number;
+  publishReadyModules: number;
+  modulesWithoutContent: number;
+  modulesWithoutMedia: number;
+  modulesWithoutAssessmentOrActivity: number;
+  modulesWithoutTags: number;
+  completenessRate: number;
+  readyToPublish: boolean;
+  missingSummary: string[];
+  publishReadyChecklist: string[];
+  moduleChecks: ModuleContentCompletenessCheck[];
+}
+
+export interface StaffPerformanceFactorScore {
+  rawScore: number;
+  weightedScore: number;
+  weight: number;
+  explanation: string;
+}
+
+export interface StaffPerformanceInformationalMetrics {
+  managedCourses: number;
+  activeLearners: number;
+  totalEnrollments: number;
+  certificatesIssued: number;
+  averageLearningHoursPerLearner: number;
+  publishReadyCourses: number;
+}
+
+export interface StaffPerformanceScorecard {
+  staffId: string;
+  staffName: string;
+  staffEmail: string;
+  role: "trainer";
+  managedCourseIds: string[];
+  managedCourseTitles: string[];
+  generatedAt: string;
+  compositeScore: number;
+  evaluationBand: "exemplary" | "strong" | "watch" | "intervention";
+  courseOutcomeMetrics: {
+    completionRate: number;
+    averageAssessmentScore: number | null;
+    learnerEngagementRate: number;
+    atRiskRate: number;
+    recommendationConversionRate: number;
+    contentQualityRate: number;
+  };
+  factorScores: {
+    completionRate: StaffPerformanceFactorScore;
+    assessmentQuality: StaffPerformanceFactorScore;
+    learnerEngagement: StaffPerformanceFactorScore;
+    riskManagement: StaffPerformanceFactorScore;
+    recommendationConversion: StaffPerformanceFactorScore;
+    contentQuality: StaffPerformanceFactorScore;
+  };
+  informationalMetrics: StaffPerformanceInformationalMetrics;
+  notes: string[];
+}
+
+export interface LearnerRankingWeights {
+  completion: number;
+  assessment: number;
+  learningTime: number;
+  certificate: number;
+  recency: number;
+}
+
+export interface LearnerRankingFactorScore {
+  rawScore: number;
+  weightedScore: number;
+  weight: number;
+  explanation: string;
+}
+
+export type LearnerLeaderboardScope = "course" | "program";
+
+export interface LearnerLeaderboardEntry {
+  rank: number;
+  entryId: string;
+  learnerId: string;
+  learnerName: string;
+  learnerEmailMasked: string | null;
+  status: Enrollment["status"];
+  progress: number;
+  completedUnits: number;
+  totalUnits: number;
+  unitsLabel: "modules" | "courses";
+  averageAssessmentScore: number | null;
+  assessmentAttempts: number;
+  learningMinutes: number;
+  expectedLearningMinutes: number;
+  certificatesEarned: number;
+  expectedCertificates: number;
+  lastActivityAt: string | null;
+  recencyDays: number | null;
+  compositeScore: number;
+  factorScores: {
+    completion: LearnerRankingFactorScore;
+    assessment: LearnerRankingFactorScore;
+    learningTime: LearnerRankingFactorScore;
+    certificate: LearnerRankingFactorScore;
+    recency: LearnerRankingFactorScore;
+  };
+  scoringExplanation: string[];
+}
+
+export interface LearnerLeaderboard {
+  scope: LearnerLeaderboardScope;
+  scopeId: string;
+  scopeTitle: string;
+  scopeCategory: string;
+  generatedAt: string;
+  includeIncompleteLearners: boolean;
+  excludedStatuses: Enrollment["status"][];
+  privacyMode: "staff_only_masked";
+  weights: LearnerRankingWeights;
+  fairnessNotes: string[];
+  tieBreakerRules: string[];
+  entries: LearnerLeaderboardEntry[];
 }
 
 export interface AdminDashboardTrendPoint {
@@ -324,13 +547,571 @@ export interface LearnerPerformanceSummary {
   recentAssessments: LearnerPerformanceAssessmentRecord[];
   recentModules: LearnerPerformanceModuleRecord[];
 }
+
+export interface AssessmentOnlyRecommendationEvidence {
+  scoredAssessments: number;
+  scoreBand: "support" | "developing" | "proficient" | "advanced";
+  strongestTopic: LearnerPerformanceTopicResult | null;
+  weakestTopic: LearnerPerformanceTopicResult | null;
+  failedCompetencies: LearnerPerformanceTopicResult[];
+  assessedTopics: string[];
+}
+
 const SHORT_SESSION_SECONDS = 5 * 60;
+const LEARNER_RANKING_WEIGHTS: LearnerRankingWeights = {
+  completion: 35,
+  assessment: 30,
+  learningTime: 15,
+  certificate: 10,
+  recency: 10,
+};
+const LEADERBOARD_EXCLUDED_STATUSES: Enrollment["status"][] = ["dropped"];
+const LEADERBOARD_TIEBREAKER_RULES = [
+  "Higher completion score wins first.",
+  "Then higher assessment score wins.",
+  "Then the most recent activity wins.",
+  "Then earlier enrollment date wins for stable ordering.",
+  "Then learner name is used alphabetically.",
+] as const;
+
+const clampPercentage = (value: number) => Math.max(0, Math.min(100, Number.isFinite(value) ? value : 0));
+
+const toRoundedTenth = (value: number) => Number(value.toFixed(1));
+
+const buildWeightedFactorScore = (
+  rawScore: number,
+  weight: number,
+  explanation: string,
+): LearnerRankingFactorScore => ({
+  rawScore: toRoundedTenth(clampPercentage(rawScore)),
+  weightedScore: toRoundedTenth((clampPercentage(rawScore) * weight) / 100),
+  weight,
+  explanation,
+});
+
+const maskEmailAddress = (email: string | null | undefined) => {
+  if (!email || !email.includes("@")) return null;
+  const [localPart, domain] = email.split("@");
+  if (!localPart || !domain) return null;
+  if (localPart.length <= 2) {
+    return `${localPart[0] || "*"}*@${domain}`;
+  }
+  return `${localPart.slice(0, 2)}${"*".repeat(Math.max(2, localPart.length - 2))}@${domain}`;
+};
+
+const getRecencyScore = (lastActivityAt: string | null | undefined) => {
+  if (!lastActivityAt) {
+    return { rawScore: 0, recencyDays: null };
+  }
+
+  const parsed = new Date(lastActivityAt);
+  if (Number.isNaN(parsed.getTime())) {
+    return { rawScore: 0, recencyDays: null };
+  }
+
+  const recencyDays = Math.max(0, differenceInDays(new Date(), parsed));
+
+  if (recencyDays <= 3) return { rawScore: 100, recencyDays };
+  if (recencyDays <= 7) return { rawScore: 90, recencyDays };
+  if (recencyDays <= 14) return { rawScore: 75, recencyDays };
+  if (recencyDays <= 30) return { rawScore: 55, recencyDays };
+  if (recencyDays <= 45) return { rawScore: 35, recencyDays };
+  return { rawScore: 15, recencyDays };
+};
+
+const getLatestTimestamp = (...values: Array<string | null | undefined>) => {
+  const validValues = values
+    .map((value) => {
+      if (!value) return null;
+      const parsed = new Date(value);
+      return Number.isNaN(parsed.getTime()) ? null : { value, time: parsed.getTime() };
+    })
+    .filter(Boolean) as Array<{ value: string; time: number }>;
+
+  if (validValues.length === 0) return null;
+  return validValues.sort((left, right) => right.time - left.time)[0].value;
+};
+
+const buildLearnerLeaderboardMetadata = (
+  scope: LearnerLeaderboardScope,
+  scopeId: string,
+  scopeTitle: string,
+  scopeCategory: string,
+  includeIncompleteLearners: boolean,
+  entries: LearnerLeaderboardEntry[],
+): LearnerLeaderboard => ({
+  scope,
+  scopeId,
+  scopeTitle,
+  scopeCategory,
+  generatedAt: new Date().toISOString(),
+  includeIncompleteLearners,
+  excludedStatuses: LEADERBOARD_EXCLUDED_STATUSES,
+  privacyMode: "staff_only_masked",
+  weights: LEARNER_RANKING_WEIGHTS,
+  fairnessNotes: [
+    scope === "course"
+      ? "Ranking is course-scoped and compares learners within this course only."
+      : "Ranking is program-scoped and aggregates learner progress across all courses linked to this program.",
+    includeIncompleteLearners
+      ? "Incomplete learners are included so trainers and admins can monitor active cohorts, but completion and certificates carry the strongest weight."
+      : "Only completed learners are included in this ranking.",
+    "Dropped enrollments are excluded from the leaderboard.",
+    "This leaderboard stays staff-only and masks learner email addresses in the UI.",
+  ],
+  tieBreakerRules: [...LEADERBOARD_TIEBREAKER_RULES],
+  entries,
+});
+
+const buildLeaderboardEntries = (entries: Array<LearnerLeaderboardEntry & { enrolledAt: string }>, limit: number) =>
+  entries
+    .sort((left, right) => {
+      if (right.compositeScore !== left.compositeScore) return right.compositeScore - left.compositeScore;
+      if (right.factorScores.completion.rawScore !== left.factorScores.completion.rawScore) {
+        return right.factorScores.completion.rawScore - left.factorScores.completion.rawScore;
+      }
+      if (right.factorScores.assessment.rawScore !== left.factorScores.assessment.rawScore) {
+        return right.factorScores.assessment.rawScore - left.factorScores.assessment.rawScore;
+      }
+      if ((right.lastActivityAt || "") !== (left.lastActivityAt || "")) {
+        return (right.lastActivityAt || "").localeCompare(left.lastActivityAt || "");
+      }
+      if (left.enrolledAt !== right.enrolledAt) {
+        return left.enrolledAt.localeCompare(right.enrolledAt);
+      }
+      return left.learnerName.localeCompare(right.learnerName);
+    })
+    .slice(0, limit)
+    .map((entry, index) => ({
+      ...entry,
+      rank: index + 1,
+    }))
+    .map(({ enrolledAt, ...entry }) => entry);
+
+const buildLearnerLeaderboardFromCourses = async ({
+  scope,
+  scopeId,
+  scopeTitle,
+  scopeCategory,
+  courses,
+  includeIncompleteLearners,
+  limit,
+}: {
+  scope: LearnerLeaderboardScope;
+  scopeId: string;
+  scopeTitle: string;
+  scopeCategory: string;
+  courses: Array<{ id: string; title: string; category: string | null; duration: number | null }>;
+  includeIncompleteLearners: boolean;
+  limit: number;
+}): Promise<LearnerLeaderboard | null> => {
+  if (!supabase) return null;
+
+  const courseIds = courses.map((course) => course.id);
+
+  let enrollmentsQuery = supabase
+    .from("enrollments")
+    .select("id, user_id, course_id, progress, status, enrolled_at, completed_at")
+    .in("course_id", courseIds)
+    .neq("status", "dropped")
+    .order("enrolled_at", { ascending: true });
+
+  if (!includeIncompleteLearners) {
+    enrollmentsQuery = enrollmentsQuery.eq("status", "completed");
+  }
+
+  const { data: enrollmentsData, error: enrollmentsError } = await enrollmentsQuery;
+  if (enrollmentsError) {
+    handleSupabaseError(enrollmentsError);
+    return null;
+  }
+
+  const enrollments = (enrollmentsData || []) as Array<{
+    id: string;
+    user_id: string;
+    course_id: string;
+    progress: number | null;
+    status: Enrollment["status"];
+    enrolled_at: string;
+    completed_at: string | null;
+  }>;
+
+  if (enrollments.length === 0) {
+    return buildLearnerLeaderboardMetadata(scope, scopeId, scopeTitle, scopeCategory, includeIncompleteLearners, []);
+  }
+
+  const enrollmentIds = enrollments.map((enrollment) => enrollment.id);
+  const learnerIds = Array.from(new Set(enrollments.map((enrollment) => enrollment.user_id)));
+  const courseMap = new Map(courses.map((course) => [course.id, course]));
+
+  const [usersResult, modulesResult, certificatesResult, moduleCompletionsResult, moduleSessionsResult, assessmentAttemptsResult] = await Promise.all([
+    supabase.from("users").select("id, name, email").in("id", learnerIds),
+    supabase.from("modules").select("id, course_id").in("course_id", courseIds),
+    supabase.from("certificates").select("id, user_id, course_id, issued_at").in("course_id", courseIds),
+    supabase.from("module_completions").select("enrollment_id, module_id, time_spent, completed_at").in("enrollment_id", enrollmentIds),
+    supabase.from("module_sessions").select("enrollment_id, module_id, duration_seconds, last_seen_at, started_at").in("enrollment_id", enrollmentIds),
+    supabase.from("assessment_attempts").select("id, assessment_id, enrollment_id, score, submitted_at, time_spent").in("enrollment_id", enrollmentIds).not("submitted_at", "is", null),
+  ]);
+
+  if (usersResult.error) {
+    handleSupabaseError(usersResult.error);
+    return null;
+  }
+  if (modulesResult.error) {
+    handleSupabaseError(modulesResult.error);
+    return null;
+  }
+  if (certificatesResult.error) {
+    handleSupabaseError(certificatesResult.error);
+    return null;
+  }
+  if (moduleCompletionsResult.error) {
+    handleSupabaseError(moduleCompletionsResult.error);
+    return null;
+  }
+  if (moduleSessionsResult.error) {
+    handleSupabaseError(moduleSessionsResult.error);
+    return null;
+  }
+  if (assessmentAttemptsResult.error) {
+    handleSupabaseError(assessmentAttemptsResult.error);
+    return null;
+  }
+
+  const users = usersResult.data || [];
+  const modules = modulesResult.data || [];
+  const certificates = certificatesResult.data || [];
+  const moduleCompletions = moduleCompletionsResult.data || [];
+  const moduleSessions = moduleSessionsResult.data || [];
+  const assessmentAttempts = assessmentAttemptsResult.data || [];
+
+  const moduleCountByCourseId = new Map<string, number>();
+  for (const module of modules) {
+    moduleCountByCourseId.set(module.course_id, (moduleCountByCourseId.get(module.course_id) || 0) + 1);
+  }
+
+  const userMap = new Map(users.map((row) => [row.id, row]));
+  const certificatesByLearnerCourse = new Map(
+    certificates.map((row) => [`${row.user_id}:${row.course_id}`, row]),
+  );
+
+  const completionStatsByEnrollment = new Map<string, {
+    completedModuleIds: Set<string>;
+    completionMinutesByModule: Map<string, number>;
+    lastCompletionAt: string | null;
+  }>();
+
+  for (const completion of moduleCompletions) {
+    const existing = completionStatsByEnrollment.get(completion.enrollment_id) || {
+      completedModuleIds: new Set<string>(),
+      completionMinutesByModule: new Map<string, number>(),
+      lastCompletionAt: null,
+    };
+
+    existing.completedModuleIds.add(completion.module_id);
+    existing.completionMinutesByModule.set(
+      completion.module_id,
+      (existing.completionMinutesByModule.get(completion.module_id) || 0) + Number(completion.time_spent || 0),
+    );
+    existing.lastCompletionAt = getLatestTimestamp(existing.lastCompletionAt, completion.completed_at);
+    completionStatsByEnrollment.set(completion.enrollment_id, existing);
+  }
+
+  const sessionStatsByEnrollment = new Map<string, {
+    sessionMinutesByModule: Map<string, number>;
+    lastSeenAt: string | null;
+  }>();
+
+  for (const session of moduleSessions) {
+    const existing = sessionStatsByEnrollment.get(session.enrollment_id) || {
+      sessionMinutesByModule: new Map<string, number>(),
+      lastSeenAt: null,
+    };
+
+    const sessionMinutes = Number(session.duration_seconds || 0) / 60;
+    existing.sessionMinutesByModule.set(
+      session.module_id,
+      (existing.sessionMinutesByModule.get(session.module_id) || 0) + sessionMinutes,
+    );
+    existing.lastSeenAt = getLatestTimestamp(existing.lastSeenAt, session.last_seen_at, session.started_at);
+    sessionStatsByEnrollment.set(session.enrollment_id, existing);
+  }
+
+  const latestAssessmentAttemptByKey = new Map<string, {
+    assessment_id: string;
+    enrollment_id: string;
+    score: number | null;
+    submitted_at: string | null;
+    time_spent: number | null;
+  }>();
+
+  for (const attempt of assessmentAttempts) {
+    const key = `${attempt.enrollment_id}:${attempt.assessment_id}`;
+    const existing = latestAssessmentAttemptByKey.get(key);
+    if (!existing || (attempt.submitted_at || "") > (existing.submitted_at || "")) {
+      latestAssessmentAttemptByKey.set(key, {
+        assessment_id: attempt.assessment_id,
+        enrollment_id: attempt.enrollment_id,
+        score: attempt.score === null || attempt.score === undefined ? null : Number(attempt.score),
+        submitted_at: attempt.submitted_at,
+        time_spent: attempt.time_spent === null || attempt.time_spent === undefined ? null : Number(attempt.time_spent),
+      });
+    }
+  }
+
+  const assessmentStatsByEnrollment = new Map<string, {
+    attemptCount: number;
+    scoreSum: number;
+    scoreCount: number;
+    timeSpentMinutes: number;
+    lastSubmittedAt: string | null;
+  }>();
+
+  for (const attempt of latestAssessmentAttemptByKey.values()) {
+    const existing = assessmentStatsByEnrollment.get(attempt.enrollment_id) || {
+      attemptCount: 0,
+      scoreSum: 0,
+      scoreCount: 0,
+      timeSpentMinutes: 0,
+      lastSubmittedAt: null,
+    };
+
+    existing.attemptCount += 1;
+    if (typeof attempt.score === "number" && !Number.isNaN(attempt.score)) {
+      existing.scoreSum += attempt.score;
+      existing.scoreCount += 1;
+    }
+    existing.timeSpentMinutes += Number(attempt.time_spent || 0);
+    existing.lastSubmittedAt = getLatestTimestamp(existing.lastSubmittedAt, attempt.submitted_at);
+    assessmentStatsByEnrollment.set(attempt.enrollment_id, existing);
+  }
+
+  if (scope === "course") {
+    const course = courses[0];
+    const totalModules = moduleCountByCourseId.get(course.id) || 0;
+    const expectedLearningMinutes = Math.max(Number(course.duration || 0) * 60, totalModules * 30, 60);
+
+    const entries = buildLeaderboardEntries(
+      enrollments.map((enrollment) => {
+        const userRow = userMap.get(enrollment.user_id);
+        const completionStats = completionStatsByEnrollment.get(enrollment.id);
+        const sessionStats = sessionStatsByEnrollment.get(enrollment.id);
+        const assessmentStats = assessmentStatsByEnrollment.get(enrollment.id);
+        const certificate = certificatesByLearnerCourse.get(`${enrollment.user_id}:${enrollment.course_id}`);
+        const progress = clampPercentage(Number(enrollment.progress || 0));
+        const completedUnits = completionStats?.completedModuleIds.size || 0;
+        const completionCoverage = totalModules > 0 ? clampPercentage((completedUnits / totalModules) * 100) : progress;
+        const moduleIds = new Set<string>([
+          ...(completionStats ? Array.from(completionStats.completionMinutesByModule.keys()) : []),
+          ...(sessionStats ? Array.from(sessionStats.sessionMinutesByModule.keys()) : []),
+        ]);
+        const trackedModuleMinutes = Array.from(moduleIds).reduce((sum, moduleId) => {
+          const completionMinutes = completionStats?.completionMinutesByModule.get(moduleId) || 0;
+          const sessionMinutes = sessionStats?.sessionMinutesByModule.get(moduleId) || 0;
+          return sum + Math.max(completionMinutes, sessionMinutes);
+        }, 0);
+        const learningMinutes = Math.round(trackedModuleMinutes + (assessmentStats?.timeSpentMinutes || 0));
+        const averageAssessmentScore = assessmentStats && assessmentStats.scoreCount > 0
+          ? toRoundedTenth(assessmentStats.scoreSum / assessmentStats.scoreCount)
+          : null;
+        const completionRawScore = Math.max(enrollment.status === "completed" ? 100 : 0, progress, completionCoverage);
+        const assessmentRawScore = averageAssessmentScore ?? 0;
+        const learningTimeRawScore = clampPercentage((learningMinutes / expectedLearningMinutes) * 100);
+        const certificateRawScore = certificate ? 100 : 0;
+        const lastActivityAt = getLatestTimestamp(
+          enrollment.completed_at,
+          completionStats?.lastCompletionAt,
+          sessionStats?.lastSeenAt,
+          assessmentStats?.lastSubmittedAt,
+          certificate?.issued_at,
+          enrollment.enrolled_at,
+        );
+        const { rawScore: recencyRawScore, recencyDays } = getRecencyScore(lastActivityAt);
+
+        const factorScores = {
+          completion: buildWeightedFactorScore(completionRawScore, LEARNER_RANKING_WEIGHTS.completion, `${Math.round(completionRawScore)}% completion coverage based on course progress and completed modules.`),
+          assessment: buildWeightedFactorScore(assessmentRawScore, LEARNER_RANKING_WEIGHTS.assessment, averageAssessmentScore !== null ? `Assessment average is ${averageAssessmentScore}% from ${assessmentStats?.attemptCount || 0} latest attempts.` : "No scored assessments yet, so the assessment contribution is 0."),
+          learningTime: buildWeightedFactorScore(learningTimeRawScore, LEARNER_RANKING_WEIGHTS.learningTime, `${learningMinutes} tracked learning minutes against an expected ${expectedLearningMinutes} minutes for this course.`),
+          certificate: buildWeightedFactorScore(certificateRawScore, LEARNER_RANKING_WEIGHTS.certificate, certificate ? "Completion certificate released for this learner." : "No certificate released yet."),
+          recency: buildWeightedFactorScore(recencyRawScore, LEARNER_RANKING_WEIGHTS.recency, recencyDays === null ? "No recent learner activity captured yet." : `Most recent activity was ${recencyDays} day${recencyDays === 1 ? "" : "s"} ago.`),
+        };
+
+        const compositeScore = toRoundedTenth(Object.values(factorScores).reduce((sum, factor) => sum + factor.weightedScore, 0));
+        const learnerName = userRow?.name || userRow?.email?.split("@")[0] || "Learner";
+        const scoringExplanation = Object.values(factorScores)
+          .sort((left, right) => right.weightedScore - left.weightedScore)
+          .filter((factor) => factor.weightedScore > 0)
+          .slice(0, 3)
+          .map((factor) => `${factor.explanation} (${factor.weightedScore.toFixed(1)} pts)`);
+
+        return {
+          rank: 0,
+          entryId: enrollment.id,
+          learnerId: enrollment.user_id,
+          learnerName,
+          learnerEmailMasked: maskEmailAddress(userRow?.email),
+          status: enrollment.status,
+          progress: Math.round(progress),
+          completedUnits,
+          totalUnits: totalModules,
+          unitsLabel: "modules" as const,
+          averageAssessmentScore,
+          assessmentAttempts: assessmentStats?.attemptCount || 0,
+          learningMinutes,
+          expectedLearningMinutes,
+          certificatesEarned: certificate ? 1 : 0,
+          expectedCertificates: 1,
+          lastActivityAt,
+          recencyDays,
+          compositeScore,
+          factorScores,
+          scoringExplanation,
+          enrolledAt: enrollment.enrolled_at,
+        };
+      }),
+      limit,
+    );
+
+    return buildLearnerLeaderboardMetadata(scope, scopeId, scopeTitle, scopeCategory, includeIncompleteLearners, entries);
+  }
+
+  const totalProgramCourses = courses.length;
+  const expectedLearningMinutesByCourseId = new Map(
+    courses.map((course) => [
+      course.id,
+      Math.max(Number(course.duration || 0) * 60, (moduleCountByCourseId.get(course.id) || 0) * 30, 60),
+    ]),
+  );
+  const enrollmentsByLearnerId = new Map<string, typeof enrollments>();
+
+  for (const enrollment of enrollments) {
+    const existing = enrollmentsByLearnerId.get(enrollment.user_id) || [];
+    existing.push(enrollment);
+    enrollmentsByLearnerId.set(enrollment.user_id, existing);
+  }
+
+  const entries = buildLeaderboardEntries(
+    Array.from(enrollmentsByLearnerId.entries()).map(([learnerId, learnerEnrollments]) => {
+      const userRow = userMap.get(learnerId);
+      let completedUnits = 0;
+      let progressSum = 0;
+      let assessmentAttemptCount = 0;
+      let assessmentScoreSum = 0;
+      let assessmentScoreCount = 0;
+      let learningMinutes = 0;
+      let certificatesEarned = 0;
+      let lastActivityAt: string | null = null;
+      let earliestEnrollmentAt = learnerEnrollments[0]?.enrolled_at || new Date().toISOString();
+
+      for (const enrollment of learnerEnrollments) {
+        const completionStats = completionStatsByEnrollment.get(enrollment.id);
+        const sessionStats = sessionStatsByEnrollment.get(enrollment.id);
+        const assessmentStats = assessmentStatsByEnrollment.get(enrollment.id);
+        const certificate = certificatesByLearnerCourse.get(`${learnerId}:${enrollment.course_id}`);
+        const progress = clampPercentage(Number(enrollment.progress || 0));
+        progressSum += progress;
+        if (enrollment.status === "completed" || progress >= 100) {
+          completedUnits += 1;
+        }
+
+        const moduleIds = new Set<string>([
+          ...(completionStats ? Array.from(completionStats.completionMinutesByModule.keys()) : []),
+          ...(sessionStats ? Array.from(sessionStats.sessionMinutesByModule.keys()) : []),
+        ]);
+
+        const trackedModuleMinutes = Array.from(moduleIds).reduce((sum, moduleId) => {
+          const completionMinutes = completionStats?.completionMinutesByModule.get(moduleId) || 0;
+          const sessionMinutes = sessionStats?.sessionMinutesByModule.get(moduleId) || 0;
+          return sum + Math.max(completionMinutes, sessionMinutes);
+        }, 0);
+
+        learningMinutes += Math.round(trackedModuleMinutes + (assessmentStats?.timeSpentMinutes || 0));
+        assessmentAttemptCount += assessmentStats?.attemptCount || 0;
+        assessmentScoreSum += assessmentStats?.scoreSum || 0;
+        assessmentScoreCount += assessmentStats?.scoreCount || 0;
+        if (certificate) {
+          certificatesEarned += 1;
+        }
+        lastActivityAt = getLatestTimestamp(
+          lastActivityAt,
+          enrollment.completed_at,
+          completionStats?.lastCompletionAt,
+          sessionStats?.lastSeenAt,
+          assessmentStats?.lastSubmittedAt,
+          certificate?.issued_at,
+          enrollment.enrolled_at,
+        );
+
+        if (enrollment.enrolled_at < earliestEnrollmentAt) {
+          earliestEnrollmentAt = enrollment.enrolled_at;
+        }
+      }
+
+      const progress = totalProgramCourses > 0 ? clampPercentage(progressSum / totalProgramCourses) : 0;
+      const averageAssessmentScore = assessmentScoreCount > 0 ? toRoundedTenth(assessmentScoreSum / assessmentScoreCount) : null;
+      const expectedLearningMinutes = Array.from(expectedLearningMinutesByCourseId.values()).reduce((sum, minutes) => sum + minutes, 0);
+      const completionRawScore = Math.max(progress, totalProgramCourses > 0 ? clampPercentage((completedUnits / totalProgramCourses) * 100) : 0);
+      const assessmentRawScore = averageAssessmentScore ?? 0;
+      const learningTimeRawScore = clampPercentage((learningMinutes / Math.max(expectedLearningMinutes, 60)) * 100);
+      const certificateRawScore = totalProgramCourses > 0 ? clampPercentage((certificatesEarned / totalProgramCourses) * 100) : 0;
+      const { rawScore: recencyRawScore, recencyDays } = getRecencyScore(lastActivityAt);
+      const factorScores = {
+        completion: buildWeightedFactorScore(completionRawScore, LEARNER_RANKING_WEIGHTS.completion, `${completedUnits} of ${totalProgramCourses} program courses completed with ${Math.round(progress)}% aggregate progress.`),
+        assessment: buildWeightedFactorScore(assessmentRawScore, LEARNER_RANKING_WEIGHTS.assessment, averageAssessmentScore !== null ? `Assessment average is ${averageAssessmentScore}% from ${assessmentAttemptCount} latest attempts across the program.` : "No scored assessments yet across this program, so the assessment contribution is 0."),
+        learningTime: buildWeightedFactorScore(learningTimeRawScore, LEARNER_RANKING_WEIGHTS.learningTime, `${learningMinutes} tracked learning minutes against an expected ${expectedLearningMinutes} minutes across the program.`),
+        certificate: buildWeightedFactorScore(certificateRawScore, LEARNER_RANKING_WEIGHTS.certificate, certificatesEarned > 0 ? `${certificatesEarned} of ${totalProgramCourses} course certificates earned in this program.` : "No course certificates earned in this program yet."),
+        recency: buildWeightedFactorScore(recencyRawScore, LEARNER_RANKING_WEIGHTS.recency, recencyDays === null ? "No recent learner activity captured yet." : `Most recent activity was ${recencyDays} day${recencyDays === 1 ? "" : "s"} ago.`),
+      };
+      const compositeScore = toRoundedTenth(Object.values(factorScores).reduce((sum, factor) => sum + factor.weightedScore, 0));
+      const learnerName = userRow?.name || userRow?.email?.split("@")[0] || "Learner";
+      const scoringExplanation = Object.values(factorScores)
+        .sort((left, right) => right.weightedScore - left.weightedScore)
+        .filter((factor) => factor.weightedScore > 0)
+        .slice(0, 3)
+        .map((factor) => `${factor.explanation} (${factor.weightedScore.toFixed(1)} pts)`);
+      const overallStatus: Enrollment["status"] = completedUnits >= totalProgramCourses && totalProgramCourses > 0
+        ? "completed"
+        : progress > 0
+          ? "in-progress"
+          : "enrolled";
+
+      return {
+        rank: 0,
+        entryId: `program:${scopeId}:${learnerId}`,
+        learnerId,
+        learnerName,
+        learnerEmailMasked: maskEmailAddress(userRow?.email),
+        status: overallStatus,
+        progress: Math.round(progress),
+        completedUnits,
+        totalUnits: totalProgramCourses,
+        unitsLabel: "courses" as const,
+        averageAssessmentScore,
+        assessmentAttempts: assessmentAttemptCount,
+        learningMinutes,
+        expectedLearningMinutes,
+        certificatesEarned,
+        expectedCertificates: totalProgramCourses,
+        lastActivityAt,
+        recencyDays,
+        compositeScore,
+        factorScores,
+        scoringExplanation,
+        enrolledAt: earliestEnrollmentAt,
+      };
+    }),
+    limit,
+  );
+
+  return buildLearnerLeaderboardMetadata(scope, scopeId, scopeTitle, scopeCategory, includeIncompleteLearners, entries);
+};
 
 export interface LearnerCourseRecommendation {
   course: Course;
   score: number;
   acceptanceProbability?: number;
   reasons: string[];
+  recommendationMode?: "hybrid" | "assessment_only";
   sourceMix?: {
     contentBased: boolean;
     popularityWeighted: boolean;
@@ -340,6 +1121,39 @@ export interface LearnerCourseRecommendation {
   };
   modelVersion?: string;
 }
+
+export const deriveAssessmentOnlyRecommendationEvidence = (
+  performanceSummary?: LearnerPerformanceSummary | null,
+): AssessmentOnlyRecommendationEvidence | null => {
+  if (!performanceSummary || performanceSummary.scoredAssessments <= 0) {
+    return null;
+  }
+
+  const scoredTopics = performanceSummary.topicPerformance.filter(
+    (topic) => topic.assessmentsTaken > 0 && topic.averageScore !== null,
+  );
+  const assessedTopics = scoredTopics
+    .map((topic) => canonicalizeTopicTag(topic.topic) || topic.topic)
+    .filter(Boolean);
+
+  const scoreBand: AssessmentOnlyRecommendationEvidence["scoreBand"] =
+    performanceSummary.averageAssessmentScore >= 90
+      ? "advanced"
+      : performanceSummary.averageAssessmentScore >= 75
+        ? "proficient"
+        : performanceSummary.averageAssessmentScore >= 60
+          ? "developing"
+          : "support";
+
+  return {
+    scoredAssessments: performanceSummary.scoredAssessments,
+    scoreBand,
+    strongestTopic: performanceSummary.strongestTopic,
+    weakestTopic: performanceSummary.needsImprovementTopic,
+    failedCompetencies: scoredTopics.filter((topic) => Number(topic.averageScore || 0) < 70),
+    assessedTopics,
+  };
+};
 
 export interface CollaborativeRecommendationSignal {
   courseId: string;
@@ -438,10 +1252,45 @@ const createEmptyLearnerPerformanceSummary = (): LearnerPerformanceSummary => ({
 const normalizeSet = (values: string[] | undefined) =>
   new Set((values || []).map((value) => value.toLowerCase().trim()).filter(Boolean));
 
+const normalizeCategoryKey = (value: string | undefined | null) => {
+  const canonical = canonicalizeCourseCategory(value);
+  return (canonical || value || "").toLowerCase().trim();
+};
+
 const clampNumber = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
+const STAFF_PERFORMANCE_WEIGHTS = {
+  completionRate: 25,
+  assessmentQuality: 20,
+  learnerEngagement: 15,
+  riskManagement: 15,
+  recommendationConversion: 10,
+  contentQuality: 15,
+} as const;
+
+const hasMeaningfulModuleContent = (content: string | null | undefined) => {
+  if (!content || !content.trim()) return false;
+
+  const objectHasMeaningfulValue = (value: unknown): boolean => {
+    if (typeof value === "string") return value.trim().length > 0;
+    if (typeof value === "number" || typeof value === "boolean") return true;
+    if (Array.isArray(value)) return value.some((item) => objectHasMeaningfulValue(item));
+    if (value && typeof value === "object") {
+      return Object.values(value).some((item) => objectHasMeaningfulValue(item));
+    }
+    return false;
+  };
+
+  try {
+    const parsed = JSON.parse(content);
+    return objectHasMeaningfulValue(parsed);
+  } catch {
+    return content.trim().length > 0;
+  }
+};
+
 const isStarterFriendlyCourse = (course: Course) => {
-  const normalizedCategory = course.category.toLowerCase();
+  const normalizedCategory = normalizeCategoryKey(course.category);
   return course.level === "Beginner" || CURATED_STARTER_CATEGORIES.includes(normalizedCategory as (typeof CURATED_STARTER_CATEGORIES)[number]);
 };
 
@@ -905,17 +1754,17 @@ export const buildLearnerCourseRecommendations = (
   );
 
   const completedCourses = courses.filter((course) => completedCourseIds.has(course.id));
-  const learnerSkills = normalizeSet(user.skills);
-  const preferredCategories = normalizeSet(user.preferredCategories);
+  const learnerSkills = new Set(normalizeSkillTags(user.skills).map((value) => value.toLowerCase()));
+  const preferredCategories = new Set(normalizeCourseCategories(user.preferredCategories).map((value) => value.toLowerCase()));
   const industryInterests = Array.from(normalizeSet(user.industryInterests));
   const completedCategoryCounts = new Map<string, number>();
   completedCourses.forEach((course) => {
-    const key = course.category.toLowerCase();
+    const key = normalizeCategoryKey(course.category);
     completedCategoryCounts.set(key, (completedCategoryCounts.get(key) || 0) + 1);
   });
 
-  const strongestTopic = performanceSummary?.strongestTopic?.topic?.toLowerCase() || null;
-  const needsImprovementTopic = performanceSummary?.needsImprovementTopic?.topic?.toLowerCase() || null;
+  const strongestTopic = canonicalizeTopicTag(performanceSummary?.strongestTopic?.topic || "")?.toLowerCase() || null;
+  const needsImprovementTopic = canonicalizeTopicTag(performanceSummary?.needsImprovementTopic?.topic || "")?.toLowerCase() || null;
   const averageAssessmentScore = performanceSummary?.averageAssessmentScore || 0;
   const overallModuleCompletionRate = performanceSummary?.overallModuleCompletionRate || 0;
   const modulesCompleted = performanceSummary?.modulesCompleted || 0;
@@ -967,8 +1816,9 @@ export const buildLearnerCourseRecommendations = (
       let score = 0;
       const reasons: string[] = [];
       let usedPopularityWeight = false;
-      const normalizedCategory = course.category.toLowerCase();
-      const courseSkills = (course.skills || []).map((skill) => skill.toLowerCase());
+      const normalizedCategory = normalizeCategoryKey(course.category);
+      const courseSkills = normalizeSkillTags(course.skills).map((skill) => skill.toLowerCase());
+      const courseTopics = deriveTopicTags(course.category, course.skills, course.topicTags).map((topic) => topic.toLowerCase());
       const courseIndustryTags = (course.industryTags || []).map((tag) => tag.toLowerCase());
       const courseCareerPaths = (course.careerPaths || []).map((path) => path.toLowerCase());
       const collaborativeSignal = collaborativeSignals[course.id];
@@ -1006,7 +1856,7 @@ export const buildLearnerCourseRecommendations = (
       }
 
       const matchingCompletedCourse = completedCourses.find(
-        (completedCourse) => completedCourse.category.toLowerCase() === normalizedCategory,
+        (completedCourse) => normalizeCategoryKey(completedCourse.category) === normalizedCategory,
       );
 
       if (
@@ -1017,12 +1867,12 @@ export const buildLearnerCourseRecommendations = (
         reasons.push(`Natural next step after ${matchingCompletedCourse.title}`);
       }
 
-      if (strongestTopic && courseSkills.some((skill) => skill.includes(strongestTopic) || strongestTopic.includes(skill))) {
+      if (strongestTopic && (courseTopics.includes(strongestTopic) || courseSkills.includes(strongestTopic))) {
         score += 12;
         reasons.push(`Extends your strong ${performanceSummary?.strongestTopic?.topic} results`);
       }
 
-      if (needsImprovementTopic && courseSkills.some((skill) => skill.includes(needsImprovementTopic) || needsImprovementTopic.includes(skill))) {
+      if (needsImprovementTopic && (courseTopics.includes(needsImprovementTopic) || courseSkills.includes(needsImprovementTopic))) {
         score += 10;
         reasons.push(`Helps improve ${performanceSummary?.needsImprovementTopic?.topic}`);
       }
@@ -1250,7 +2100,834 @@ export const buildLearnerCourseRecommendations = (
     .slice(0, limit);
 };
 
+export const buildAssessmentOnlyCourseRecommendations = (
+  courses: Course[],
+  enrollments: Enrollment[],
+  performanceSummary?: LearnerPerformanceSummary | null,
+  limit = 3,
+): LearnerCourseRecommendation[] => {
+  const evidence = deriveAssessmentOnlyRecommendationEvidence(performanceSummary);
+  if (!evidence || !performanceSummary) {
+    return [];
+  }
+
+  const enrolledCourseIds = new Set(enrollments.map((enrollment) => enrollment.courseId));
+  const strongestTopic = canonicalizeTopicTag(evidence.strongestTopic?.topic || "")?.toLowerCase() || null;
+  const weakestTopic = canonicalizeTopicTag(evidence.weakestTopic?.topic || "")?.toLowerCase() || null;
+  const failedCompetencyTopics = new Set(
+    evidence.failedCompetencies
+      .map((topic) => canonicalizeTopicTag(topic.topic)?.toLowerCase() || topic.topic.toLowerCase())
+      .filter(Boolean),
+  );
+  const assessedTopics = new Set(evidence.assessedTopics.map((topic) => topic.toLowerCase()));
+
+  return courses
+    .filter((course) => !enrolledCourseIds.has(course.id) && course.published !== false)
+    .map((course) => {
+      let score = 0;
+      const reasons: string[] = [];
+      const courseSkills = normalizeSkillTags(course.skills).map((skill) => skill.toLowerCase());
+      const courseTopics = deriveTopicTags(course.category, course.skills, course.topicTags).map((topic) => topic.toLowerCase());
+      const matchedAssessedTopics = [...assessedTopics].filter(
+        (topic) => courseTopics.includes(topic) || courseSkills.includes(topic),
+      );
+      const matchedFailedCompetencies = [...failedCompetencyTopics].filter(
+        (topic) => courseTopics.includes(topic) || courseSkills.includes(topic),
+      );
+
+      if (matchedFailedCompetencies.length > 0) {
+        score += matchedFailedCompetencies.length * 28;
+        reasons.push(`Targets assessment gaps in ${matchedFailedCompetencies.slice(0, 2).join(" and ")}`);
+      }
+
+      if (weakestTopic && (courseTopics.includes(weakestTopic) || courseSkills.includes(weakestTopic))) {
+        score += 26;
+        reasons.push(`Builds support around your lowest assessment topic: ${performanceSummary.needsImprovementTopic?.topic}`);
+      }
+
+      if (strongestTopic && (courseTopics.includes(strongestTopic) || courseSkills.includes(strongestTopic))) {
+        score += evidence.scoreBand === "advanced" || evidence.scoreBand === "proficient" ? 20 : 8;
+        reasons.push(`Extends your strongest assessed topic: ${performanceSummary.strongestTopic?.topic}`);
+      }
+
+      if (matchedAssessedTopics.length > 0) {
+        score += matchedAssessedTopics.length * 10;
+        reasons.push(`Matches ${matchedAssessedTopics.length} topic${matchedAssessedTopics.length === 1 ? "" : "s"} already measured in your assessments`);
+      }
+
+      if (evidence.scoreBand === "support" && course.level === "Beginner") {
+        score += 24;
+        reasons.push("Assessment results point to a lower-risk beginner course next");
+      }
+
+      if (evidence.scoreBand === "developing" && (course.level === "Beginner" || course.level === "Intermediate")) {
+        score += 18;
+        reasons.push("Fits the developing score band from your assessment results");
+      }
+
+      if (evidence.scoreBand === "proficient" && course.level === "Intermediate") {
+        score += 16;
+        reasons.push("Matches the progression level suggested by your assessment scores");
+      }
+
+      if (evidence.scoreBand === "advanced" && (course.level === "Intermediate" || course.level === "Advanced")) {
+        score += 18;
+        reasons.push("Offers a stronger challenge based on your high assessment performance");
+      }
+
+      if (
+        performanceSummary.recentAssessments.length > 0 &&
+        (performanceSummary.recentAssessments[0].score || 0) < 70 &&
+        course.level === "Beginner"
+      ) {
+        score += 10;
+        reasons.push(`Responds to your recent ${performanceSummary.recentAssessments[0].assessmentTitle} result`);
+      }
+
+      const acceptanceProbability = Math.round(
+        clampNumber(
+          18 + Math.min(score, 140) * 0.42 + matchedFailedCompetencies.length * 6 + matchedAssessedTopics.length * 3,
+          5,
+          95,
+        ),
+      );
+
+      return {
+        course,
+        score,
+        acceptanceProbability,
+        reasons: Array.from(new Set(reasons)).slice(0, 3),
+        recommendationMode: "assessment_only",
+        sourceMix: {
+          contentBased: false,
+          popularityWeighted: false,
+          collaborative: false,
+          sessionBehavior: false,
+          assessmentPerformance: true,
+        },
+        modelVersion: "phase8-assessment-only-v1",
+      } satisfies LearnerCourseRecommendation;
+    })
+    .filter((recommendation) => recommendation.score > 0 && recommendation.reasons.length > 0)
+    .sort((left, right) => {
+      if (right.score !== left.score) return right.score - left.score;
+      return left.course.title.localeCompare(right.course.title);
+    })
+    .slice(0, limit);
+};
+
 export const reportingService = {
+  getCourseContentCompletenessReports: async (
+    courseId?: string,
+  ): Promise<CourseContentCompletenessReport[]> => {
+    if (!supabase) return [];
+
+    try {
+      let coursesQuery = supabase
+        .from("courses")
+        .select("id, title, category, published, instructor_id")
+        .order("created_at", { ascending: false });
+
+      if (courseId) {
+        coursesQuery = coursesQuery.eq("id", courseId);
+      }
+
+      const { data: courseRows, error: coursesError } = await coursesQuery;
+
+      if (coursesError) {
+        handleSupabaseError(coursesError);
+        return [];
+      }
+
+      if (!courseRows || courseRows.length === 0) {
+        return [];
+      }
+
+      const courseIds = courseRows.map((course) => course.id);
+
+      const [modulesResult, assessmentsResult, assessmentQuestionsResult] = await Promise.all([
+        supabase
+          .from("modules")
+          .select("id, course_id, title, status, content, materials, module_thumbnail, module_document, skill_tags, topic_tags")
+          .in("course_id", courseIds)
+          .order("order", { ascending: true }),
+        supabase
+          .from("assessments")
+          .select("id, module_id, is_active")
+          .in("module_id", (
+            await supabase
+              .from("modules")
+              .select("id")
+              .in("course_id", courseIds)
+          ).data?.map((module) => module.id) || []),
+        supabase
+          .from("assessment_questions")
+          .select("id, assessment_id"),
+      ]);
+
+      if (modulesResult.error) {
+        handleSupabaseError(modulesResult.error);
+        return [];
+      }
+      if (assessmentsResult.error) {
+        handleSupabaseError(assessmentsResult.error);
+        return [];
+      }
+      if (assessmentQuestionsResult.error) {
+        handleSupabaseError(assessmentQuestionsResult.error);
+        return [];
+      }
+
+      const moduleRows = modulesResult.data || [];
+      const assessmentRows = (assessmentsResult.data || []).filter((assessment) => assessment.is_active);
+      const questionRows = assessmentQuestionsResult.data || [];
+
+      const questionCountByAssessmentId = new Map<string, number>();
+      for (const question of questionRows) {
+        questionCountByAssessmentId.set(
+          question.assessment_id,
+          (questionCountByAssessmentId.get(question.assessment_id) || 0) + 1,
+        );
+      }
+
+      const hasAssessmentByModuleId = new Map<string, boolean>();
+      for (const assessment of assessmentRows) {
+        const questionCount = questionCountByAssessmentId.get(assessment.id) || 0;
+        if (questionCount > 0) {
+          hasAssessmentByModuleId.set(assessment.module_id, true);
+        }
+      }
+
+      return courseRows.map((course) => {
+        const courseModules = moduleRows.filter((module) => module.course_id === course.id);
+        const moduleChecks = courseModules.map((module) => {
+          const hasContentBody = hasMeaningfulModuleContent(module.content);
+          const hasMediaAsset = Boolean(module.module_thumbnail || module.module_document);
+          const hasAssessmentOrActivity = Boolean(hasAssessmentByModuleId.get(module.id) || (module.materials || []).length > 0);
+          const hasTags = (module.skill_tags || []).length > 0 && (module.topic_tags || []).length > 0;
+          const status = module.status === "finalized" ? "finalized" : "draft";
+          const missingItems: string[] = [];
+
+          if (status !== "finalized") missingItems.push("Finalize module status");
+          if (!hasContentBody) missingItems.push("Add content body");
+          if (!hasMediaAsset) missingItems.push("Attach media asset");
+          if (!hasAssessmentOrActivity) missingItems.push("Add assessment or learning activity");
+          if (!hasTags) missingItems.push("Assign skill and topic tags");
+
+          return {
+            moduleId: module.id,
+            moduleTitle: module.title,
+            status,
+            hasContentBody,
+            hasMediaAsset,
+            hasAssessmentOrActivity,
+            hasTags,
+            isPublishReady: missingItems.length === 0,
+            missingItems,
+          } satisfies ModuleContentCompletenessCheck;
+        });
+
+        const totalModules = moduleChecks.length;
+        const finalizedModules = moduleChecks.filter((module) => module.status === "finalized").length;
+        const draftModules = totalModules - finalizedModules;
+        const publishReadyModules = moduleChecks.filter((module) => module.isPublishReady).length;
+        const modulesWithoutContent = moduleChecks.filter((module) => !module.hasContentBody).length;
+        const modulesWithoutMedia = moduleChecks.filter((module) => !module.hasMediaAsset).length;
+        const modulesWithoutAssessmentOrActivity = moduleChecks.filter((module) => !module.hasAssessmentOrActivity).length;
+        const modulesWithoutTags = moduleChecks.filter((module) => !module.hasTags).length;
+        const hasTrainerOwnership = Boolean(course.instructor_id);
+        const metRequirementCount =
+          (hasTrainerOwnership ? 1 : 0) +
+          moduleChecks.reduce(
+            (sum, module) =>
+              sum +
+              Number(module.status === "finalized") +
+              Number(module.hasContentBody) +
+              Number(module.hasMediaAsset) +
+              Number(module.hasAssessmentOrActivity) +
+              Number(module.hasTags),
+            0,
+          );
+        const totalRequirementCount = 1 + totalModules * 5;
+        const completenessRate = totalModules > 0
+          ? Math.round((metRequirementCount / totalRequirementCount) * 100)
+          : hasTrainerOwnership
+            ? 50
+            : 0;
+        const missingSummary: string[] = [];
+
+        if (!hasTrainerOwnership) missingSummary.push("Assign a trainer owner to the course.");
+        if (totalModules === 0) missingSummary.push("Create at least one module.");
+        if (draftModules > 0) missingSummary.push(`${draftModules} module${draftModules === 1 ? " is" : "s are"} still in draft status.`);
+        if (modulesWithoutContent > 0) missingSummary.push(`${modulesWithoutContent} module${modulesWithoutContent === 1 ? " is" : "s are"} missing content body.`);
+        if (modulesWithoutMedia > 0) missingSummary.push(`${modulesWithoutMedia} module${modulesWithoutMedia === 1 ? " is" : "s are"} missing media assets.`);
+        if (modulesWithoutAssessmentOrActivity > 0) missingSummary.push(`${modulesWithoutAssessmentOrActivity} module${modulesWithoutAssessmentOrActivity === 1 ? " is" : "s are"} missing an assessment or learning activity.`);
+        if (modulesWithoutTags > 0) missingSummary.push(`${modulesWithoutTags} module${modulesWithoutTags === 1 ? " is" : "s are"} missing required skill/topic tags.`);
+
+        return {
+          courseId: course.id,
+          courseTitle: course.title,
+          courseCategory: course.category || "Uncategorized",
+          published: course.published !== false,
+          hasTrainerOwnership,
+          totalModules,
+          finalizedModules,
+          draftModules,
+          publishReadyModules,
+          modulesWithoutContent,
+          modulesWithoutMedia,
+          modulesWithoutAssessmentOrActivity,
+          modulesWithoutTags,
+          completenessRate,
+          readyToPublish: hasTrainerOwnership && totalModules > 0 && moduleChecks.every((module) => module.isPublishReady),
+          missingSummary,
+          publishReadyChecklist: [
+            "Each module must be finalized.",
+            "Each module must include content body.",
+            "Each module must include at least one media asset such as a thumbnail or attached document.",
+            "Each module must include an assessment with questions or a learning activity resource.",
+            "Each module must include both skill and topic tags.",
+            "Each course must have a trainer owner before publishing.",
+          ],
+          moduleChecks,
+        } satisfies CourseContentCompletenessReport;
+      });
+    } catch (error) {
+      console.error("Error getting course content completeness reports:", error);
+      return [];
+    }
+  },
+
+  getStaffPerformanceScorecards: async (
+    startDate?: Date,
+    endDate?: Date,
+  ): Promise<StaffPerformanceScorecard[]> => {
+    if (!supabase) return [];
+
+    try {
+      const startIso = startDate ? startDate.toISOString() : null;
+      const endIso = endDate ? endDate.toISOString() : null;
+      const startDateValue = startDate ? format(startDate, "yyyy-MM-dd") : null;
+      const endDateValue = endDate ? format(endDate, "yyyy-MM-dd") : null;
+
+      const { data: courseRows, error: coursesError } = await supabase
+        .from("courses")
+        .select("id, title, instructor_id")
+        .not("instructor_id", "is", null)
+        .order("title", { ascending: true });
+
+      if (coursesError) {
+        handleSupabaseError(coursesError);
+        return [];
+      }
+
+      const managedCourses = (courseRows || []).filter((course) => Boolean(course.instructor_id));
+      if (managedCourses.length === 0) {
+        return [];
+      }
+
+      const courseIds = managedCourses.map((course) => course.id);
+      const trainerIds = Array.from(new Set(managedCourses.map((course) => course.instructor_id).filter(Boolean)));
+
+      let trainerUsersQuery = supabase
+        .from("users")
+        .select("id, name, email, role")
+        .in("id", trainerIds);
+
+      const enrollmentsQueryBase = supabase
+        .from("enrollments")
+        .select("id, user_id, course_id, status, enrolled_at, completed_at")
+        .in("course_id", courseIds);
+
+      let enrollmentsQuery = enrollmentsQueryBase;
+      if (startIso) {
+        enrollmentsQuery = enrollmentsQuery.gte("enrolled_at", startIso);
+      }
+      if (endIso) {
+        enrollmentsQuery = enrollmentsQuery.lte("enrolled_at", endIso);
+      }
+
+      let certificatesQuery = supabase
+        .from("certificates")
+        .select("course_id, user_id, issued_at")
+        .in("course_id", courseIds);
+      if (startIso) {
+        certificatesQuery = certificatesQuery.gte("issued_at", startIso);
+      }
+      if (endIso) {
+        certificatesQuery = certificatesQuery.lte("issued_at", endIso);
+      }
+
+      let recommendationsQuery = supabase
+        .from("learner_recommendations")
+        .select("course_id, impression_count, enrollment_count, generated_at")
+        .in("course_id", courseIds);
+      if (startIso) {
+        recommendationsQuery = recommendationsQuery.gte("generated_at", startIso);
+      }
+      if (endIso) {
+        recommendationsQuery = recommendationsQuery.lte("generated_at", endIso);
+      }
+
+      let courseRiskQuery = supabase
+        .from("course_risk_scores")
+        .select("course_id, snapshot_date, active_enrollments, risk_score, risk_level")
+        .in("course_id", courseIds)
+        .order("snapshot_date", { ascending: false });
+      if (startDateValue) {
+        courseRiskQuery = courseRiskQuery.gte("snapshot_date", startDateValue);
+      }
+      if (endDateValue) {
+        courseRiskQuery = courseRiskQuery.lte("snapshot_date", endDateValue);
+      }
+
+      const [trainerUsersResult, enrollmentsResult, certificatesResult, recommendationsResult, courseRiskResult, contentReports] = await Promise.all([
+        trainerUsersQuery,
+        enrollmentsQuery,
+        certificatesQuery,
+        recommendationsQuery,
+        courseRiskQuery,
+        reportingService.getCourseContentCompletenessReports(),
+      ]);
+
+      if (trainerUsersResult.error) {
+        handleSupabaseError(trainerUsersResult.error);
+        return [];
+      }
+      if (enrollmentsResult.error) {
+        handleSupabaseError(enrollmentsResult.error);
+        return [];
+      }
+      if (certificatesResult.error) {
+        handleSupabaseError(certificatesResult.error);
+        return [];
+      }
+      if (recommendationsResult.error) {
+        handleSupabaseError(recommendationsResult.error);
+        return [];
+      }
+      if (courseRiskResult.error) {
+        handleSupabaseError(courseRiskResult.error);
+        return [];
+      }
+
+      const enrollments = enrollmentsResult.data || [];
+      const enrollmentIds = enrollments.map((enrollment) => enrollment.id);
+
+      const [moduleCompletionsResult, moduleSessionsResult, assessmentAttemptsResult] = enrollmentIds.length > 0
+        ? await Promise.all([
+            (() => {
+              let query = supabase
+                .from("module_completions")
+                .select("enrollment_id, time_spent, completed_at")
+                .in("enrollment_id", enrollmentIds);
+              if (startIso) {
+                query = query.gte("completed_at", startIso);
+              }
+              if (endIso) {
+                query = query.lte("completed_at", endIso);
+              }
+              return query;
+            })(),
+            (() => {
+              let query = supabase
+                .from("module_sessions")
+                .select("enrollment_id, duration_seconds, started_at, last_seen_at")
+                .in("enrollment_id", enrollmentIds);
+              if (startIso) {
+                query = query.gte("started_at", startIso);
+              }
+              if (endIso) {
+                query = query.lte("started_at", endIso);
+              }
+              return query;
+            })(),
+            (() => {
+              let query = supabase
+                .from("assessment_attempts")
+                .select("enrollment_id, score, submitted_at")
+                .in("enrollment_id", enrollmentIds)
+                .not("score", "is", null);
+              if (startIso) {
+                query = query.gte("submitted_at", startIso);
+              }
+              if (endIso) {
+                query = query.lte("submitted_at", endIso);
+              }
+              return query;
+            })(),
+          ])
+        : [
+            { data: [], error: null },
+            { data: [], error: null },
+            { data: [], error: null },
+          ];
+
+      if (moduleCompletionsResult.error) {
+        handleSupabaseError(moduleCompletionsResult.error);
+        return [];
+      }
+      if (moduleSessionsResult.error) {
+        handleSupabaseError(moduleSessionsResult.error);
+        return [];
+      }
+      if (assessmentAttemptsResult.error) {
+        handleSupabaseError(assessmentAttemptsResult.error);
+        return [];
+      }
+
+      const trainerMap = new Map((trainerUsersResult.data || []).map((trainer) => [trainer.id, trainer]));
+      const coursesByTrainerId = new Map<string, Array<{ id: string; title: string }>>();
+      managedCourses.forEach((course) => {
+        const trainerId = course.instructor_id as string;
+        const existing = coursesByTrainerId.get(trainerId) || [];
+        existing.push({ id: course.id, title: course.title });
+        coursesByTrainerId.set(trainerId, existing);
+      });
+
+      const trainerIdByCourseId = new Map(managedCourses.map((course) => [course.id, course.instructor_id as string]));
+      const trainerIdByEnrollmentId = new Map(
+        enrollments.map((enrollment) => [enrollment.id, trainerIdByCourseId.get(enrollment.course_id) || ""]),
+      );
+
+      const contentReportByCourseId = new Map(
+        contentReports
+          .filter((report) => trainerIdByCourseId.has(report.courseId))
+          .map((report) => [report.courseId, report]),
+      );
+
+      const latestRiskByCourseId = new Map<string, (typeof courseRiskResult.data extends Array<infer T> ? T : never)>();
+      (courseRiskResult.data || []).forEach((row) => {
+        if (!latestRiskByCourseId.has(row.course_id)) {
+          latestRiskByCourseId.set(row.course_id, row);
+        }
+      });
+
+      const totalCompletionMinutesByTrainerId = new Map<string, number>();
+      const totalSessionMinutesByTrainerId = new Map<string, number>();
+      const activeLearnersByTrainerId = new Map<string, Set<string>>();
+      const assessmentStatsByTrainerId = new Map<string, { totalScore: number; count: number }>();
+
+      (moduleCompletionsResult.data || []).forEach((completion) => {
+        const trainerId = trainerIdByEnrollmentId.get(completion.enrollment_id);
+        if (!trainerId) return;
+        totalCompletionMinutesByTrainerId.set(
+          trainerId,
+          (totalCompletionMinutesByTrainerId.get(trainerId) || 0) + Number(completion.time_spent || 0),
+        );
+      });
+
+      (moduleSessionsResult.data || []).forEach((session) => {
+        const trainerId = trainerIdByEnrollmentId.get(session.enrollment_id);
+        if (!trainerId) return;
+        totalSessionMinutesByTrainerId.set(
+          trainerId,
+          (totalSessionMinutesByTrainerId.get(trainerId) || 0) + Math.round(Number(session.duration_seconds || 0) / 60),
+        );
+      });
+
+      const enrollmentUserIdById = new Map(enrollments.map((enrollment) => [enrollment.id, enrollment.user_id]));
+
+      (moduleSessionsResult.data || []).forEach((session) => {
+        const trainerId = trainerIdByEnrollmentId.get(session.enrollment_id);
+        const learnerId = enrollmentUserIdById.get(session.enrollment_id);
+        if (!trainerId || !learnerId) return;
+        const existing = activeLearnersByTrainerId.get(trainerId) || new Set<string>();
+        existing.add(learnerId);
+        activeLearnersByTrainerId.set(trainerId, existing);
+      });
+
+      (moduleCompletionsResult.data || []).forEach((completion) => {
+        const trainerId = trainerIdByEnrollmentId.get(completion.enrollment_id);
+        const learnerId = enrollmentUserIdById.get(completion.enrollment_id);
+        if (!trainerId || !learnerId) return;
+        const existing = activeLearnersByTrainerId.get(trainerId) || new Set<string>();
+        existing.add(learnerId);
+        activeLearnersByTrainerId.set(trainerId, existing);
+      });
+
+      (assessmentAttemptsResult.data || []).forEach((attempt) => {
+        const trainerId = trainerIdByEnrollmentId.get(attempt.enrollment_id);
+        if (!trainerId) return;
+        const existing = assessmentStatsByTrainerId.get(trainerId) || { totalScore: 0, count: 0 };
+        existing.totalScore += Number(attempt.score || 0);
+        existing.count += 1;
+        assessmentStatsByTrainerId.set(trainerId, existing);
+      });
+
+      return Array.from(coursesByTrainerId.entries())
+        .map(([trainerId, trainerCourses]) => {
+          const trainer = trainerMap.get(trainerId);
+          const trainerCourseIds = trainerCourses.map((course) => course.id);
+          const trainerEnrollments = enrollments.filter((enrollment) => trainerCourseIds.includes(enrollment.course_id));
+          const uniqueLearnerIds = new Set(trainerEnrollments.map((enrollment) => enrollment.user_id));
+          const completedEnrollments = trainerEnrollments.filter((enrollment) => enrollment.status === "completed").length;
+          const completionRate = trainerEnrollments.length > 0
+            ? Math.round((completedEnrollments / trainerEnrollments.length) * 100)
+            : 0;
+
+          const assessmentStats = assessmentStatsByTrainerId.get(trainerId);
+          const averageAssessmentScore = assessmentStats && assessmentStats.count > 0
+            ? Math.round((assessmentStats.totalScore / assessmentStats.count) * 10) / 10
+            : null;
+
+          const engagedLearners = activeLearnersByTrainerId.get(trainerId)?.size || 0;
+          const learnerEngagementRate = uniqueLearnerIds.size > 0
+            ? Math.round((engagedLearners / uniqueLearnerIds.size) * 100)
+            : 0;
+
+          const latestRiskRows = trainerCourseIds
+            .map((courseId) => latestRiskByCourseId.get(courseId))
+            .filter(Boolean);
+          const atRiskCourses = latestRiskRows.filter((row) => row && (row.risk_level === "medium" || row.risk_level === "high")).length;
+          const atRiskRate = latestRiskRows.length > 0
+            ? Math.round((atRiskCourses / latestRiskRows.length) * 100)
+            : 0;
+
+          const trainerRecommendationRows = (recommendationsResult.data || []).filter((row) => trainerCourseIds.includes(row.course_id));
+          const recommendationImpressions = trainerRecommendationRows.reduce((sum, row) => sum + Number(row.impression_count || 0), 0);
+          const recommendationEnrollments = trainerRecommendationRows.reduce((sum, row) => sum + Number(row.enrollment_count || 0), 0);
+          const recommendationConversionRate = recommendationImpressions > 0
+            ? Math.round((recommendationEnrollments / recommendationImpressions) * 100)
+            : 0;
+
+          const trainerContentReports = trainerCourseIds
+            .map((courseId) => contentReportByCourseId.get(courseId))
+            .filter(Boolean);
+          const contentQualityRate = trainerContentReports.length > 0
+            ? Math.round(
+                trainerContentReports.reduce((sum, report) => sum + (report?.completenessRate || 0), 0) /
+                trainerContentReports.length,
+              )
+            : 0;
+
+          const completionScore = clampNumber(completionRate, 0, 100);
+          const assessmentScore = clampNumber(averageAssessmentScore ?? 0, 0, 100);
+          const engagementScore = clampNumber(learnerEngagementRate, 0, 100);
+          const riskManagementScore = clampNumber(100 - atRiskRate, 0, 100);
+          const recommendationScore = clampNumber(recommendationConversionRate, 0, 100);
+          const contentScore = clampNumber(contentQualityRate, 0, 100);
+
+          const factorScores = {
+            completionRate: {
+              rawScore: completionScore,
+              weightedScore: Math.round(completionScore * STAFF_PERFORMANCE_WEIGHTS.completionRate) / 100,
+              weight: STAFF_PERFORMANCE_WEIGHTS.completionRate,
+              explanation: `${completedEnrollments} of ${trainerEnrollments.length} managed enrollments completed successfully.`,
+            },
+            assessmentQuality: {
+              rawScore: assessmentScore,
+              weightedScore: Math.round(assessmentScore * STAFF_PERFORMANCE_WEIGHTS.assessmentQuality) / 100,
+              weight: STAFF_PERFORMANCE_WEIGHTS.assessmentQuality,
+              explanation: averageAssessmentScore !== null
+                ? `Learners averaged ${averageAssessmentScore}% across submitted assessments.`
+                : "No scored assessments were recorded in the selected period.",
+            },
+            learnerEngagement: {
+              rawScore: engagementScore,
+              weightedScore: Math.round(engagementScore * STAFF_PERFORMANCE_WEIGHTS.learnerEngagement) / 100,
+              weight: STAFF_PERFORMANCE_WEIGHTS.learnerEngagement,
+              explanation: `${engagedLearners} of ${uniqueLearnerIds.size} learners showed module activity in the selected period.`,
+            },
+            riskManagement: {
+              rawScore: riskManagementScore,
+              weightedScore: Math.round(riskManagementScore * STAFF_PERFORMANCE_WEIGHTS.riskManagement) / 100,
+              weight: STAFF_PERFORMANCE_WEIGHTS.riskManagement,
+              explanation: latestRiskRows.length > 0
+                ? `${atRiskCourses} of ${latestRiskRows.length} managed courses are currently flagged medium or high risk.`
+                : "No predictive course-risk snapshots were available for the selected period.",
+            },
+            recommendationConversion: {
+              rawScore: recommendationScore,
+              weightedScore: Math.round(recommendationScore * STAFF_PERFORMANCE_WEIGHTS.recommendationConversion) / 100,
+              weight: STAFF_PERFORMANCE_WEIGHTS.recommendationConversion,
+              explanation: recommendationImpressions > 0
+                ? `${recommendationEnrollments} recommendation-attributed enrollments were generated from ${recommendationImpressions} impressions.`
+                : "No recommendation impressions were logged for managed courses in the selected period.",
+            },
+            contentQuality: {
+              rawScore: contentScore,
+              weightedScore: Math.round(contentScore * STAFF_PERFORMANCE_WEIGHTS.contentQuality) / 100,
+              weight: STAFF_PERFORMANCE_WEIGHTS.contentQuality,
+              explanation: trainerContentReports.length > 0
+                ? `${trainerContentReports.filter((report) => report?.readyToPublish).length} of ${trainerContentReports.length} managed courses currently meet the publish-ready checklist.`
+                : "No content completeness audits were available for managed courses.",
+            },
+          } satisfies StaffPerformanceScorecard["factorScores"];
+
+          const compositeScore = Math.round(
+            factorScores.completionRate.weightedScore +
+            factorScores.assessmentQuality.weightedScore +
+            factorScores.learnerEngagement.weightedScore +
+            factorScores.riskManagement.weightedScore +
+            factorScores.recommendationConversion.weightedScore +
+            factorScores.contentQuality.weightedScore,
+          );
+
+          const certificatesIssued = (certificatesResult.data || []).filter((certificate) => trainerCourseIds.includes(certificate.course_id)).length;
+          const publishReadyCourses = trainerContentReports.filter((report) => report?.readyToPublish).length;
+          const totalLearningMinutes = Math.max(
+            totalCompletionMinutesByTrainerId.get(trainerId) || 0,
+            totalSessionMinutesByTrainerId.get(trainerId) || 0,
+          );
+          const averageLearningHoursPerLearner = uniqueLearnerIds.size > 0
+            ? Math.round(((totalLearningMinutes / uniqueLearnerIds.size) / 60) * 10) / 10
+            : 0;
+
+          const notes: string[] = [];
+          if (averageAssessmentScore === null) {
+            notes.push("Assessment-quality scoring is informationally incomplete because there were no scored attempts in the selected period.");
+          }
+          if (recommendationImpressions === 0) {
+            notes.push("Recommendation conversion stayed informational only because managed courses had no logged recommendation impressions in the selected period.");
+          }
+          if (publishReadyCourses < trainerCourseIds.length) {
+            notes.push(`${trainerCourseIds.length - publishReadyCourses} managed course${trainerCourseIds.length - publishReadyCourses === 1 ? " is" : "s are"} still below the publish-ready content checklist.`);
+          }
+          if (atRiskCourses > 0) {
+            notes.push(`${atRiskCourses} managed course${atRiskCourses === 1 ? " remains" : "s remain"} in a medium or high predictive risk state.`);
+          }
+
+          return {
+            staffId: trainerId,
+            staffName: trainer?.name || "Unknown Trainer",
+            staffEmail: trainer?.email || "No email on file",
+            role: "trainer",
+            managedCourseIds: trainerCourseIds,
+            managedCourseTitles: trainerCourses.map((course) => course.title),
+            generatedAt: new Date().toISOString(),
+            compositeScore,
+            evaluationBand:
+              compositeScore >= 85
+                ? "exemplary"
+                : compositeScore >= 70
+                  ? "strong"
+                  : compositeScore >= 55
+                    ? "watch"
+                    : "intervention",
+            courseOutcomeMetrics: {
+              completionRate,
+              averageAssessmentScore,
+              learnerEngagementRate,
+              atRiskRate,
+              recommendationConversionRate,
+              contentQualityRate,
+            },
+            factorScores,
+            informationalMetrics: {
+              managedCourses: trainerCourseIds.length,
+              activeLearners: engagedLearners,
+              totalEnrollments: trainerEnrollments.length,
+              certificatesIssued,
+              averageLearningHoursPerLearner,
+              publishReadyCourses,
+            },
+            notes,
+          } satisfies StaffPerformanceScorecard;
+        })
+        .sort((left, right) => {
+          if (right.compositeScore !== left.compositeScore) {
+            return right.compositeScore - left.compositeScore;
+          }
+          return left.staffName.localeCompare(right.staffName);
+        });
+    } catch (error) {
+      console.error("Error getting staff performance scorecards:", error);
+      return [];
+    }
+  },
+
+  getLearnerCourseLeaderboard: async (
+    courseId: string,
+    options?: { limit?: number; includeIncomplete?: boolean },
+  ): Promise<LearnerLeaderboard | null> => {
+    if (!supabase) return null;
+
+    const limit = options?.limit ?? 10;
+    const includeIncompleteLearners = options?.includeIncomplete ?? true;
+
+    try {
+      const { data: courseRow, error: courseError } = await supabase
+        .from("courses")
+        .select("id, title, category, duration")
+        .eq("id", courseId)
+        .single();
+
+      if (courseError) {
+        handleSupabaseError(courseError);
+        return null;
+      }
+
+      if (!courseRow) {
+        return null;
+      }
+
+      return await buildLearnerLeaderboardFromCourses({
+        scope: "course",
+        scopeId: courseRow.id,
+        scopeTitle: courseRow.title,
+        scopeCategory: courseRow.category || "Uncategorized",
+        courses: [{ id: courseRow.id, title: courseRow.title, category: courseRow.category, duration: courseRow.duration }],
+        includeIncompleteLearners,
+        limit,
+      });
+    } catch (error) {
+      console.error("Error getting learner course leaderboard:", error);
+      return null;
+    }
+  },
+
+  getLearnerProgramLeaderboard: async (
+    programId: string,
+    options?: { limit?: number; includeIncomplete?: boolean },
+  ): Promise<LearnerLeaderboard | null> => {
+    if (!supabase) return null;
+
+    const limit = options?.limit ?? 10;
+    const includeIncompleteLearners = options?.includeIncomplete ?? true;
+
+    try {
+      const { data: programRow, error: programError } = await supabase
+        .from("programs")
+        .select("id, title, description, category")
+        .eq("id", programId)
+        .single();
+
+      if (programError) {
+        handleSupabaseError(programError);
+        return null;
+      }
+
+      if (!programRow) {
+        return null;
+      }
+
+      const { data: courseRows, error: courseRowsError } = await supabase
+        .from("courses")
+        .select("id, title, category, duration")
+        .eq("program_id", programId)
+        .order("created_at", { ascending: true });
+
+      if (courseRowsError) {
+        handleSupabaseError(courseRowsError);
+        return null;
+      }
+
+      return await buildLearnerLeaderboardFromCourses({
+        scope: "program",
+        scopeId: programRow.id,
+        scopeTitle: programRow.title,
+        scopeCategory: programRow.category || "Mixed Program",
+        courses: (courseRows || []) as Array<{ id: string; title: string; category: string | null; duration: number | null }>,
+        includeIncompleteLearners,
+        limit,
+      });
+    } catch (error) {
+      console.error("Error getting learner program leaderboard:", error);
+      return null;
+    }
+  },
+
   getCollaborativeRecommendationSignals: async (userId: string) => {
     const computation = await buildCollaborativeRecommendationComputation(userId);
     return computation.signalsByCourseId;
@@ -1295,11 +2972,11 @@ export const reportingService = {
       const [coursesResult, modulesResult, moduleCompletionsResult, moduleSessionsResult, assessmentAttemptsResult] = await Promise.all([
         supabase
           .from("courses")
-          .select("id, title, category, skills")
+          .select("id, title, category, skills, skill_tags, topic_tags")
           .in("id", courseIds),
         supabase
           .from("modules")
-          .select("id, course_id, title")
+          .select("id, course_id, title, skill_tags, topic_tags")
           .in("course_id", courseIds),
         supabase
           .from("module_completions")
@@ -1352,11 +3029,11 @@ export const reportingService = {
         new Set(assessmentAttempts.map((attempt) => attempt.assessment_id).filter(Boolean))
       );
 
-      let assessments: Array<{ id: string; title: string; module_id: string }> = [];
+      let assessments: Array<{ id: string; title: string; module_id: string; skill_tags?: string[]; topic_tags?: string[] }> = [];
       if (assessmentIds.length > 0) {
         const { data: assessmentRows, error: assessmentsError } = await supabase
           .from("assessments")
-          .select("id, title, module_id")
+          .select("id, title, module_id, skill_tags, topic_tags")
           .in("id", assessmentIds);
 
         if (assessmentsError) {
@@ -1394,12 +3071,22 @@ export const reportingService = {
         const course = courseMap.get(courseId);
         if (!course) return ["General Learning"];
 
-        const normalizedSkills = (course.skills || []).map((skill) => skill.trim()).filter(Boolean);
-        if (normalizedSkills.length > 0) {
-          return normalizedSkills;
-        }
+        const canonicalTopics = deriveTopicTags(course.category, (course as any).skill_tags || course.skills, (course as any).topic_tags || []);
+        return canonicalTopics.length > 0 ? canonicalTopics : [canonicalizeCourseCategory(course.category) || course.category || "General Learning"];
+      };
 
-        return [course.category || "General Learning"];
+      const getTopicsForModule = (moduleId: string): string[] => {
+        const module = moduleMap.get(moduleId) as ({ topic_tags?: string[]; skill_tags?: string[]; course_id?: string } & Record<string, any>) | undefined;
+        if (!module) return [];
+        const directTopics = deriveTopicTags(undefined, module.skill_tags || [], module.topic_tags || []);
+        return directTopics.length > 0 ? directTopics : getTopicsForCourse(module.course_id);
+      };
+
+      const getTopicsForAssessment = (assessmentId: string): string[] => {
+        const assessment = assessmentMap.get(assessmentId);
+        if (!assessment) return [];
+        const directTopics = deriveTopicTags(undefined, assessment.skill_tags || [], assessment.topic_tags || []);
+        return directTopics.length > 0 ? directTopics : getTopicsForModule(assessment.module_id);
       };
 
       const topicStats = new Map<string, {
@@ -1411,7 +3098,7 @@ export const reportingService = {
       }>();
 
       const addTopicActivity = (
-        courseId: string,
+        topics: string[],
         activity: {
           score?: number | null;
           moduleCompleted?: boolean;
@@ -1419,7 +3106,7 @@ export const reportingService = {
           assessmentTaken?: boolean;
         }
       ) => {
-        for (const topic of getTopicsForCourse(courseId)) {
+        for (const topic of (normalizeTopicTags(topics).length > 0 ? normalizeTopicTags(topics) : ["General Learning"])) {
           const existing = topicStats.get(topic) || {
             scoreSum: 0,
             scoreCount: 0,
@@ -1460,8 +3147,8 @@ export const reportingService = {
             completion.time_spent || 0,
           );
 
-          if (enrollment?.course_id) {
-            addTopicActivity(enrollment.course_id, {
+          if (module?.id) {
+            addTopicActivity(getTopicsForModule(module.id), {
               moduleCompleted: true,
               timeSpentMinutes,
             });
@@ -1490,10 +3177,9 @@ export const reportingService = {
           continue;
         }
 
-        const [enrollmentId] = moduleKey.split(":");
-        const enrollment = enrollmentMap.get(enrollmentId);
-        if (enrollment?.course_id) {
-          addTopicActivity(enrollment.course_id, {
+        const moduleId = moduleKey.split(":")[1];
+        if (moduleId) {
+          addTopicActivity(getTopicsForModule(moduleId), {
             timeSpentMinutes,
           });
         }
@@ -1509,8 +3195,8 @@ export const reportingService = {
           const numericScore = attempt.score === null || attempt.score === undefined ? null : Number(attempt.score);
           const timeSpentMinutes = attempt.time_spent || 0;
 
-          if (courseId) {
-            addTopicActivity(courseId, {
+          if (attempt.assessment_id) {
+            addTopicActivity(getTopicsForAssessment(attempt.assessment_id), {
               score: numericScore,
               assessmentTaken: true,
               timeSpentMinutes,
@@ -2301,26 +3987,12 @@ export const reportingService = {
         return parsed >= currentMonthStart && parsed <= currentMonthEnd;
       };
 
-      const { data: enrollmentsData, error: enrollmentsError } = await supabase
-        .from("enrollments")
-        .select("id, user_id, course_id, progress, status, enrolled_at, completed_at")
-        .in("course_id", courseIds)
-        .order("enrolled_at", { ascending: false });
-
-      if (enrollmentsError) {
-        handleSupabaseError(enrollmentsError);
-        return null;
-      }
-
-      const enrollments = enrollmentsData || [];
+      const enrollments = await loadTrainerVisibleEnrollments(courseIds);
       const enrollmentIds = enrollments.map((enrollment) => enrollment.id);
       const learnerIds = Array.from(new Set(enrollments.map((enrollment) => enrollment.user_id)));
 
-      const [certificatesResult, modulesResult, moduleCompletionsResult, moduleSessionsResult, assessmentAttemptsResult, recommendationRowsResult] = await Promise.all([
-        supabase
-          .from("certificates")
-          .select("id, course_id, issued_at")
-          .in("course_id", courseIds),
+      const [certificatesData, modulesResult, moduleCompletionsResult, trainerSessions, assessmentAttemptsData, recommendationRowsResult] = await Promise.all([
+        loadTrainerVisibleCertificates(courseIds),
         supabase
           .from("modules")
           .select("id, course_id, title")
@@ -2333,28 +4005,14 @@ export const reportingService = {
               .in("enrollment_id", enrollmentIds)
           : Promise.resolve({ data: [], error: null }),
         enrollmentIds.length > 0
-          ? supabase
-              .from("module_sessions")
-              .select("enrollment_id, module_id, duration_seconds, started_at, last_seen_at, session_status")
-              .in("enrollment_id", enrollmentIds)
-          : Promise.resolve({ data: [], error: null }),
-        enrollmentIds.length > 0
-          ? supabase
-              .from("assessment_attempts")
-              .select("assessment_id, enrollment_id, score, passed, submitted_at")
-              .in("enrollment_id", enrollmentIds)
-              .not("submitted_at", "is", null)
-          : Promise.resolve({ data: [], error: null }),
+          ? moduleSessionService.getTrainerAccessibleSessions({ limit: Math.max(enrollmentIds.length * 8, 500) })
+          : Promise.resolve([]),
+        loadTrainerVisibleAssessmentAttempts(courseIds, enrollmentIds),
         supabase
           .from("learner_recommendations")
           .select("id, course_id, source_surface, impression_count, click_count, accept_count, enrollment_count, completion_count")
           .in("course_id", courseIds),
       ]);
-
-      if (certificatesResult.error) {
-        handleSupabaseError(certificatesResult.error);
-        return null;
-      }
 
       if (modulesResult.error) {
         handleSupabaseError(modulesResult.error);
@@ -2366,22 +4024,12 @@ export const reportingService = {
         return null;
       }
 
-      if (moduleSessionsResult.error) {
-        handleSupabaseError(moduleSessionsResult.error);
-        return null;
-      }
-
-      if (assessmentAttemptsResult.error) {
-        handleSupabaseError(assessmentAttemptsResult.error);
-        return null;
-      }
-
       if (recommendationRowsResult.error) {
         handleSupabaseError(recommendationRowsResult.error);
         return null;
       }
 
-      const assessmentAttempts = assessmentAttemptsResult.data || [];
+      const assessmentAttempts = assessmentAttemptsData || [];
       const assessmentIds = Array.from(new Set(assessmentAttempts.map((attempt) => attempt.assessment_id).filter(Boolean)));
       let assessmentRows: Array<{ id: string; module_id: string | null }> = [];
 
@@ -2399,10 +4047,19 @@ export const reportingService = {
         assessmentRows = data || [];
       }
 
-      const certificates = certificatesResult.data || [];
+      const certificates = certificatesData || [];
       const modules = modulesResult.data || [];
       const moduleCompletions = moduleCompletionsResult.data || [];
-      const moduleSessions = moduleSessionsResult.data || [];
+      const moduleSessions = trainerSessions
+        .filter((session) => enrollmentIds.includes(session.enrollmentId))
+        .map((session) => ({
+          enrollment_id: session.enrollmentId,
+          module_id: session.moduleId,
+          duration_seconds: session.durationSeconds,
+          started_at: session.startedAt,
+          last_seen_at: session.lastSeenAt,
+          session_status: session.sessionStatus,
+        }));
       const recommendationRows = recommendationRowsResult.data || [];
       const assessmentMap = new Map(assessmentRows.map((assessment) => [assessment.id, assessment]));
       const enrollmentMap = new Map(enrollments.map((enrollment) => [enrollment.id, enrollment]));
@@ -3118,11 +4775,12 @@ export const reportingService = {
           id,
           certificate_number,
           user_id,
-          course_title,
+          course_id,
           certificate_type,
           issued_at,
           verification_code,
-          users:user_id (name)
+          users:user_id (name),
+          courses:course_id (title)
         `)
         .order("issued_at", { ascending: false });
 
@@ -3150,7 +4808,7 @@ export const reportingService = {
         certificateNumber: cert.certificate_number,
         userId: cert.user_id,
         userName: cert.users?.name || "Unknown",
-        courseTitle: cert.course_title,
+        courseTitle: cert.courses?.title || "Unknown Course",
         certificateType: cert.certificate_type,
         issuedDate: cert.issued_at,
         verificationCode: cert.verification_code,

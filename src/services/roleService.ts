@@ -1,5 +1,5 @@
 import { supabase, handleSupabaseError } from "@/lib/supabase";
-import { UserRole } from "@/types/auth";
+import { UserRole, normalizeUserRole } from "@/types/auth";
 
 export interface DatabasePermission {
   id: string;
@@ -419,7 +419,7 @@ export const roleService = {
         return [];
       }
 
-      const userRole = userData.role;
+      const userRole = normalizeUserRole(userData.role);
       if (!userRole) {
         console.warn("⚠️ User has no role assigned");
         return [];

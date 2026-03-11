@@ -117,6 +117,59 @@ const resolveCurrentProfileId = async (): Promise<string | null> => {
   }
 };
 
+const ensureUserProfileRecord = async (
+  authUser: { id: string; email?: string | null; created_at?: string | null; user_metadata?: Record<string, any> | null },
+): Promise<UserProfileRecord | null> => {
+  if (!supabase) {
+    return null;
+  }
+
+  const email = authUser.email || `${authUser.id}@temp.local`;
+  const name =
+    getMetadataString(authUser.user_metadata?.name) ||
+    getMetadataString(authUser.user_metadata?.full_name) ||
+    email.split("@")[0] ||
+    "User";
+
+  const payload = {
+    id: authUser.id,
+    email,
+    name,
+    role: normalizeUserRole(authUser.user_metadata?.role),
+    phone: getMetadataString(authUser.user_metadata?.phone) || null,
+    address: getMetadataString(authUser.user_metadata?.address) || null,
+    date_of_birth: getMetadataString(authUser.user_metadata?.date_of_birth) || null,
+    gender: getMetadataString(authUser.user_metadata?.gender) || null,
+    civil_status: getMetadataString(authUser.user_metadata?.civil_status) || null,
+    employment_status: getMetadataString(authUser.user_metadata?.employment_status) || null,
+    occupation: getMetadataString(authUser.user_metadata?.occupation) || null,
+    education_level: getMetadataString(authUser.user_metadata?.education_level) || null,
+    barangay: getMetadataString(authUser.user_metadata?.barangay) || null,
+    city_municipality: getMetadataString(authUser.user_metadata?.city_municipality) || null,
+    province: getMetadataString(authUser.user_metadata?.province) || null,
+    postal_code: getMetadataString(authUser.user_metadata?.postal_code) || null,
+    industry_interests: getMetadataStringArray(authUser.user_metadata?.industry_interests) || [],
+    preferred_categories: getMetadataStringArray(authUser.user_metadata?.preferred_categories) || [],
+    onboarding_skill_level: getMetadataString(authUser.user_metadata?.onboarding_skill_level) || null,
+    skills: getMetadataStringArray(authUser.user_metadata?.skills) || [],
+    created_at: authUser.created_at || new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+
+  const { data, error } = await supabase
+    .from("users")
+    .upsert(payload as any, { onConflict: "id" })
+    .select("*")
+    .maybeSingle();
+
+  if (error) {
+    console.warn("Could not self-heal missing user profile row:", error);
+    return null;
+  }
+
+  return (data as UserProfileRecord | null) || null;
+};
+
 const loadUserProfile = async (userId: string, email?: string | null): Promise<{ profileData: UserProfileRecord | null; profileError: Error | null }> => {
   if (!supabase) {
     return { profileData: null, profileError: new Error("Supabase client not initialized") };
@@ -228,6 +281,8 @@ export const supabaseAuthService = {
     
     try {
       const canonicalRole = normalizeUserRole(role);
+      const adminCreateInProgress =
+        typeof window !== "undefined" && window.sessionStorage.getItem("admin_creating_user") === "1";
 
       // IMPORTANT: Save the current admin session before creating user
       // signUp() will automatically log in as the new user, so we need to restore admin session
@@ -271,9 +326,10 @@ export const supabaseAuthService = {
         },
       });
       
-      // Immediately restore the admin session to prevent being logged in as the new user
-      // This ensures the admin stays logged in as themselves without any visual glitches
-      if (authData?.user && adminSession && adminUserId) {
+      // Only restore the previous session during admin-created user flows.
+      // Public signup must keep the new user authenticated so missing public.users
+      // rows can be self-healed by the fallback insert path if the trigger misses.
+      if (authData?.user && adminCreateInProgress && adminSession && adminUserId) {
         // Restore admin session immediately (this will replace the new user's session)
         // Do this synchronously to prevent any auth state changes from propagating
         try {
@@ -305,9 +361,6 @@ export const supabaseAuthService = {
             });
           }
         }
-      } else if (authData?.user && !adminSession) {
-        // No admin session to restore, just sign out
-        await supabase.auth.signOut();
       }
 
       // IMPORTANT: Check if user was created FIRST, even if there's an error
@@ -374,18 +427,14 @@ export const supabaseAuthService = {
       let retries = 5; // Increased retries
 
       while (retries > 0 && !profileData) {
-        const { data, error } = await supabase
-          .from("users")
-          .select("*")
-          .eq("id", authData.user.id)
-          .single();
+        const profileResult = await loadUserProfile(authData.user.id, authData.user.email);
 
-        if (data && !error) {
-          profileData = data;
+        if (profileResult.profileData) {
+          profileData = profileResult.profileData;
           break;
         }
 
-        profileError = error;
+        profileError = profileResult.profileError;
         retries--;
         if (retries > 0) {
           // Wait a bit longer before retrying (exponential backoff)
@@ -533,6 +582,12 @@ export const supabaseAuthService = {
       // If we still don't have profile data, create a minimal user object from auth data
       // This allows the user to log in, and the profile can be created on first access
       if (!profileData) {
+        const ensuredProfile = await ensureUserProfileRecord(authData.user);
+
+        if (ensuredProfile) {
+          return { user: buildUserFromSources(authData.user, ensuredProfile), error: null };
+        }
+
         console.warn("Profile not created, but auth user exists. Creating minimal user object.");
         const minimalUser: User = {
           id: authData.user.id,
@@ -653,6 +708,11 @@ export const supabaseAuthService = {
 
       // If profile doesn't exist or fetch timed out, create a temporary user
       if (profileError || !profileData) {
+        const ensuredProfile = await ensureUserProfileRecord(authData.user);
+        if (ensuredProfile) {
+          return { user: buildUserFromSources(authData.user, ensuredProfile), error: null };
+        }
+
         console.warn("User profile not found or fetch timed out for user ID:", authData.user.id, "Creating temporary user");
 
         return { user: buildUserFromSources(authData.user, null), error: null };
@@ -784,6 +844,11 @@ export const supabaseAuthService = {
       const { profileData, profileError } = await loadUserProfile(authUser.id, authUser.email);
 
       if (profileError || !profileData) {
+        const ensuredProfile = await ensureUserProfileRecord(authUser);
+        if (ensuredProfile) {
+          return { user: buildUserFromSources(authUser, ensuredProfile), error: null };
+        }
+
         // Profile doesn't exist, but we can still return user with role from metadata
         // Profile will be created by trigger or can be created later
         console.warn("User profile not found, using auth user data:", {
@@ -982,7 +1047,8 @@ export const supabaseAuthService = {
 
   hydrateUserFromAuthUser: async (authUser: { id: string; email?: string | null; created_at?: string | null; user_metadata?: Record<string, any> | null }) => {
     const { profileData } = await loadUserProfile(authUser.id, authUser.email);
-    return buildUserFromSources(authUser, profileData);
+    const ensuredProfile = profileData || await ensureUserProfileRecord(authUser);
+    return buildUserFromSources(authUser, ensuredProfile);
   },
 
   /**

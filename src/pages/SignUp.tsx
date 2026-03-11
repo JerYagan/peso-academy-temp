@@ -24,6 +24,7 @@ import {
 } from "@/lib/onboarding";
 
 const SIGNUP_DRAFT_STORAGE_KEY = "peso-signup-onboarding-draft-v1";
+const SIGNUP_SUBMIT_BUTTON_NAME = "finish-onboarding";
 
 const genderOptions: Array<{ value: NonNullable<User["gender"]>; label: string }> = [
   { value: "male", label: "Male" },
@@ -166,7 +167,7 @@ const getStepValidationError = (stepId: SignUpStepId, formData: SignUpFormData):
 };
 
 const SignUp = () => {
-  const { signup, user, isAuthenticated } = useAuth();
+  const { signup, user, isAuthenticated, loading: authLoading } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const redirectTo = searchParams.get("redirect");
@@ -177,6 +178,7 @@ const SignUp = () => {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [signupInProgress, setSignupInProgress] = useState(false);
+  const [initialAuthRedirectHandled, setInitialAuthRedirectHandled] = useState(false);
 
   const steps = useMemo(
     () => [
@@ -270,13 +272,22 @@ const SignUp = () => {
   }, [draftReady, formData, activeStepId]);
 
   useEffect(() => {
-    if (!isAuthenticated || !user || signupInProgress) return;
+    if (!draftReady || authLoading || initialAuthRedirectHandled || signupInProgress) {
+      return;
+    }
+
+    setInitialAuthRedirectHandled(true);
+
+    if (!isAuthenticated || !user) {
+      return;
+    }
+
     if (redirectTo && redirectTo.startsWith("/")) {
       navigate(redirectTo, { replace: true });
     } else {
       navigate(getDashboardRoute(user.role as AppUserRole), { replace: true });
     }
-  }, [isAuthenticated, user, navigate, redirectTo, signupInProgress]);
+  }, [authLoading, draftReady, initialAuthRedirectHandled, isAuthenticated, navigate, redirectTo, signupInProgress, user]);
 
   const goToStep = (nextStepId: SignUpStepId) => {
     const requestedIndex = steps.findIndex((step) => step.id === nextStepId);
@@ -318,9 +329,92 @@ const SignUp = () => {
     }
   };
 
+  const handleFormKeyDown = (event: React.KeyboardEvent<HTMLFormElement>) => {
+    if (event.key !== "Enter") {
+      return;
+    }
+
+    const target = event.target as HTMLElement | null;
+    if (!target) {
+      return;
+    }
+
+    const tagName = target.tagName.toLowerCase();
+    const submitButton = target instanceof HTMLButtonElement && target.type === "submit";
+    const multilineField = target instanceof HTMLTextAreaElement || target.getAttribute("role") === "textbox";
+
+    if (submitButton || multilineField) {
+      return;
+    }
+
+    if (tagName === "input" || tagName === "button" || tagName === "div" || target.getAttribute("role") === "radio") {
+      event.preventDefault();
+    }
+  };
+
+  const persistOnboardingSideEffects = async (onboardingUser: User, normalizedSkills: string[], onboardingCompletedAt: string) => {
+    let persistedRecommendations = [] as Awaited<
+      ReturnType<typeof recommendationSyncService.refreshProfileDrivenRecommendations>
+    >;
+
+    try {
+      persistedRecommendations = await recommendationSyncService.refreshProfileDrivenRecommendations(
+        onboardingUser,
+        ["dashboard_recommendations"],
+        {
+          trigger: "onboarding_completion",
+          extraContext: {
+            onboardingSignalCoverage: recommendationSignalCoverage,
+            readinessResponses: {
+              confidenceLevel: formData.confidenceLevel || null,
+              weeklyCommitment: formData.weeklyCommitment || null,
+              digitalComfort: formData.digitalComfort || null,
+            },
+            initialRecommendationSource: "signup_onboarding",
+          },
+        },
+      );
+    } catch (sideEffectError) {
+      console.warn("Failed to refresh onboarding recommendations after signup:", sideEffectError);
+    }
+
+    try {
+      await analyticsService.trackEvent({
+        eventName: "onboarding_completed",
+        userId: onboardingUser.id,
+        surface: "signup_onboarding",
+        metadata: {
+          industryInterestCount: formData.industryInterests.length,
+          preferredCategoryCount: formData.preferredCategories.length,
+          onboardingSkillLevel: effectiveSkillLevel || null,
+          onboardingConfidenceLevel: formData.confidenceLevel || null,
+          onboardingWeeklyCommitment: formData.weeklyCommitment || null,
+          onboardingDigitalComfort: formData.digitalComfort || null,
+          onboardingCompletedAt,
+          profileSkillsCount: normalizedSkills.length,
+          onboardingSignalCoverage: recommendationSignalCoverage,
+          generatedRecommendationCount: persistedRecommendations.length,
+        },
+      });
+    } catch (sideEffectError) {
+      console.warn("Failed to log onboarding analytics after signup:", sideEffectError);
+    }
+
+    return persistedRecommendations;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+
+    const nativeSubmitEvent = e.nativeEvent as SubmitEvent | undefined;
+    const submitter = nativeSubmitEvent?.submitter;
+    const isExpectedSubmitter =
+      submitter instanceof HTMLButtonElement && submitter.name === SIGNUP_SUBMIT_BUTTON_NAME;
+
+    if (!isExpectedSubmitter) {
+      return;
+    }
 
     const validationError =
       getStepValidationError(activeStepId, formData) ||
@@ -375,39 +469,11 @@ const SignUp = () => {
           skills: normalizedSkills.length > 0 ? normalizedSkills : undefined,
         };
 
-        const persistedRecommendations = await recommendationSyncService.refreshProfileDrivenRecommendations(
+        const persistedRecommendations = await persistOnboardingSideEffects(
           onboardingUser,
-          ["dashboard_recommendations"],
-          {
-            trigger: "onboarding_completion",
-            extraContext: {
-              onboardingSignalCoverage: recommendationSignalCoverage,
-              readinessResponses: {
-                confidenceLevel: formData.confidenceLevel || null,
-                weeklyCommitment: formData.weeklyCommitment || null,
-                digitalComfort: formData.digitalComfort || null,
-              },
-              initialRecommendationSource: "signup_onboarding",
-            },
-          },
+          normalizedSkills,
+          onboardingCompletedAt,
         );
-
-        await analyticsService.trackEvent({
-          eventName: "onboarding_completed",
-          userId: onboardingUser.id,
-          surface: "signup_onboarding",
-          metadata: {
-            industryInterestCount: formData.industryInterests.length,
-            preferredCategoryCount: formData.preferredCategories.length,
-            onboardingSkillLevel: effectiveSkillLevel || null,
-            onboardingConfidenceLevel: formData.confidenceLevel || null,
-            onboardingWeeklyCommitment: formData.weeklyCommitment || null,
-            onboardingDigitalComfort: formData.digitalComfort || null,
-            profileSkillsCount: normalizedSkills.length,
-            onboardingSignalCoverage: recommendationSignalCoverage,
-            generatedRecommendationCount: persistedRecommendations.length,
-          },
-        });
 
         if (typeof window !== "undefined") {
           window.localStorage.removeItem(SIGNUP_DRAFT_STORAGE_KEY);
@@ -436,8 +502,8 @@ const SignUp = () => {
       } else {
         setError(result.error || "Email already exists. Please use a different email.");
       }
-    } catch {
-      setError("An error occurred. Please try again.");
+    } catch (submitError) {
+      setError(submitError instanceof Error && submitError.message ? submitError.message : "An error occurred. Please try again.");
     } finally {
       setLoading(false);
       if (!completedNavigation) {
@@ -742,13 +808,22 @@ const SignUp = () => {
       </div>
       <RadioGroup value={value} onValueChange={onChange} className="space-y-2">
         {options.map((option) => (
-          <label key={option.value} className="flex items-start gap-3 rounded-xl border border-border/70 px-3 py-3 text-sm">
-            <RadioGroupItem value={option.value} id={`${name}-${option.value}`} className="mt-1" />
-            <span>
+          <div key={option.value} className="flex items-start gap-3 rounded-xl border border-border/70 px-3 py-3 text-sm">
+            <RadioGroupItem
+              value={option.value}
+              id={`${name}-${option.value}`}
+              className="mt-1"
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                }
+              }}
+            />
+            <label htmlFor={`${name}-${option.value}`} className="cursor-pointer">
               <span className="block font-medium text-foreground">{option.label}</span>
               <span className="mt-1 block text-muted-foreground">{option.hint}</span>
-            </span>
-          </label>
+            </label>
+          </div>
         ))}
       </RadioGroup>
     </div>
@@ -881,7 +956,7 @@ const SignUp = () => {
         </>
       }
     >
-      <form onSubmit={handleSubmit} className="space-y-8">
+      <form onSubmit={handleSubmit} onKeyDown={handleFormKeyDown} className="space-y-8">
         <div className="space-y-4 rounded-2xl border border-border/70 bg-background/80 p-5 sm:p-6">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
             <div className="space-y-1">
@@ -948,12 +1023,18 @@ const SignUp = () => {
             ) : null}
 
             {activeStepIndex < steps.length - 1 ? (
-              <Button type="button" onClick={handleNextStep} disabled={loading}>
+              <Button key={`next-${activeStepId}`} type="button" onClick={handleNextStep} disabled={loading}>
                 Next
                 <ArrowRight className="ml-2 h-4 w-4" />
               </Button>
             ) : (
-              <Button type="submit" className="min-w-56" disabled={loading}>
+              <Button
+                key="finish-onboarding"
+                type="submit"
+                name={SIGNUP_SUBMIT_BUTTON_NAME}
+                className="min-w-56"
+                disabled={loading}
+              >
                 {loading ? "Finishing onboarding..." : "Finish onboarding"}
               </Button>
             )}

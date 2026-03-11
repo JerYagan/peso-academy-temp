@@ -5,7 +5,7 @@ import {
   reportingService,
 } from "@/services/reportingService";
 import { courseService, enrollmentService } from "@/services/supabaseDatabaseService";
-import type { User } from "@/types/auth";
+import { normalizeUserRole, type User } from "@/types/auth";
 
 export type LearnerRecommendationSurface = "dashboard_recommendations" | "browse_recommendations";
 
@@ -27,7 +27,7 @@ export const recommendationSyncService = {
   ): Promise<PersistedLearnerRecommendation[]> => {
     const normalizedUser: User = {
       ...user,
-      role: user.role === "jobseeker" ? "trainee" : user.role,
+      role: normalizeUserRole(user.role),
     };
 
     if (normalizedUser.role !== "trainee") {

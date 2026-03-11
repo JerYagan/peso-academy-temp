@@ -3,10 +3,9 @@
  * Roles are stored in user metadata in Supabase (auth.users.raw_user_meta_data->>'role')
  * Following payroll-pal's authentication approach
  * 
- * System has 4 roles:
+ * System has 3 roles:
  * - admin (Administrator)
- * - training_officer (Training Officer)
- * - validator (Validator)
+ * - trainer (Trainer)
  * - trainee (Trainee)
  * 
  * Display names can be customized via role_aliases table
@@ -18,7 +17,7 @@ import { roleService } from "@/services/roleService";
 
 export type { UserRole } from "@/types/auth";
 
-type PermissionRole = "admin" | "training_officer" | "validator" | "trainee";
+type PermissionRole = "admin" | "trainer" | "trainee";
 
 // Cache for dashboard routes to avoid repeated database calls
 const dashboardRouteCache: Map<string, string> = new Map();
@@ -35,13 +34,8 @@ export interface RolePermissions {
 
 const permissionRoleAliases: Record<UserRole, PermissionRole> = {
   admin: "admin",
-  training_officer: "training_officer",
-  trainer: "training_officer",
-  spd: "training_officer",
-  validator: "validator",
+  trainer: "trainer",
   trainee: "trainee",
-  employer: "trainee",
-  jobseeker: "trainee",
 };
 
 export const rolePermissions: Record<PermissionRole, RolePermissions> = {
@@ -53,19 +47,11 @@ export const rolePermissions: Record<PermissionRole, RolePermissions> = {
     canViewReports: true,
     canManageSettings: true,
   },
-  training_officer: {
+  trainer: {
     canManageUsers: false,
     canManageCourses: true,
     canManageTraining: true,
     canValidate: false,
-    canViewReports: true,
-    canManageSettings: false,
-  },
-  validator: {
-    canManageUsers: false,
-    canManageCourses: false,
-    canManageTraining: false,
-    canValidate: true,
     canViewReports: true,
     canManageSettings: false,
   },
@@ -84,13 +70,8 @@ export const rolePermissions: Record<PermissionRole, RolePermissions> = {
  */
 export const defaultRoleDisplayNames: Record<UserRole, string> = {
   admin: 'Administrator',
-  training_officer: 'Training Officer',
   trainer: 'Trainer',
-  spd: 'Special Projects Division',
-  validator: 'Validator',
   trainee: 'Trainee',
-  employer: 'Employer',
-  jobseeker: 'Jobseeker',
 };
 
 /**
@@ -98,13 +79,8 @@ export const defaultRoleDisplayNames: Record<UserRole, string> = {
  */
 export const defaultRoleDescriptions: Record<UserRole, string> = {
   admin: 'Assigns and manages roles and defines access permissions',
-  training_officer: 'Accesses training-related modules only',
   trainer: 'Creates courses, manages training content, and supports learners',
-  spd: 'Manages program delivery, modules, and training operations',
-  validator: 'Accesses validation and review modules only',
   trainee: 'Accesses learning, assessment, and progress modules only',
-  employer: 'Accesses learner-facing dashboard features',
-  jobseeker: 'Accesses learner-facing dashboard features',
 };
 
 function getPermissionRole(role: UserRole): PermissionRole {
@@ -158,9 +134,7 @@ export function getUserPermissions(user: any): RolePermissions {
 
 const localDashboardRouteOverrides: Partial<Record<UserRole, string>> = {
   admin: '/admin/dashboard',
-  training_officer: '/trainer/dashboard',
   trainer: '/trainer/dashboard',
-  spd: '/trainer/dashboard',
 };
 
 /**
@@ -168,13 +142,8 @@ const localDashboardRouteOverrides: Partial<Record<UserRole, string>> = {
  */
 const fallbackDashboardRoutes: Record<string, string> = {
   'admin': '/admin/dashboard',
-  'training_officer': '/trainer/dashboard',
   'trainer': '/trainer/dashboard',
-  'spd': '/trainer/dashboard',
-  'validator': '/validator/dashboard',
-  'employer': '/dashboard',
   'trainee': '/dashboard',
-  'jobseeker': '/dashboard',
 };
 
 /**

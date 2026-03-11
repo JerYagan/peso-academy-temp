@@ -1,7 +1,8 @@
 import { supabase, handleSupabaseError } from "@/lib/supabase";
 import { resolveCourseMaterialUrl, resolveCourseMaterialUrls } from "@/lib/courseAssets";
+import { buildCanonicalCourseTaxonomy, canonicalizeCourseCategory, deriveSkillTags, deriveTopicTags } from "@/lib/taxonomy";
 import { analyticsService } from "@/services/analyticsService";
-import { Course, Enrollment, Certificate, Module } from "@/types";
+import { Course, Enrollment, Certificate, CourseTrainerSummary, Module, Program } from "@/types";
 import { User, normalizeUserRole } from "@/types/auth";
 import { notificationHelpers } from "@/services/notificationService";
 
@@ -148,6 +149,28 @@ const loadActiveEnrollmentCounts = async (courseIds: string[]): Promise<Map<stri
     return new Map();
   }
 
+  const { data: aggregatedCounts, error: aggregateError } = await supabase.rpc("get_course_enrollment_counts", {
+    course_ids: courseIds,
+  });
+
+  if (!aggregateError && Array.isArray(aggregatedCounts)) {
+    const counts = new Map<string, number>();
+
+    for (const row of aggregatedCounts as Array<{ course_id: string | null; enrollment_count: number | string | null }>) {
+      if (!row.course_id) {
+        continue;
+      }
+
+      const parsedCount = typeof row.enrollment_count === "number"
+        ? row.enrollment_count
+        : Number(row.enrollment_count || 0);
+
+      counts.set(row.course_id, Number.isFinite(parsedCount) ? parsedCount : 0);
+    }
+
+    return counts;
+  }
+
   const { data, error } = await supabase
     .from("enrollments")
     .select("course_id")
@@ -155,7 +178,7 @@ const loadActiveEnrollmentCounts = async (courseIds: string[]): Promise<Map<stri
     .neq("status", "dropped");
 
   if (error) {
-    console.warn("Failed to load live enrollment counts for courses:", error);
+    console.warn("Failed to load live enrollment counts for courses:", aggregateError || error);
     return new Map();
   }
 
@@ -172,22 +195,155 @@ const loadActiveEnrollmentCounts = async (courseIds: string[]): Promise<Map<stri
   return counts;
 };
 
+const resolveCurrentProfileId = async (): Promise<string | null> => {
+  if (!supabase) {
+    return null;
+  }
+
+  try {
+    const { data, error } = await supabase.rpc("get_current_user_profile_id");
+
+    if (error) {
+      return null;
+    }
+
+    return typeof data === "string" && data.length > 0 ? data : null;
+  } catch {
+    return null;
+  }
+};
+
+const loadProgramsById = async (programIds: string[]): Promise<Map<string, Program>> => {
+  if (!supabase || programIds.length === 0) {
+    return new Map();
+  }
+
+  const uniqueProgramIds = Array.from(new Set(programIds.filter(Boolean)));
+  if (uniqueProgramIds.length === 0) {
+    return new Map();
+  }
+
+  const { data: programs, error: programsError } = await supabase
+    .from("programs")
+    .select("id, title, description, category, created_by, created_at, updated_at")
+    .in("id", uniqueProgramIds);
+
+  if (programsError) {
+    console.warn("Failed to load programs for courses:", programsError);
+    return new Map();
+  }
+
+  const { data: courseRows, error: courseRowsError } = await supabase
+    .from("courses")
+    .select("program_id")
+    .in("program_id", uniqueProgramIds as string[]);
+
+  if (courseRowsError) {
+    console.warn("Failed to load course counts for programs:", courseRowsError);
+  }
+
+  const courseCountByProgramId = new Map<string, number>();
+  for (const row of courseRows || []) {
+    const programId = row.program_id;
+    if (!programId) continue;
+    courseCountByProgramId.set(programId, (courseCountByProgramId.get(programId) || 0) + 1);
+  }
+
+  return new Map(
+    (programs || []).map((program) => [
+      program.id,
+      {
+        id: program.id,
+        title: program.title,
+        description: program.description || "",
+        category: program.category || null,
+        createdBy: program.created_by || null,
+        courseCount: courseCountByProgramId.get(program.id) || 0,
+        createdAt: program.created_at,
+        updatedAt: program.updated_at,
+      } satisfies Program,
+    ]),
+  );
+};
+
+const buildCourseTrainerSummary = (
+  trainerRecord?: { id: string; name: string | null; email: string | null; role?: string | null } | null,
+  fallbackInstructor?: string | null,
+): CourseTrainerSummary => {
+  const normalizedRole = normalizeUserRole(trainerRecord?.role);
+  const roleLabel = normalizedRole === "trainer" ? "Trainer" : "Training Team";
+  const profileName = trainerRecord?.name?.trim() || "";
+  const fallbackName = fallbackInstructor?.trim() || "";
+
+  return {
+    id: trainerRecord?.id || null,
+    displayName: profileName || fallbackName || "PESO Training Team",
+    roleLabel,
+    email: trainerRecord?.email || null,
+  };
+};
+
+const loadCourseTrainersById = async (trainerIds: string[], fallbackNames?: Map<string, string>): Promise<Map<string, CourseTrainerSummary>> => {
+  if (!supabase || trainerIds.length === 0) {
+    return new Map();
+  }
+
+  const uniqueTrainerIds = Array.from(new Set(trainerIds.filter(Boolean)));
+  if (uniqueTrainerIds.length === 0) {
+    return new Map();
+  }
+
+  const { data: trainerRows, error } = await supabase
+    .from("users")
+    .select("id, name, email, role")
+    .in("id", uniqueTrainerIds);
+
+  if (error) {
+    console.warn("Failed to load trainer profiles for courses:", error);
+    return new Map(
+      uniqueTrainerIds.map((id) => [id, buildCourseTrainerSummary(null, fallbackNames?.get(id) || null)]),
+    );
+  }
+
+  const trainerMap = new Map<string, CourseTrainerSummary>();
+  for (const trainer of trainerRows || []) {
+    trainerMap.set(
+      trainer.id,
+      buildCourseTrainerSummary(trainer, fallbackNames?.get(trainer.id) || null),
+    );
+  }
+
+  for (const trainerId of uniqueTrainerIds) {
+    if (!trainerMap.has(trainerId)) {
+      trainerMap.set(trainerId, buildCourseTrainerSummary(null, fallbackNames?.get(trainerId) || null));
+    }
+  }
+
+  return trainerMap;
+};
+
 const mapCourseRecord = (
   course: any,
   liveEnrollmentCounts?: Map<string, number>,
+  programsById?: Map<string, Program>,
+  trainersById?: Map<string, CourseTrainerSummary>,
 ): Course => ({
   id: course.id,
   title: course.title,
   description: course.description,
-  category: course.category,
+  programId: course.program_id || null,
+  programTitle: programsById?.get(course.program_id || "")?.title || null,
+  category: canonicalizeCourseCategory(course.category) || course.category,
   level: course.level,
   duration: course.duration,
-  instructor: "",
+  instructor: trainersById?.get(course.instructor_id || "")?.displayName || course.instructor || "PESO Training Team",
   instructorId: course.instructor_id,
+  assignedTrainer: trainersById?.get(course.instructor_id || "") || buildCourseTrainerSummary(null, course.instructor || null),
   thumbnail: resolveCourseMaterialUrl(course.thumbnail),
   courseDocument: resolveCourseMaterialUrl(course.course_document),
   isTESDAAccredited: course.is_tesda_accredited,
-  skills: course.skills,
+  skills: deriveSkillTags(course.category, course.skill_tags || course.skills),
+  topicTags: deriveTopicTags(course.category, course.skill_tags || course.skills, course.topic_tags || []),
   industryTags: course.industry_tags || [],
   careerPaths: course.career_paths || [],
   enrolledCount: liveEnrollmentCounts?.get(course.id) ?? course.enrolled_count ?? 0,
@@ -275,8 +431,18 @@ export const courseService = {
     }
 
     const liveEnrollmentCounts = await loadActiveEnrollmentCounts((data || []).map((course) => course.id));
+    const programsById = await loadProgramsById((data || []).map((course) => course.program_id).filter(Boolean));
+    const trainerFallbackNames = new Map(
+      (data || [])
+        .filter((course) => course.instructor_id)
+        .map((course) => [course.instructor_id, String(course.instructor || "")]),
+    );
+    const trainersById = await loadCourseTrainersById(
+      (data || []).map((course) => course.instructor_id).filter(Boolean),
+      trainerFallbackNames,
+    );
 
-    return data?.map((course) => mapCourseRecord(course, liveEnrollmentCounts)) || [];
+    return data?.map((course) => mapCourseRecord(course, liveEnrollmentCounts, programsById, trainersById)) || [];
   },
 
   /**
@@ -298,53 +464,48 @@ export const courseService = {
 
     let enrolledCount = data.enrolled_count ?? 0;
     const liveEnrollmentCounts = await loadActiveEnrollmentCounts([data.id]);
+    const programsById = await loadProgramsById(data.program_id ? [data.program_id] : []);
+    const trainersById = await loadCourseTrainersById(
+      data.instructor_id ? [data.instructor_id] : [],
+      new Map(data.instructor_id ? [[data.instructor_id, String(data.instructor || "")]] : []),
+    );
     if (liveEnrollmentCounts.has(data.id)) {
       enrolledCount = liveEnrollmentCounts.get(data.id) || 0;
     }
 
-    return {
-      id: data.id,
-      title: data.title,
-      description: data.description,
-      category: data.category,
-      level: data.level,
-      duration: data.duration,
-      instructor: "", // Will be populated via join if needed
-      instructorId: data.instructor_id,
-      thumbnail: resolveCourseMaterialUrl(data.thumbnail),
-      courseDocument: resolveCourseMaterialUrl(data.course_document),
-      isTESDAAccredited: data.is_tesda_accredited,
-      skills: data.skills,
-      industryTags: data.industry_tags || [],
-      careerPaths: data.career_paths || [],
-      enrolledCount,
-      rating: data.rating,
-      createdAt: data.created_at,
-      published: data.published ?? true,
-    };
+    return mapCourseRecord({ ...data, enrolled_count: enrolledCount }, undefined, programsById, trainersById);
   },
 
   /**
    * Create a new course
    */
   createCourse: async (course: Omit<Course, "id" | "createdAt" | "enrolledCount" | "rating">): Promise<Course> => {
+    const canonicalTaxonomy = buildCanonicalCourseTaxonomy({
+      category: course.category,
+      skills: course.skills,
+      topicTags: course.topicTags,
+    });
+
     const insertPayload = {
       title: course.title,
       description: course.description,
-      category: course.category,
+      category: canonicalTaxonomy.category || course.category,
       level: course.level,
       duration: course.duration,
       instructor_id: course.instructorId,
       thumbnail: course.thumbnail || null,
       course_document: course.courseDocument || null,
       is_tesda_accredited: course.isTESDAAccredited,
-      skills: course.skills,
+      skills: canonicalTaxonomy.skillTags,
+      skill_tags: canonicalTaxonomy.skillTags,
+      topic_tags: canonicalTaxonomy.topicTags,
       industry_tags: course.industryTags || [],
       career_paths: course.careerPaths || [],
       enrolled_count: 0,
       rating: 0,
       certificate_type: "completion",
       published: course.published ?? true,
+      program_id: course.programId || null,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
@@ -363,9 +524,14 @@ export const courseService = {
       throw error;
     }
 
+    const trainersById = await loadCourseTrainersById(
+      data.instructor_id ? [data.instructor_id] : [],
+      new Map(data.instructor_id ? [[data.instructor_id, course.instructor || ""]] : []),
+    );
+
     return {
-      ...mapCourseRecord(data),
-      instructor: course.instructor,
+      ...mapCourseRecord(data, undefined, undefined, trainersById),
+      instructor: course.instructor || trainersById.get(data.instructor_id || "")?.displayName || "PESO Training Team",
     };
   },
 
@@ -379,17 +545,25 @@ export const courseService = {
 
     if (updates.title !== undefined) updateData.title = updates.title;
     if (updates.description !== undefined) updateData.description = updates.description;
-    if (updates.category !== undefined) updateData.category = updates.category;
+    if (updates.category !== undefined) updateData.category = canonicalizeCourseCategory(updates.category) || updates.category;
     if (updates.level !== undefined) updateData.level = updates.level;
     if (updates.duration !== undefined) updateData.duration = updates.duration;
     if (updates.instructorId !== undefined) updateData.instructor_id = updates.instructorId;
     if (updates.thumbnail !== undefined) updateData.thumbnail = updates.thumbnail;
     if (updates.courseDocument !== undefined) updateData.course_document = updates.courseDocument;
     if (updates.isTESDAAccredited !== undefined) updateData.is_tesda_accredited = updates.isTESDAAccredited;
-    if (updates.skills !== undefined) updateData.skills = updates.skills;
+    if (updates.skills !== undefined) {
+      const canonicalSkillTags = deriveSkillTags(updates.category, updates.skills);
+      updateData.skills = canonicalSkillTags;
+      updateData.skill_tags = canonicalSkillTags;
+    }
+    if (updates.topicTags !== undefined) {
+      updateData.topic_tags = deriveTopicTags(updates.category, updates.skills, updates.topicTags);
+    }
     if (updates.industryTags !== undefined) updateData.industry_tags = updates.industryTags;
     if (updates.careerPaths !== undefined) updateData.career_paths = updates.careerPaths;
     if (updates.published !== undefined) updateData.published = updates.published;
+    if (updates.programId !== undefined) updateData.program_id = updates.programId;
 
     const { data, error } = await executeCourseWriteWithFallback(
       (payload) => supabase
@@ -406,9 +580,14 @@ export const courseService = {
       throw error;
     }
 
+    const trainersById = await loadCourseTrainersById(
+      data.instructor_id ? [data.instructor_id] : [],
+      new Map(data.instructor_id ? [[data.instructor_id, updates.instructor || ""]] : []),
+    );
+
     return {
-      ...mapCourseRecord(data),
-      instructor: updates.instructor || "",
+      ...mapCourseRecord(data, undefined, undefined, trainersById),
+      instructor: updates.instructor || trainersById.get(data.instructor_id || "")?.displayName || "PESO Training Team",
     };
   },
 
@@ -418,6 +597,120 @@ export const courseService = {
   deleteCourse: async (id: string): Promise<void> => {
     const { error } = await supabase.from("courses").delete().eq("id", id);
 
+    if (error) {
+      handleSupabaseError(error);
+      throw error;
+    }
+  },
+};
+
+export const programService = {
+  getPrograms: async (): Promise<Program[]> => {
+    if (!supabase) return [];
+
+    const { data: programs, error } = await supabase
+      .from("programs")
+      .select("id, title, description, category, created_by, created_at, updated_at")
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.warn("Failed to load programs:", error);
+      return [];
+    }
+
+    const courseCountsByProgramId = await loadProgramsById((programs || []).map((program) => program.id));
+
+    return (programs || []).map((program) => ({
+      id: program.id,
+      title: program.title,
+      description: program.description || "",
+      category: program.category || null,
+      createdBy: program.created_by || null,
+      courseCount: courseCountsByProgramId.get(program.id)?.courseCount || 0,
+      createdAt: program.created_at,
+      updatedAt: program.updated_at,
+    }));
+  },
+
+  createProgram: async (program: Omit<Program, "id" | "courseCount" | "createdAt" | "updatedAt">): Promise<Program> => {
+    if (!supabase) {
+      throw new Error("Supabase not initialized");
+    }
+
+    const { data, error } = await supabase
+      .from("programs")
+      .insert({
+        title: program.title,
+        description: program.description,
+        category: program.category || null,
+        created_by: program.createdBy || null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      })
+      .select("id, title, description, category, created_by, created_at, updated_at")
+      .single();
+
+    if (error) {
+      handleSupabaseError(error);
+      throw error;
+    }
+
+    return {
+      id: data.id,
+      title: data.title,
+      description: data.description || "",
+      category: data.category || null,
+      createdBy: data.created_by || null,
+      courseCount: 0,
+      createdAt: data.created_at,
+      updatedAt: data.updated_at,
+    };
+  },
+
+  updateProgram: async (id: string, updates: Partial<Program>): Promise<Program> => {
+    if (!supabase) {
+      throw new Error("Supabase not initialized");
+    }
+
+    const updatePayload: Record<string, unknown> = {
+      updated_at: new Date().toISOString(),
+    };
+
+    if (updates.title !== undefined) updatePayload.title = updates.title;
+    if (updates.description !== undefined) updatePayload.description = updates.description;
+    if (updates.category !== undefined) updatePayload.category = updates.category || null;
+
+    const { data, error } = await supabase
+      .from("programs")
+      .update(updatePayload)
+      .eq("id", id)
+      .select("id, title, description, category, created_by, created_at, updated_at")
+      .single();
+
+    if (error) {
+      handleSupabaseError(error);
+      throw error;
+    }
+
+    const programsById = await loadProgramsById([data.id]);
+    return programsById.get(data.id) || {
+      id: data.id,
+      title: data.title,
+      description: data.description || "",
+      category: data.category || null,
+      createdBy: data.created_by || null,
+      courseCount: 0,
+      createdAt: data.created_at,
+      updatedAt: data.updated_at,
+    };
+  },
+
+  deleteProgram: async (id: string): Promise<void> => {
+    if (!supabase) {
+      throw new Error("Supabase not initialized");
+    }
+
+    const { error } = await supabase.from("programs").delete().eq("id", id);
     if (error) {
       handleSupabaseError(error);
       throw error;
@@ -457,6 +750,8 @@ export const moduleService = {
         content: module.content || undefined,
         materials: resolveCourseMaterialUrls(module.materials),
         prerequisites: module.prerequisites || [],
+        skillTags: module.skill_tags || [],
+        topicTags: module.topic_tags || [],
         module_thumbnail: resolveCourseMaterialUrl((module as any).module_thumbnail),
         module_document: resolveCourseMaterialUrl(module.module_document),
         created_at: module.created_at,
@@ -497,6 +792,8 @@ export const moduleService = {
       content: data.content || undefined,
       materials: resolveCourseMaterialUrls(data.materials),
       prerequisites: data.prerequisites || [],
+      skillTags: (data as any).skill_tags || [],
+      topicTags: (data as any).topic_tags || [],
       module_thumbnail: resolveCourseMaterialUrl((data as any).module_thumbnail),
       module_document: resolveCourseMaterialUrl((data as any).module_document),
       created_at: data.created_at,
@@ -528,6 +825,9 @@ export const moduleService = {
         : 1;
     }
 
+    const canonicalSkillTags = deriveSkillTags(undefined, module.skillTags);
+    const canonicalTopicTags = deriveTopicTags(undefined, canonicalSkillTags, module.topicTags);
+
     const { data, error } = await supabase
       .from("modules")
       .insert({
@@ -538,12 +838,14 @@ export const moduleService = {
         content: module.content || null,
         materials: module.materials || [],
         prerequisites: module.prerequisites || [],
+        skill_tags: canonicalSkillTags,
+        topic_tags: canonicalTopicTags,
         module_thumbnail: (module as any).module_thumbnail || null,
         module_document: (module as any).module_document || null,
         status: (module as any).status || "draft",
         created_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
-      })
+      } as any)
       .select()
       .single();
 
@@ -562,6 +864,8 @@ export const moduleService = {
       content: data.content || undefined,
       materials: resolveCourseMaterialUrls(data.materials),
       prerequisites: data.prerequisites || [],
+      skillTags: row.skill_tags || [],
+      topicTags: row.topic_tags || [],
       module_thumbnail: resolveCourseMaterialUrl((data as any).module_thumbnail),
       module_document: resolveCourseMaterialUrl(data.module_document),
       created_at: data.created_at,
@@ -589,6 +893,8 @@ export const moduleService = {
     if (updates.materials !== undefined) updateData.materials = updates.materials;
     if (updates.prerequisites !== undefined) updateData.prerequisites = updates.prerequisites;
     if (updates.status !== undefined) updateData.status = updates.status;
+    if (updates.skillTags !== undefined) updateData.skill_tags = deriveSkillTags(undefined, updates.skillTags);
+    if (updates.topicTags !== undefined) updateData.topic_tags = deriveTopicTags(undefined, updates.skillTags, updates.topicTags);
 
     const { data, error } = await supabase
       .from("modules")
@@ -612,6 +918,8 @@ export const moduleService = {
       content: data.content || undefined,
       materials: resolveCourseMaterialUrls(data.materials),
       prerequisites: data.prerequisites || [],
+      skillTags: row.skill_tags || [],
+      topicTags: row.topic_tags || [],
       module_thumbnail: resolveCourseMaterialUrl((data as any).module_thumbnail),
       module_document: resolveCourseMaterialUrl(data.module_document),
       created_at: data.created_at,
@@ -969,11 +1277,15 @@ export const enrollmentService = {
     }
 
     // Get user role to determine query strategy
-    const roleFromMetadata = authUser.user_metadata?.role || 'trainee';
-    const isTrainerOrAdmin = ['training_officer', 'admin', 'trainer', 'spd'].includes(roleFromMetadata);
+    const roleFromMetadata = normalizeUserRole(authUser.user_metadata?.role);
+    const isTrainerOrAdmin = roleFromMetadata === "admin" || roleFromMetadata === "trainer";
+    const resolvedProfileId = await resolveCurrentProfileId();
+    const effectiveOwnUserId = resolvedProfileId || authUser.id;
     
     console.log("User role:", roleFromMetadata);
     console.log("Is trainer/admin:", isTrainerOrAdmin);
+    console.log("Resolved profile ID:", resolvedProfileId);
+    console.log("Effective own user ID:", effectiveOwnUserId);
 
     // Build query - RLS policies will handle filtering:
     // - For trainees: RLS filters by auth.uid() = user_id
@@ -985,17 +1297,18 @@ export const enrollmentService = {
     // 2. User is a trainee (not trainer/admin)
     if (userId) {
       // Explicit userId provided - use it (but verify it matches auth.uid() for trainees)
-      if (!isTrainerOrAdmin && userId !== authUser.id) {
-        console.warn("Warning: Trainee requested different userId. Using auth.uid() instead.");
-        query = query.eq("user_id", authUser.id);
+      const matchesOwnIdentity = userId === authUser.id || userId === effectiveOwnUserId;
+      if (!isTrainerOrAdmin && !matchesOwnIdentity) {
+        console.warn("Warning: Trainee requested different userId. Using resolved own profile ID instead.");
+        query = query.eq("user_id", effectiveOwnUserId);
       } else {
         query = query.eq("user_id", userId);
       }
       console.log("Filtering by explicit user_id:", userId);
     } else if (!isTrainerOrAdmin) {
       // Trainee without explicit userId - filter by their own ID
-      query = query.eq("user_id", authUser.id);
-      console.log("Trainee - filtering by own user_id:", authUser.id);
+      query = query.eq("user_id", effectiveOwnUserId);
+      console.log("Trainee - filtering by own user_id:", effectiveOwnUserId);
     } else {
       // Trainer/Admin without explicit userId - let RLS handle filtering
       // Don't add user_id filter, RLS will show enrollments for their courses
@@ -1058,6 +1371,9 @@ export const enrollmentService = {
       throw createEnrollmentError(buildEnrollmentErrorFeedback("unknown"));
     }
 
+    const resolvedProfileId = await resolveCurrentProfileId();
+    const learnerUserId = resolvedProfileId || userId;
+
     const { data: courseRow, error: courseError } = await supabase
       .from("courses")
       .select("id, title, published")
@@ -1079,7 +1395,7 @@ export const enrollmentService = {
     const { data: existingEnrollment, error: existingEnrollmentError } = await supabase
       .from("enrollments")
       .select("id, status")
-      .eq("user_id", userId)
+      .eq("user_id", learnerUserId)
       .eq("course_id", courseId)
       .neq("status", "dropped")
       .maybeSingle();
@@ -1095,7 +1411,7 @@ export const enrollmentService = {
     const { data, error } = await supabase
       .from("enrollments")
       .insert({
-        user_id: userId,
+        user_id: learnerUserId,
         course_id: courseId,
         progress: 0,
         status: "enrolled",
@@ -1123,7 +1439,7 @@ export const enrollmentService = {
       
       if (course) {
         await notificationHelpers.notifyEnrollmentConfirmed(
-          userId,
+          learnerUserId,
           course.title,
           data.id
         );
@@ -1136,7 +1452,7 @@ export const enrollmentService = {
     if (options?.originatingRecommendationId) {
       await analyticsService.trackEvent({
         eventName: "recommendation_accept",
-        userId,
+        userId: learnerUserId,
         courseId,
         enrollmentId: data.id,
         recommendationId: options.originatingRecommendationId,
@@ -1149,7 +1465,7 @@ export const enrollmentService = {
 
     await analyticsService.trackEvent({
       eventName: "course_enroll",
-      userId,
+      userId: learnerUserId,
       courseId,
       enrollmentId: data.id,
       recommendationId: options?.originatingRecommendationId,
@@ -1158,7 +1474,7 @@ export const enrollmentService = {
         fromRecommendation: Boolean(options?.originatingRecommendationId),
       },
     });
-    await analyticsService.refreshPhase1Analytics(userId);
+    await analyticsService.refreshPhase1Analytics(learnerUserId);
 
     return {
       id: data.id,
@@ -1536,7 +1852,8 @@ export const certificateService = {
       .order("issued_at", { ascending: false });
 
     if (userId) {
-      query = query.eq("user_id", userId);
+      const resolvedProfileId = await resolveCurrentProfileId();
+      query = query.eq("user_id", resolvedProfileId || userId);
     }
 
     const { data, error } = await query;

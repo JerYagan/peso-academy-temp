@@ -6,6 +6,7 @@ import { Module } from "@/types";
 import { ContentBlock } from "./ContentBlock";
 import DocumentViewer from "./DocumentViewer";
 import { useMemo } from "react";
+import { parseModuleContentBlocks } from "@/lib/contentBlocks";
 
 interface ModulePreviewProps {
   module: {
@@ -24,25 +25,7 @@ interface ModulePreviewProps {
 export const ModulePreview = ({ module, allModules = [] }: ModulePreviewProps) => {
   // Parse content blocks from HTML content
   const contentBlocks = useMemo(() => {
-    if (!module.content) return [];
-    
-    try {
-      // Try to parse JSON content blocks
-      const parsed = JSON.parse(module.content);
-      if (Array.isArray(parsed)) {
-        return parsed as ContentBlock[];
-      }
-    } catch {
-      // If not JSON, treat as HTML/text content
-      return [
-        {
-          id: "1",
-          type: "text" as const,
-          content: module.content,
-        },
-      ];
-    }
-    return [];
+    return parseModuleContentBlocks(module.content);
   }, [module.content]);
 
   const prereqModules = useMemo(() => {
@@ -170,7 +153,15 @@ export const ModulePreview = ({ module, allModules = [] }: ModulePreviewProps) =
                   
                   {block.type === "quiz" && (
                     <div className="space-y-3">
-                      <p className="font-medium">{block.content || block.title || "Quiz Question"}</p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-medium">{block.content || block.title || "Quiz Question"}</p>
+                        <Badge variant="outline" className="text-xs">
+                          {block.questionType === "true_false" ? "True / False" : "Multiple Choice"}
+                        </Badge>
+                        <Badge variant="outline" className="text-xs">
+                          {block.points || 1} pt{(block.points || 1) === 1 ? "" : "s"}
+                        </Badge>
+                      </div>
                       <div className="space-y-2">
                         {(block.options || []).map((option, optIdx) => (
                           <div

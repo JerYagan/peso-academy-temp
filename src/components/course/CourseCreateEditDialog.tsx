@@ -7,12 +7,14 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { X, Plus, Loader2, Eye } from "lucide-react";
-import { Course } from "@/types";
-import { courseService } from "@/services/supabaseDatabaseService";
+import { Course, Program } from "@/types";
+import { courseService, programService } from "@/services/supabaseDatabaseService";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import type { UserRole } from "@/types/auth";
+import { TaxonomyTagField } from "@/components/course/TaxonomyTagField";
+import { buildCanonicalCourseTaxonomy, getAllowedSkillTagsForCategory, getAllowedTopicTagsForCategory, TAXONOMY_COURSE_CATEGORIES } from "@/lib/taxonomy";
 
 type CourseSaveMode = "draft" | "finalized";
 
@@ -23,35 +25,18 @@ interface CourseCreateEditDialogProps {
   onSuccess?: () => void;
 }
 
-const COURSE_CATEGORIES = [
-  "Technical Skills",
-  "Soft Skills",
-  "Entrepreneurship",
-  "Digital Literacy",
-  "Vocational Training",
-  "Career Development",
-  "Other",
-];
-
 const COURSE_LEVELS = ["Beginner", "Intermediate", "Advanced"] as const;
 const COURSE_PREVIEW_STORAGE_PREFIX = "peso-course-preview:";
-const COURSE_MANAGER_PROFILE_ROLES = ["admin", "trainer", "spd", "training_officer"] as const;
+const COURSE_MANAGER_PROFILE_ROLES = ["admin", "trainer"] as const;
 
-const mapUserRoleToProfileRole = (role: UserRole): "admin" | "trainer" | "validator" | "spd" | "employer" | "jobseeker" => {
+const mapUserRoleToProfileRole = (role: UserRole): "admin" | "trainer" | "trainee" => {
   switch (role) {
     case "admin":
       return "admin";
     case "trainer":
-    case "training_officer":
       return "trainer";
-    case "spd":
-      return "spd";
-    case "validator":
-      return "validator";
-    case "employer":
-      return "employer";
     default:
-      return "jobseeker";
+      return "trainee";
   }
 };
 
@@ -63,23 +48,26 @@ export const CourseCreateEditDialog = ({
 }: CourseCreateEditDialogProps) => {
   const { user } = useAuth();
   const [loading, setLoading] = useState(false);
+  const [programs, setPrograms] = useState<Program[]>([]);
   const [formData, setFormData] = useState({
     title: "",
     description: "",
+    programId: "",
     category: "",
     level: "Beginner" as Course["level"],
     duration: "",
     skills: [] as string[],
+    topicTags: [] as string[],
     industryTags: [] as string[],
     careerPaths: [] as string[],
     thumbnail: "",
   });
-  const [categoryOther, setCategoryOther] = useState("");
-  const [newSkill, setNewSkill] = useState("");
   const [newIndustryTag, setNewIndustryTag] = useState("");
   const [newCareerPath, setNewCareerPath] = useState("");
   const [selectedThumbnailFile, setSelectedThumbnailFile] = useState<File | null>(null);
   const [thumbnailPreviewUrl, setThumbnailPreviewUrl] = useState<string | null>(null);
+  const allowedSkillOptions = getAllowedSkillTagsForCategory(formData.category);
+  const allowedTopicOptions = getAllowedTopicTagsForCategory(formData.category);
 
   const resolveCourseOwnerId = async () => {
     if (!user) {
@@ -168,12 +156,25 @@ export const CourseCreateEditDialog = ({
     }
 
     const ownerId = await resolveCourseOwnerId();
-    const categoryValue = formData.category === "Other" ? categoryOther.trim() : formData.category;
+    const canonicalTaxonomy = buildCanonicalCourseTaxonomy({
+      category: formData.category,
+      skills: formData.skills,
+      topicTags: formData.topicTags,
+    });
+
+    if (!canonicalTaxonomy.category) {
+      throw new Error("Please select a valid course category from the approved taxonomy.");
+    }
+
+    if (canonicalTaxonomy.skillTags.length === 0 || canonicalTaxonomy.topicTags.length === 0) {
+      throw new Error("Courses must include at least one approved skill tag and one approved topic tag.");
+    }
 
     return {
       title: formData.title,
       description: formData.description,
-      category: categoryValue,
+      programId: formData.programId || null,
+      category: canonicalTaxonomy.category,
       level: formData.level,
       duration: parseInt(formData.duration, 10),
       instructorId: ownerId,
@@ -181,7 +182,8 @@ export const CourseCreateEditDialog = ({
       thumbnail: thumbnailPreviewUrl || formData.thumbnail || undefined,
       courseDocument: course?.courseDocument || undefined,
       isTESDAAccredited: false,
-      skills: formData.skills,
+      skills: canonicalTaxonomy.skillTags,
+      topicTags: canonicalTaxonomy.topicTags,
       industryTags: formData.industryTags,
       careerPaths: formData.careerPaths,
       published,
@@ -194,8 +196,8 @@ export const CourseCreateEditDialog = ({
       return;
     }
 
-    if (formData.category === "Other" && !categoryOther.trim()) {
-      toast.error("Please specify the category when selecting Other");
+    if (formData.skills.length === 0 || formData.topicTags.length === 0) {
+      toast.error("Add at least one approved skill tag and one approved topic tag before previewing");
       return;
     }
 
@@ -253,34 +255,47 @@ export const CourseCreateEditDialog = ({
   };
 
   useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    const loadPrograms = async () => {
+      const programRows = await programService.getPrograms();
+      setPrograms(programRows);
+    };
+
+    void loadPrograms();
+  }, [open]);
+
+  useEffect(() => {
     if (course) {
-      const cat = course.category;
-      const isOther = !COURSE_CATEGORIES.includes(cat);
       setFormData({
         title: course.title,
         description: course.description,
-        category: isOther ? "Other" : cat,
+        programId: course.programId || "",
+        category: course.category,
         level: course.level,
         duration: course.duration.toString(),
         skills: course.skills || [],
+        topicTags: course.topicTags || [],
         industryTags: course.industryTags || [],
         careerPaths: course.careerPaths || [],
         thumbnail: course.thumbnail || "",
       });
-      setCategoryOther(isOther ? cat : "");
     } else {
       setFormData({
         title: "",
         description: "",
+        programId: "",
         category: "",
         level: "Beginner",
         duration: "",
         skills: [],
+        topicTags: [],
         industryTags: [],
         careerPaths: [],
         thumbnail: "",
       });
-      setCategoryOther("");
     }
     setSelectedThumbnailFile(null);
     setThumbnailPreviewUrl(null);
@@ -321,8 +336,8 @@ export const CourseCreateEditDialog = ({
       toast.error("Please fill in all required fields");
       return;
     }
-    if (formData.category === "Other" && !categoryOther.trim()) {
-      toast.error("Please specify the category when selecting Other");
+    if (formData.skills.length === 0 || formData.topicTags.length === 0) {
+      toast.error("Please add at least one approved skill tag and one approved topic tag");
       return;
     }
 
@@ -396,13 +411,6 @@ export const CourseCreateEditDialog = ({
     }
   };
 
-  const addSkill = () => {
-    if (newSkill.trim() && !formData.skills.includes(newSkill.trim())) {
-      setFormData({ ...formData, skills: [...formData.skills, newSkill.trim()] });
-      setNewSkill("");
-    }
-  };
-
   const addIndustryTag = () => {
     if (newIndustryTag.trim() && !formData.industryTags.includes(newIndustryTag.trim())) {
       setFormData({ ...formData, industryTags: [...formData.industryTags, newIndustryTag.trim()] });
@@ -415,10 +423,6 @@ export const CourseCreateEditDialog = ({
       setFormData({ ...formData, careerPaths: [...formData.careerPaths, newCareerPath.trim()] });
       setNewCareerPath("");
     }
-  };
-
-  const removeSkill = (skill: string) => {
-    setFormData({ ...formData, skills: formData.skills.filter((s) => s !== skill) });
   };
 
   const removeIndustryTag = (tag: string) => {
@@ -466,7 +470,27 @@ export const CourseCreateEditDialog = ({
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+            <div className="space-y-2">
+              <Label htmlFor="program">Program</Label>
+              <Select
+                value={formData.programId || "none"}
+                onValueChange={(value) => setFormData({ ...formData, programId: value === "none" ? "" : value })}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Assign to a program" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">No program</SelectItem>
+                  {programs.map((program) => (
+                    <SelectItem key={program.id} value={program.id}>
+                      {program.title}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
             <div className="space-y-2">
               <Label htmlFor="category">Category *</Label>
               <Select
@@ -477,21 +501,13 @@ export const CourseCreateEditDialog = ({
                   <SelectValue placeholder="Select category" />
                 </SelectTrigger>
                 <SelectContent>
-                  {COURSE_CATEGORIES.map((cat) => (
+                  {TAXONOMY_COURSE_CATEGORIES.map((cat) => (
                     <SelectItem key={cat} value={cat}>
                       {cat}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
-              {formData.category === "Other" && (
-                <Input
-                  value={categoryOther}
-                  onChange={(e) => setCategoryOther(e.target.value)}
-                  placeholder="Specify category (e.g. Health & Safety, Language)"
-                  className="mt-2"
-                />
-              )}
             </div>
 
             <div className="space-y-2">
@@ -555,41 +571,23 @@ export const CourseCreateEditDialog = ({
             </div>
           </div>
 
-          <div className="space-y-2">
-            <Label>Skills</Label>
-            <div className="flex gap-2">
-              <Input
-                value={newSkill}
-                onChange={(e) => setNewSkill(e.target.value)}
-                onKeyPress={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    addSkill();
-                  }
-                }}
-                placeholder="Add a skill"
-              />
-              <Button type="button" onClick={addSkill} variant="outline">
-                <Plus className="w-4 h-4" />
-              </Button>
-            </div>
-            {formData.skills.length > 0 && (
-              <div className="flex flex-wrap gap-2 mt-2">
-                {formData.skills.map((skill) => (
-                  <Badge key={skill} variant="secondary" className="gap-1">
-                    {skill}
-                    <button
-                      type="button"
-                      onClick={() => removeSkill(skill)}
-                      className="ml-1 hover:text-destructive"
-                    >
-                      <X className="w-3 h-3" />
-                    </button>
-                  </Badge>
-                ))}
-              </div>
-            )}
-          </div>
+          <TaxonomyTagField
+            label="Skill Tags"
+            options={allowedSkillOptions}
+            values={formData.skills}
+            onChange={(skills) => setFormData((current) => ({ ...current, skills }))}
+            placeholder="Select approved skill tags"
+            description="Choose approved skill tags only. These drive recommendation matching and analytics."
+          />
+
+          <TaxonomyTagField
+            label="Topic Tags"
+            options={allowedTopicOptions}
+            values={formData.topicTags}
+            onChange={(topicTags) => setFormData((current) => ({ ...current, topicTags }))}
+            placeholder="Select approved topic tags"
+            description="Choose the topics this course contributes to. Topic analytics and recommendation explanations use these values directly."
+          />
 
           <div className="space-y-2">
             <Label>Industry Tags</Label>
@@ -680,9 +678,9 @@ export const CourseCreateEditDialog = ({
                 <p className="text-xs text-muted-foreground line-clamp-2">
                   {formData.description || "Description"}
                 </p>
-                {(formData.category || categoryOther) && (
+                {formData.category && (
                   <Badge variant="outline" className="text-xs">
-                    {formData.category === "Other" ? categoryOther : formData.category}
+                    {formData.category}
                   </Badge>
                 )}
               </div>

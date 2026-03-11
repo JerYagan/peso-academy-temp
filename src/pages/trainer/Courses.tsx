@@ -1,7 +1,16 @@
 import DashboardLayout from "@/components/DashboardLayout";
+import { LearnerLeaderboardCard } from "@/components/course/LearnerLeaderboardCard";
+import { ProgramManagementDialog } from "@/components/course/ProgramManagementDialog";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -12,13 +21,14 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { BookOpen, Plus, Users, Edit, Trash2, Settings, Eye, EyeOff, Award, Clock3, Laptop2, BriefcaseBusiness, MessageSquareHeart, GraduationCap } from "lucide-react";
-import { courseService, enrollmentService } from "@/services/supabaseDatabaseService";
+import { BookOpen, Plus, Users, Edit, Trash2, Settings, Eye, EyeOff, Award, Clock3, Laptop2, BriefcaseBusiness, MessageSquareHeart, GraduationCap, BarChart3, FolderKanban } from "lucide-react";
+import { courseService, programService } from "@/services/supabaseDatabaseService";
+import { reportingService, type CourseContentCompletenessReport, type LearnerLeaderboard } from "@/services/reportingService";
 import { CourseCreateEditDialog } from "@/components/course/CourseCreateEditDialog";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useState, useEffect, useMemo } from "react";
-import { Course, Enrollment } from "@/types";
+import { Course, Program } from "@/types";
 import { toast } from "sonner";
 
 const TrainerCourses = () => {
@@ -26,11 +36,17 @@ const TrainerCourses = () => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [courses, setCourses] = useState<Course[]>([]);
-  const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
+  const [programs, setPrograms] = useState<Program[]>([]);
   const [loading, setLoading] = useState(true);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [editCourse, setEditCourse] = useState<Course | null>(null);
   const [deleteCourseId, setDeleteCourseId] = useState<string | null>(null);
+  const [programDialogOpen, setProgramDialogOpen] = useState(false);
+  const [leaderboardContext, setLeaderboardContext] = useState<{ scope: "course" | "program"; title: string; description: string } | null>(null);
+  const [courseLeaderboard, setCourseLeaderboard] = useState<LearnerLeaderboard | null>(null);
+  const [contentReportsByCourseId, setContentReportsByCourseId] = useState<Record<string, CourseContentCompletenessReport>>({});
+  const [publishBlockedReport, setPublishBlockedReport] = useState<CourseContentCompletenessReport | null>(null);
+  const [leaderboardLoading, setLeaderboardLoading] = useState(false);
   const highlightedCourseId = searchParams.get("courseId");
 
   const sortedCourses = useMemo(() => {
@@ -48,30 +64,29 @@ const TrainerCourses = () => {
 
   useEffect(() => {
     if (user) {
-      loadCourses();
-      loadEnrollments();
+      void refreshProgramsAndCourses();
     }
   }, [user]);
 
-  const loadCourses = async () => {
+  const refreshProgramsAndCourses = async () => {
     setLoading(true);
     try {
-      const allCourses = await courseService.getCourses();
+      const [allCourses, allPrograms] = await Promise.all([
+        courseService.getCourses(),
+        programService.getPrograms(),
+      ]);
       setCourses(allCourses);
+      setPrograms(allPrograms);
+
+      const contentReports = await reportingService.getCourseContentCompletenessReports();
+      setContentReportsByCourseId(
+        Object.fromEntries(contentReports.map((report) => [report.courseId, report])),
+      );
     } catch (error) {
-      console.error("Error loading courses:", error);
-      toast.error("Failed to load courses");
+      console.error("Error loading course data:", error);
+      toast.error("Failed to load courses and programs");
     } finally {
       setLoading(false);
-    }
-  };
-
-  const loadEnrollments = async () => {
-    try {
-      const allEnrollments = await enrollmentService.getEnrollments();
-      setEnrollments(allEnrollments);
-    } catch (error) {
-      console.error("Error loading enrollments:", error);
     }
   };
 
@@ -82,7 +97,7 @@ const TrainerCourses = () => {
       await courseService.deleteCourse(deleteCourseId);
       toast.success("Course deleted successfully");
       setDeleteCourseId(null);
-      loadCourses();
+      void refreshProgramsAndCourses();
     } catch (error) {
       console.error("Error deleting course:", error);
       toast.error("Failed to delete course");
@@ -93,19 +108,70 @@ const TrainerCourses = () => {
     navigate(`/trainer/courses/${course.id}/modules`);
   };
 
-  const getEnrollmentCount = (courseId: string) => {
-    return enrollments.filter((e) => e.courseId === courseId).length;
-  };
-
   const handleTogglePublish = async (course: Course) => {
     const next = !(course.published !== false);
+
+    if (next) {
+      const contentReport = contentReportsByCourseId[course.id];
+      if (contentReport && !contentReport.readyToPublish) {
+        setPublishBlockedReport(contentReport);
+        return;
+      }
+    }
+
     try {
       await courseService.updateCourse(course.id, { published: next });
       toast.success(next ? "Course is now visible to trainees" : "Course is now hidden from trainees");
-      loadCourses();
+      void refreshProgramsAndCourses();
     } catch (error) {
       console.error("Error updating publish state:", error);
       toast.error("Failed to update course visibility");
+    }
+  };
+
+  const loadLeaderboard = async (course: Course) => {
+    setLeaderboardContext({
+      scope: "course",
+      title: `${course.title} learner leaderboard`,
+      description: "Staff-only course ranking based on completion, assessment performance, tracked learning time, certificate completion, and recency.",
+    });
+    setLeaderboardLoading(true);
+
+    try {
+      const leaderboard = await reportingService.getLearnerCourseLeaderboard(course.id, {
+        includeIncomplete: true,
+        limit: 12,
+      });
+      setCourseLeaderboard(leaderboard);
+    } catch (error) {
+      console.error("Error loading learner leaderboard:", error);
+      toast.error("Failed to load learner leaderboard");
+      setCourseLeaderboard(null);
+    } finally {
+      setLeaderboardLoading(false);
+    }
+  };
+
+  const loadProgramLeaderboard = async (program: Program) => {
+    setLeaderboardContext({
+      scope: "program",
+      title: `${program.title} learner leaderboard`,
+      description: "Staff-only program ranking based on aggregated course completion, assessment performance, tracked learning time, certificate completion, and recency.",
+    });
+    setLeaderboardLoading(true);
+
+    try {
+      const leaderboard = await reportingService.getLearnerProgramLeaderboard(program.id, {
+        includeIncomplete: true,
+        limit: 12,
+      });
+      setCourseLeaderboard(leaderboard);
+    } catch (error) {
+      console.error("Error loading program leaderboard:", error);
+      toast.error("Failed to load program leaderboard");
+      setCourseLeaderboard(null);
+    } finally {
+      setLeaderboardLoading(false);
     }
   };
 
@@ -151,10 +217,16 @@ const TrainerCourses = () => {
             <h1 className="text-3xl font-bold">Courses</h1>
             <p className="text-muted-foreground mt-2">Manage all training courses</p>
           </div>
-          <Button onClick={() => setCreateDialogOpen(true)}>
-            <Plus className="w-4 h-4 mr-2" />
-            Create Course
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => setProgramDialogOpen(true)}>
+              <FolderKanban className="w-4 h-4 mr-2" />
+              Manage Programs
+            </Button>
+            <Button onClick={() => setCreateDialogOpen(true)}>
+              <Plus className="w-4 h-4 mr-2" />
+              Create Course
+            </Button>
+          </div>
         </div>
 
         {highlightedCourse ? (
@@ -197,10 +269,12 @@ const TrainerCourses = () => {
               </div>
               <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
                 {sortedCourses.map((course) => {
-                  const enrollmentCount = getEnrollmentCount(course.id);
                   const visual = getCourseVisual(course);
                   const VisualIcon = visual.icon;
                   const isHighlighted = course.id === highlightedCourseId;
+                  const contentReport = contentReportsByCourseId[course.id];
+                  const isReadyToPublish = contentReport?.readyToPublish ?? false;
+                  const publishGapCount = contentReport?.missingSummary.length ?? 0;
 
                   return (
                     <article
@@ -266,14 +340,40 @@ const TrainerCourses = () => {
                         <div className="space-y-2 text-sm text-muted-foreground">
                           <span className="flex items-center gap-1">
                             <Users className="h-4 w-4" />
-                            {enrollmentCount} learners
+                            {course.enrolledCount} enrolled
                           </span>
                           <span className="flex items-center gap-1">
                             <Clock3 className="h-4 w-4" />
                             {course.duration} hours
                           </span>
                           <span className="block">{course.category}</span>
+                          {course.programTitle ? <span className="block">Program: {course.programTitle}</span> : null}
+                          {contentReport ? (
+                            <span className="block">
+                              Content readiness: {contentReport.completenessRate}% ({contentReport.publishReadyModules}/{contentReport.totalModules || 0} modules publish-ready)
+                            </span>
+                          ) : null}
                         </div>
+
+                        {contentReport ? (
+                          <div className="flex flex-wrap gap-2">
+                            <Badge variant={isReadyToPublish ? "default" : "secondary"}>
+                              {isReadyToPublish ? "Ready to publish" : `${publishGapCount} publish gap${publishGapCount === 1 ? "" : "s"}`}
+                            </Badge>
+                            {contentReport.draftModules > 0 ? <Badge variant="outline">{contentReport.draftModules} drafts</Badge> : null}
+                            {contentReport.modulesWithoutAssessmentOrActivity > 0 ? <Badge variant="outline">{contentReport.modulesWithoutAssessmentOrActivity} missing activity</Badge> : null}
+                          </div>
+                        ) : null}
+
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          className="w-full justify-center"
+                          onClick={() => loadLeaderboard(course)}
+                        >
+                          <BarChart3 className="mr-2 h-4 w-4" />
+                          View leaderboard
+                        </Button>
 
                         <div className="mt-auto grid grid-cols-2 gap-2 pt-2">
                           <Button
@@ -281,7 +381,7 @@ const TrainerCourses = () => {
                             size="sm"
                             className="justify-center"
                             onClick={() => handleTogglePublish(course)}
-                            title={course.published !== false ? "Hide from trainee dashboard" : "Show on trainee dashboard"}
+                            title={course.published !== false ? "Hide from trainee dashboard" : isReadyToPublish ? "Show on trainee dashboard" : "Blocked until content is publish-ready"}
                           >
                             {course.published !== false ? (
                               <>
@@ -355,11 +455,129 @@ const TrainerCourses = () => {
         }}
         course={editCourse}
         onSuccess={() => {
-          loadCourses();
+          void refreshProgramsAndCourses();
           setCreateDialogOpen(false);
           setEditCourse(null);
         }}
       />
+
+      <ProgramManagementDialog
+        open={programDialogOpen}
+        onOpenChange={setProgramDialogOpen}
+        programs={programs}
+        currentUserId={user?.id}
+        onRefresh={refreshProgramsAndCourses}
+        onViewLeaderboard={loadProgramLeaderboard}
+      />
+
+      <Dialog
+        open={Boolean(leaderboardContext)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setLeaderboardContext(null);
+            setCourseLeaderboard(null);
+          }
+        }}
+      >
+        <DialogContent className="max-h-[90vh] max-w-6xl overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>
+              {leaderboardContext?.title || "Learner leaderboard"}
+            </DialogTitle>
+            <DialogDescription>
+              {leaderboardContext?.description || "Staff-only learner ranking."}
+            </DialogDescription>
+          </DialogHeader>
+          <LearnerLeaderboardCard
+            leaderboard={courseLeaderboard}
+            loading={leaderboardLoading}
+            emptyMessage="No leaderboard data is available for this course yet."
+          />
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(publishBlockedReport)} onOpenChange={(open) => !open && setPublishBlockedReport(null)}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Course is not publish-ready</DialogTitle>
+            <DialogDescription>
+              {publishBlockedReport
+                ? `${publishBlockedReport.courseTitle} must satisfy the production completeness checklist before it can be published to trainees.`
+                : "Resolve the remaining content gaps before publishing."}
+            </DialogDescription>
+          </DialogHeader>
+
+          {publishBlockedReport ? (
+            <div className="space-y-4">
+              <div className="grid gap-3 sm:grid-cols-3">
+                <Card>
+                  <CardContent className="p-4">
+                    <p className="text-sm text-muted-foreground">Completeness</p>
+                    <p className="mt-1 text-2xl font-semibold">{publishBlockedReport.completenessRate}%</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-4">
+                    <p className="text-sm text-muted-foreground">Publish-ready modules</p>
+                    <p className="mt-1 text-2xl font-semibold">{publishBlockedReport.publishReadyModules}/{publishBlockedReport.totalModules}</p>
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent className="p-4">
+                    <p className="text-sm text-muted-foreground">Draft modules</p>
+                    <p className="mt-1 text-2xl font-semibold">{publishBlockedReport.draftModules}</p>
+                  </CardContent>
+                </Card>
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Publish-ready checklist</p>
+                <div className="space-y-2 text-sm text-muted-foreground">
+                  {publishBlockedReport.publishReadyChecklist.map((item) => (
+                    <p key={item}>{item}</p>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Remaining gaps</p>
+                <div className="space-y-2 text-sm text-muted-foreground">
+                  {publishBlockedReport.missingSummary.map((item) => (
+                    <p key={item}>{item}</p>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Modules needing attention</p>
+                <div className="space-y-3">
+                  {publishBlockedReport.moduleChecks.filter((module) => !module.isPublishReady).slice(0, 6).map((module) => (
+                    <div key={module.moduleId} className="rounded-xl border p-3">
+                      <p className="font-medium">{module.moduleTitle}</p>
+                      <p className="mt-1 text-sm text-muted-foreground">{module.missingItems.join(" • ")}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => setPublishBlockedReport(null)}>
+                  Close
+                </Button>
+                <Button
+                  onClick={() => {
+                    const courseToReview = publishBlockedReport.courseId;
+                    setPublishBlockedReport(null);
+                    navigate(`/trainer/courses/${courseToReview}/modules`);
+                  }}
+                >
+                  Review modules
+                </Button>
+              </div>
+            </div>
+          ) : null}
+        </DialogContent>
+      </Dialog>
 
 
       {/* Delete Confirmation Dialog */}

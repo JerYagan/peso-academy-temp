@@ -60,6 +60,7 @@ import {
 import { courseService, moduleService } from "@/services/supabaseDatabaseService";
 import { ModulePreview } from "@/components/course/ModulePreview";
 import { useAuth } from "@/contexts/AuthContext";
+import { parseModuleContentBlocks } from "@/lib/contentBlocks";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import type { Course, Module } from "@/types";
@@ -86,12 +87,7 @@ const SortableModuleCard = ({ module, prerequisites, onEdit, onDelete, onDuplica
 
   const blockCount = useMemo(() => {
     if (!module.content) return 0;
-    try {
-      const parsed = JSON.parse(module.content);
-      return Array.isArray(parsed) ? parsed.length : 1;
-    } catch {
-      return module.content.trim() ? 1 : 0;
-    }
+    return parseModuleContentBlocks(module.content).length;
   }, [module.content]);
 
   const prerequisiteLabels = prerequisites
@@ -294,6 +290,8 @@ const ManageModules = () => {
         content: module.content || "",
         materials: [...module.materials],
         prerequisites: [...module.prerequisites],
+        skillTags: [...(module.skillTags || [])],
+        topicTags: [...(module.topicTags || [])],
         module_thumbnail: module.module_thumbnail,
         module_document: module.module_document,
         status: module.status || "draft",

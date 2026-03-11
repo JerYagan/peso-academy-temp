@@ -143,7 +143,7 @@ const NotificationCenter = () => {
       });
       setOpen(false);
     } else if (notification.metadata?.submissionId) {
-      navigate(`/validator/submissions/${notification.metadata.submissionId}`);
+      navigate("/dashboard");
       setOpen(false);
     } else if (notification.metadata?.certificateId) {
       navigate("/certificates");

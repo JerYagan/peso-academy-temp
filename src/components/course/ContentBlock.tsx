@@ -9,25 +9,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { X, GripVertical, Type, Code, Video, FileQuestion, Plus, ImageIcon, FileText, Link2, Upload } from "lucide-react";
 import { cn } from "@/lib/utils";
+import {
+  DEFAULT_QUIZ_BLOCK_POINTS,
+  TRUE_FALSE_QUIZ_OPTIONS,
+  type ContentBlock,
+  type ContentBlockType,
+  type QuizBlockQuestionType,
+} from "@/lib/contentBlocks";
 
-export type ContentBlockType = "text" | "code" | "video" | "image" | "quiz" | "document" | "learning_material";
-
-export interface ContentBlock {
-  id: string;
-  type: ContentBlockType;
-  content: string;
-  language?: string; // For code blocks
-  title?: string;
-  options?: string[]; // For quiz blocks
-  correctAnswer?: number; // For quiz blocks
-  explanation?: string; // For quiz blocks - explanation shown after answering
-  videoUrl?: string; // For video blocks
-  imageUrl?: string;
-  altText?: string;
-  caption?: string;
-  documentUrl?: string;
-  materialUrl?: string;
-}
+export type { ContentBlock, ContentBlockType, QuizBlockQuestionType } from "@/lib/contentBlocks";
 
 type UploadField = "videoUrl" | "imageUrl" | "documentUrl" | "materialUrl";
 
@@ -266,6 +256,45 @@ export const ContentBlockComponent = ({
       case "quiz":
         return (
           <div className="space-y-4">
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label>Question Type</Label>
+                <Select
+                  value={block.questionType || "multiple_choice"}
+                  onValueChange={(value) => {
+                    const questionType = value as QuizBlockQuestionType;
+                    handleUpdate({
+                      questionType,
+                      options: questionType === "true_false" ? [...TRUE_FALSE_QUIZ_OPTIONS] : block.options || ["", ""],
+                      correctAnswer: block.correctAnswer ?? 0,
+                      sourceQuestionKey: block.sourceQuestionKey || block.id,
+                      isGradable: block.isGradable ?? true,
+                    });
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select question type" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="multiple_choice">Multiple Choice</SelectItem>
+                    <SelectItem value="true_false">True / False</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <Label>Points</Label>
+                <Input
+                  type="number"
+                  min="1"
+                  value={block.points ?? DEFAULT_QUIZ_BLOCK_POINTS}
+                  onChange={(e) =>
+                    handleUpdate({
+                      points: Math.max(DEFAULT_QUIZ_BLOCK_POINTS, Number.parseInt(e.target.value, 10) || DEFAULT_QUIZ_BLOCK_POINTS),
+                    })
+                  }
+                />
+              </div>
+            </div>
             <div className="space-y-2">
               <Label>Question Text</Label>
               <Textarea
@@ -287,6 +316,7 @@ export const ContentBlockComponent = ({
                     <RadioGroupItem value={idx.toString()} id={`${block.id}-correct-${idx}`} />
                     <Input
                       value={option}
+                      disabled={block.questionType === "true_false"}
                       onChange={(e) => {
                         const newOptions = [...(block.options || [])];
                         newOptions[idx] = e.target.value;
@@ -298,6 +328,7 @@ export const ContentBlockComponent = ({
                       type="button"
                       variant="ghost"
                       size="sm"
+                      disabled={block.questionType === "true_false"}
                       onClick={() => {
                         const nextOptions = (block.options || []).filter((_, optionIndex) => optionIndex !== idx);
                         const nextCorrect =
@@ -320,6 +351,7 @@ export const ContentBlockComponent = ({
                 type="button"
                 variant="outline"
                 size="sm"
+                disabled={block.questionType === "true_false"}
                 onClick={() => {
                   handleUpdate({ options: [...(block.options || []), ""] });
                 }}

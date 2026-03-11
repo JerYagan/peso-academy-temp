@@ -197,7 +197,7 @@ const Profile = () => {
   });
   const [changingPassword, setChangingPassword] = useState(false);
 
-  const isLearner = user?.role === "trainee" || user?.role === "jobseeker";
+  const isLearner = user?.role === "trainee";
 
   const loadProfileData = async () => {
     if (!user) return;

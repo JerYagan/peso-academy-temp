@@ -65,6 +65,7 @@ import {
 } from "@/services/roleService";
 import { getAllRoles, getRolePermissions, PERMISSIONS } from "@/lib/roleConfig";
 import { refreshDashboardRoutes } from "@/lib/roles";
+import { normalizeUserRole } from "@/types/auth";
 import { toast } from "sonner";
 
 const roleIcons: Record<string, any> = {
@@ -85,18 +86,26 @@ const roleColors: Record<string, string> = {
   gray: "bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-300",
 };
 
-// Only these 3 roles are shown: Internal = admin + training_officer, End User = trainee
-const FIXED_ROLE_IDS = ["admin", "training_officer", "trainee"] as const;
+// Only these 3 roles are shown: Internal = admin + trainer, End User = trainee
+const FIXED_ROLE_IDS = ["admin", "trainer", "trainee"] as const;
 const FIXED_ROLE_ICON: Record<string, keyof typeof roleIcons> = {
   admin: "Shield",
-  training_officer: "GraduationCap",
+  trainer: "GraduationCap",
   trainee: "User",
 };
 const FIXED_ROLE_COLOR: Record<string, keyof typeof roleColors> = {
   admin: "blue",
-  training_officer: "gray",
+  trainer: "gray",
   trainee: "green",
 };
+
+const normalizeRoleRecord = (role: DatabaseRole): DatabaseRole => ({
+  ...role,
+  id: normalizeUserRole(role.id),
+  name: normalizeUserRole(role.id) === "trainer" ? "Trainer" : normalizeUserRole(role.id) === "trainee" ? "Trainee" : role.name,
+  dashboard_route: normalizeUserRole(role.id) === "admin" ? "/admin/dashboard" : normalizeUserRole(role.id) === "trainer" ? "/trainer/dashboard" : "/dashboard",
+  can_signup: normalizeUserRole(role.id) === "trainee",
+});
 
 const AdminRoles = () => {
   const [roles, setRoles] = useState<DatabaseRole[]>([]);
@@ -196,7 +205,16 @@ const AdminRoles = () => {
         });
         setPermissionsByCategory(grouped);
       } else {
-        setRoles(rolesData);
+        const normalizedRoles = Array.from(
+          new Map(
+            rolesData.map((role) => {
+              const normalizedRole = normalizeRoleRecord(role);
+              return [normalizedRole.id, normalizedRole];
+            }),
+          ).values(),
+        );
+
+        setRoles(normalizedRoles);
         setPermissions(permissionsData);
         setPermissionsByCategory(groupedPermissions);
       }
@@ -320,9 +338,9 @@ const AdminRoles = () => {
     }
   };
 
-  // Only 3 fixed roles: Internal = admin + training_officer, End User = trainee
+  // Only 3 fixed roles: Internal = admin + trainer, End User = trainee
   const fixedRoles = roles.filter((r) => FIXED_ROLE_IDS.includes(r.id as any));
-  const internalRoles = fixedRoles.filter((r) => r.category === "internal"); // admin, training_officer
+  const internalRoles = fixedRoles.filter((r) => r.category === "internal"); // admin, trainer
   const endUserRoles = fixedRoles.filter((r) => r.category === "end_user"); // trainee
 
   if (loading) {
@@ -368,7 +386,7 @@ const AdminRoles = () => {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{internalRoles.length}</div>
-              <p className="text-xs text-muted-foreground">Training Officer, Administrator</p>
+              <p className="text-xs text-muted-foreground">Trainer, Administrator</p>
             </CardContent>
           </Card>
 

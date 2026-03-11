@@ -38,14 +38,9 @@ export const routePermissions: RoutePermissionConfig[] = [
   { path: "/admin/enrollments", requiredPermissions: ["training.manage", "courses.view"] },
   { path: "/admin/reports", requiredPermissions: ["reports.view", "reports.export"] },
 
-  // Trainer/SPD routes - if you can manage training or courses, you can access
+  // Trainer routes - if you can manage training or courses, you can access
   { path: "/trainer/courses", requiredPermissions: ["courses.view", "courses.create", "courses.update", "courses.delete", "training.manage"] },
   { path: "/trainer/learners", requiredPermissions: ["training.manage", "courses.view"] },
-
-  // Validator routes - if you can validate or certify, you can access
-  { path: "/validator/dashboard", requiredPermissions: ["training.validate", "training.certify"] },
-  { path: "/validator/submissions", requiredPermissions: ["training.validate", "training.certify"] },
-  { path: "/validator/submissions/:id", requiredPermissions: ["training.validate", "training.certify"] },
 ];
 
 /**

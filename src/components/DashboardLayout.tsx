@@ -51,9 +51,7 @@ const DashboardLayout = ({ children }: DashboardLayoutProps) => {
           // { path: "/admin/jobs", label: "Jobs", icon: Briefcase }, // Hidden - Future Phase
           { path: "/profile", label: "Profile", icon: User },
         ];
-      case "training_officer":
       case "trainer":
-      case "spd":
         return [
           {
             path: "/trainer/dashboard",
@@ -62,13 +60,6 @@ const DashboardLayout = ({ children }: DashboardLayoutProps) => {
           },
           { path: "/trainer/courses", label: "My Courses", icon: BookOpen },
           { path: "/trainer/learners", label: "Learners", icon: Users },
-          { path: "/profile", label: "Profile", icon: User },
-        ];
-      case "validator":
-        return [
-          { path: "/validator/dashboard", label: "Validator Dashboard", icon: BarChart3 },
-          { path: "/validator/submissions", label: "Check Assessments", icon: FileText },
-          { path: "/trainer/learners", label: "Trainee Progress", icon: Users },
           { path: "/profile", label: "Profile", icon: User },
         ];
       default:

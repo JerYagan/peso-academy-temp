@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import DashboardLayout from "@/components/DashboardLayout";
+import { DerivedAssessmentSummary } from "@/components/course/DerivedAssessmentSummary";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -28,13 +29,15 @@ import {
   Settings,
   LayoutPanelTop,
   Trash2,
-  Edit,
 } from "lucide-react";
 import { courseService, moduleService } from "@/services/supabaseDatabaseService";
-import { assessmentService, type Assessment, type AssessmentQuestion } from "@/services/assessmentService";
+import { assessmentService, type Assessment } from "@/services/assessmentService";
 import { ContentBlockComponent, type ContentBlock, type ContentBlockType } from "@/components/course/ContentBlock";
 import { ModulePreview } from "@/components/course/ModulePreview";
+import { TaxonomyTagField } from "@/components/course/TaxonomyTagField";
 import { useAuth } from "@/contexts/AuthContext";
+import { createDefaultContentBlock, getQuizAssessmentSummary, parseModuleContentBlocks } from "@/lib/contentBlocks";
+import { getAllowedSkillTagsForCategory, getAllowedTopicTagsForCategory } from "@/lib/taxonomy";
 import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
 import type { Course, Module } from "@/types";
@@ -55,21 +58,7 @@ const BLOCK_TYPE_OPTIONS: Array<{ value: ContentBlockType; label: string; icon: 
 const getBaseModulePath = (role?: string) => (role === "admin" ? "/admin/courses" : "/trainer/courses");
 
 const createEmptyBlock = (type: ContentBlockType): ContentBlock => {
-  const base: ContentBlock = {
-    id: `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
-    type,
-    content: "",
-  };
-
-  if (type === "quiz") {
-    return {
-      ...base,
-      options: ["", ""],
-      correctAnswer: 0,
-    };
-  }
-
-  return base;
+  return createDefaultContentBlock(type, `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`);
 };
 
 const ModuleEditorPage = () => {
@@ -93,13 +82,14 @@ const ModuleEditorPage = () => {
     description: "",
     materials: [] as string[],
     prerequisites: [] as string[],
+    skillTags: [] as string[],
+    topicTags: [] as string[],
     module_thumbnail: "",
     module_document: "",
   });
   const [contentBlocks, setContentBlocks] = useState<ContentBlock[]>([]);
 
   const [currentAssessment, setCurrentAssessment] = useState<Assessment | null>(null);
-  const [assessmentQuestions, setAssessmentQuestions] = useState<AssessmentQuestion[]>([]);
   const [assessmentLoading, setAssessmentLoading] = useState(false);
   const [assessmentFormData, setAssessmentFormData] = useState({
     title: "",
@@ -108,16 +98,12 @@ const ModuleEditorPage = () => {
     passingScore: 70,
     maxAttempts: 3,
     isActive: true,
+    skillTags: [] as string[],
+    topicTags: [] as string[],
   });
-  const [editingQuestion, setEditingQuestion] = useState<AssessmentQuestion | null>(null);
-  const [questionFormData, setQuestionFormData] = useState({
-    question: "",
-    questionType: "multiple_choice" as "multiple_choice" | "true_false" | "short_answer" | "essay",
-    options: ["", ""],
-    correctAnswer: "",
-    points: 1,
-    explanation: "",
-  });
+  const allowedSkillOptions = getAllowedSkillTagsForCategory(course?.category);
+  const allowedTopicOptions = getAllowedTopicTagsForCategory(course?.category);
+  const derivedAssessmentSummary = useMemo(() => getQuizAssessmentSummary(contentBlocks), [contentBlocks]);
 
   const loadModuleAssessment = useCallback(async (targetModuleId: string) => {
     setAssessmentLoading(true);
@@ -125,7 +111,6 @@ const ModuleEditorPage = () => {
       const assessment = await assessmentService.getAssessmentByModule(targetModuleId);
       if (!assessment) {
         setCurrentAssessment(null);
-        setAssessmentQuestions([]);
         setAssessmentFormData({
           title: "",
           description: "",
@@ -133,6 +118,8 @@ const ModuleEditorPage = () => {
           passingScore: 70,
           maxAttempts: 3,
           isActive: true,
+          skillTags: [],
+          topicTags: [],
         });
         return;
       }
@@ -145,9 +132,9 @@ const ModuleEditorPage = () => {
         passingScore: assessment.passingScore,
         maxAttempts: assessment.maxAttempts,
         isActive: assessment.isActive,
+        skillTags: assessment.skillTags || [],
+        topicTags: assessment.topicTags || [],
       });
-      const questions = await assessmentService.getAssessmentQuestions(assessment.id);
-      setAssessmentQuestions(questions);
     } catch (error) {
       console.error("Error loading assessment:", error);
       toast.error("Failed to load module assessment");
@@ -183,11 +170,12 @@ const ModuleEditorPage = () => {
           description: "",
           materials: [],
           prerequisites: [],
+          skillTags: [],
+          topicTags: [],
           module_thumbnail: "",
           module_document: "",
         });
         setCurrentAssessment(null);
-        setAssessmentQuestions([]);
         return;
       }
 
@@ -204,19 +192,17 @@ const ModuleEditorPage = () => {
         description: existingModule.description,
         materials: existingModule.materials || [],
         prerequisites: existingModule.prerequisites || [],
+        skillTags: existingModule.skillTags || [],
+        topicTags: existingModule.topicTags || [],
         module_thumbnail: existingModule.module_thumbnail || "",
         module_document: existingModule.module_document || "",
       });
 
       if (existingModule.content) {
-        try {
-          const parsed = JSON.parse(existingModule.content);
-          if (Array.isArray(parsed)) {
-            setContentBlocks(parsed);
-          } else {
-            setContentBlocks([{ ...createEmptyBlock("text"), title: "Content", content: existingModule.content }]);
-          }
-        } catch {
+        const parsedBlocks = parseModuleContentBlocks(existingModule.content);
+        if (parsedBlocks.length > 0) {
+          setContentBlocks(parsedBlocks);
+        } else {
           setContentBlocks([{ ...createEmptyBlock("text"), title: "Content", content: existingModule.content }]);
         }
       } else {
@@ -296,6 +282,8 @@ const ModuleEditorPage = () => {
     content: JSON.stringify(contentBlocks),
     materials: formData.materials,
     prerequisites: formData.prerequisites,
+    skillTags: formData.skillTags,
+    topicTags: formData.topicTags,
     module_thumbnail: formData.module_thumbnail || undefined,
     module_document: formData.module_document || undefined,
     created_at: editingModule?.created_at || new Date().toISOString(),
@@ -319,6 +307,14 @@ const ModuleEditorPage = () => {
       toast.error("Title and description are required");
       return;
     }
+    if (formData.skillTags.length === 0 || formData.topicTags.length === 0) {
+      toast.error("Modules must include at least one approved skill tag and one approved topic tag");
+      return;
+    }
+    if (status === "finalized" && currentAssessment && !derivedAssessmentSummary.readyForAssessment) {
+      toast.error(derivedAssessmentSummary.invalidIssues[0]?.message || "Finalize requires at least one valid quiz block for the assessment.");
+      return;
+    }
 
     setSaving(true);
     try {
@@ -330,6 +326,8 @@ const ModuleEditorPage = () => {
         content: JSON.stringify(contentBlocks),
         materials: formData.materials,
         prerequisites: formData.prerequisites,
+        skillTags: formData.skillTags,
+        topicTags: formData.topicTags,
         module_thumbnail: formData.module_thumbnail || undefined,
         module_document: formData.module_document || undefined,
         status,
@@ -337,11 +335,36 @@ const ModuleEditorPage = () => {
 
       if (editingModule) {
         const updatedModule = await moduleService.updateModule(editingModule.id, payload);
+        if (derivedAssessmentSummary.readyForAssessment) {
+          const syncedAssessment = await assessmentService.syncDerivedAssessmentFromQuizBlocks(
+            updatedModule.id,
+            payload.title,
+            contentBlocks,
+            {
+              ...assessmentFormData,
+              skillTags: assessmentFormData.skillTags.length > 0 ? assessmentFormData.skillTags : formData.skillTags,
+              topicTags: assessmentFormData.topicTags.length > 0 ? assessmentFormData.topicTags : formData.topicTags,
+            },
+          );
+          setCurrentAssessment(syncedAssessment);
+        }
         setEditingModule(updatedModule);
         setModules((current) => current.map((module) => (module.id === updatedModule.id ? updatedModule : module)));
         toast.success(status === "finalized" ? "Module finalized" : "Module saved as draft");
       } else {
         const createdModule = await moduleService.createModule(payload as Omit<Module, "id" | "created_at">);
+        if (derivedAssessmentSummary.readyForAssessment) {
+          await assessmentService.syncDerivedAssessmentFromQuizBlocks(
+            createdModule.id,
+            payload.title,
+            contentBlocks,
+            {
+              ...assessmentFormData,
+              skillTags: assessmentFormData.skillTags.length > 0 ? assessmentFormData.skillTags : formData.skillTags,
+              topicTags: assessmentFormData.topicTags.length > 0 ? assessmentFormData.topicTags : formData.topicTags,
+            },
+          );
+        }
         toast.success(status === "finalized" ? "Module created and finalized" : "Module saved as draft");
         navigate(`${basePath}/${courseId}/modules/${createdModule.id}/edit`, { replace: true });
         return;
@@ -360,27 +383,24 @@ const ModuleEditorPage = () => {
       toast.error("Assessment title is required");
       return;
     }
+    if (assessmentFormData.topicTags.length === 0) {
+      toast.error("Assessments must include at least one approved topic tag");
+      return;
+    }
+    if (!derivedAssessmentSummary.readyForAssessment) {
+      toast.error(derivedAssessmentSummary.invalidIssues[0]?.message || "Add at least one valid quiz block before saving assessment settings.");
+      return;
+    }
 
     setSaving(true);
     try {
-      if (currentAssessment) {
-        await assessmentService.updateAssessment(currentAssessment.id, {
-          title: assessmentFormData.title,
-          description: assessmentFormData.description || undefined,
-          timeLimit: assessmentFormData.timeLimit,
-          passingScore: assessmentFormData.passingScore,
-          maxAttempts: assessmentFormData.maxAttempts,
-          isActive: assessmentFormData.isActive,
-        });
-      } else {
-        await assessmentService.createAssessment(editingModule.id, {
-          title: assessmentFormData.title,
-          description: assessmentFormData.description || undefined,
-          timeLimit: assessmentFormData.timeLimit,
-          passingScore: assessmentFormData.passingScore,
-          maxAttempts: assessmentFormData.maxAttempts,
-        });
-      }
+      const syncedAssessment = await assessmentService.syncDerivedAssessmentFromQuizBlocks(
+        editingModule.id,
+        formData.title || editingModule.title,
+        contentBlocks,
+        assessmentFormData,
+      );
+      setCurrentAssessment(syncedAssessment);
       toast.success(currentAssessment ? "Assessment updated" : "Assessment created");
       await loadModuleAssessment(editingModule.id);
     } catch (error) {
@@ -405,88 +425,6 @@ const ModuleEditorPage = () => {
     } finally {
       setSaving(false);
     }
-  };
-
-  const resetQuestionForm = () => {
-    setEditingQuestion(null);
-    setQuestionFormData({
-      question: "",
-      questionType: "multiple_choice",
-      options: ["", ""],
-      correctAnswer: "",
-      points: 1,
-      explanation: "",
-    });
-  };
-
-  const handleSaveQuestion = async () => {
-    if (!currentAssessment) return;
-    if (!questionFormData.question.trim()) {
-      toast.error("Question text is required");
-      return;
-    }
-
-    if (questionFormData.questionType === "multiple_choice" && questionFormData.options.filter((option) => option.trim()).length < 2) {
-      toast.error("Multiple choice questions need at least two options");
-      return;
-    }
-
-    setSaving(true);
-    try {
-      const payload = {
-        question: questionFormData.question,
-        questionType: questionFormData.questionType,
-        options: questionFormData.questionType === "multiple_choice" ? questionFormData.options : undefined,
-        correctAnswer: questionFormData.correctAnswer,
-        points: questionFormData.points,
-        explanation: questionFormData.explanation || undefined,
-      };
-
-      if (editingQuestion) {
-        await assessmentService.updateQuestion(editingQuestion.id, payload);
-        toast.success("Question updated");
-      } else {
-        await assessmentService.createQuestion(currentAssessment.id, payload);
-        toast.success("Question added");
-      }
-
-      if (editingModule) {
-        await loadModuleAssessment(editingModule.id);
-      }
-      resetQuestionForm();
-    } catch (error) {
-      console.error("Error saving question:", error);
-      toast.error("Failed to save question");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleDeleteQuestion = async (questionId: string) => {
-    if (!editingModule) return;
-    setSaving(true);
-    try {
-      await assessmentService.deleteQuestion(questionId);
-      toast.success("Question deleted");
-      await loadModuleAssessment(editingModule.id);
-    } catch (error) {
-      console.error("Error deleting question:", error);
-      toast.error("Failed to delete question");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleEditQuestion = (question: AssessmentQuestion) => {
-    setEditingQuestion(question);
-    setQuestionFormData({
-      question: question.question,
-      questionType: question.questionType,
-      options: question.options || ["", ""],
-      correctAnswer: question.correctAnswer || "",
-      points: question.points,
-      explanation: question.explanation || "",
-    });
   };
 
   if (loading) {
@@ -752,6 +690,26 @@ const ModuleEditorPage = () => {
 
                 <Separator />
 
+                <TaxonomyTagField
+                  label="Module Skill Tags"
+                  options={allowedSkillOptions}
+                  values={formData.skillTags}
+                  onChange={(skillTags) => setFormData((current) => ({ ...current, skillTags }))}
+                  placeholder="Select approved skill tags"
+                  description="Use approved skill tags only so trainer analytics and recommendations stay consistent."
+                />
+
+                <TaxonomyTagField
+                  label="Module Topic Tags"
+                  options={allowedTopicOptions}
+                  values={formData.topicTags}
+                  onChange={(topicTags) => setFormData((current) => ({ ...current, topicTags }))}
+                  placeholder="Select approved topic tags"
+                  description="Topic-level learner performance summaries and analytics use these tags directly."
+                />
+
+                <Separator />
+
                 <div className="space-y-3">
                   <Label>Prerequisites</Label>
                   <div className="space-y-2">
@@ -792,7 +750,7 @@ const ModuleEditorPage = () => {
                   <div>
                     <CardTitle>Assessment</CardTitle>
                     <p className="text-sm text-muted-foreground">
-                      {editingModule ? "Configure the module assessment, time limit, scoring, and questions." : "Save the module first to configure an assessment."}
+                      {editingModule ? "Configure assessment metadata here. Graded questions are derived from quiz blocks in the Content tab." : "Save the module first to configure an assessment."}
                     </p>
                   </div>
                   {currentAssessment && editingModule && (
@@ -806,10 +764,12 @@ const ModuleEditorPage = () => {
               <CardContent className="space-y-6">
                 {!editingModule ? (
                   <div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
-                    Create the module as a draft first. Once it exists, this tab will let you define the assessment and add questions.
+                    Create the module as a draft first. Once it exists, this tab will let you define the assessment metadata and review the derived quiz summary.
                   </div>
                 ) : (
                   <>
+                    <DerivedAssessmentSummary contentBlocks={contentBlocks} />
+
                     <div className="grid gap-4 md:grid-cols-2">
                       <div className="space-y-2 md:col-span-2">
                         <Label>Assessment Title</Label>
@@ -826,6 +786,26 @@ const ModuleEditorPage = () => {
                           value={assessmentFormData.description}
                           onChange={(event) => setAssessmentFormData((current) => ({ ...current, description: event.target.value }))}
                           placeholder="Optional instructions or notes"
+                        />
+                      </div>
+                      <div className="space-y-2 md:col-span-2">
+                        <TaxonomyTagField
+                          label="Assessment Skill Tags"
+                          options={allowedSkillOptions}
+                          values={assessmentFormData.skillTags}
+                          onChange={(skillTags) => setAssessmentFormData((current) => ({ ...current, skillTags }))}
+                          placeholder="Select approved skill tags"
+                          description="Keep assessment skill tags aligned with the approved course taxonomy."
+                        />
+                      </div>
+                      <div className="space-y-2 md:col-span-2">
+                        <TaxonomyTagField
+                          label="Assessment Topic Tags"
+                          options={allowedTopicOptions}
+                          values={assessmentFormData.topicTags}
+                          onChange={(topicTags) => setAssessmentFormData((current) => ({ ...current, topicTags }))}
+                          placeholder="Select approved topic tags"
+                          description="Assessment topic tags are required so topic-level performance does not depend on free-text titles."
                         />
                       </div>
                       <div className="space-y-2">
@@ -888,186 +868,9 @@ const ModuleEditorPage = () => {
                       {currentAssessment ? "Update Assessment" : "Create Assessment"}
                     </Button>
 
-                    {currentAssessment && (
-                      <>
-                        <Separator />
-                        <div className="space-y-4">
-                          <div className="flex flex-wrap items-center justify-between gap-3">
-                            <div>
-                              <h3 className="font-semibold">Questions</h3>
-                              <p className="text-sm text-muted-foreground">{assessmentQuestions.length} total question(s)</p>
-                            </div>
-                            <Button variant="outline" onClick={resetQuestionForm}>
-                              <Plus className="mr-2 h-4 w-4" />
-                              Add Question
-                            </Button>
-                          </div>
-
-                          <div className="space-y-3">
-                            {assessmentQuestions.map((question, index) => (
-                              <Card key={question.id}>
-                                <CardContent className="flex items-start justify-between gap-4 p-4">
-                                  <div className="space-y-1">
-                                    <div className="flex items-center gap-2">
-                                      <Badge variant="outline">Q{index + 1}</Badge>
-                                      <Badge>{question.points} pts</Badge>
-                                    </div>
-                                    <p className="font-medium">{question.question}</p>
-                                    <p className="text-sm capitalize text-muted-foreground">{question.questionType.replace("_", " ")}</p>
-                                  </div>
-                                  <div className="flex gap-2">
-                                    <Button variant="ghost" size="icon" onClick={() => handleEditQuestion(question)}>
-                                      <Edit className="h-4 w-4" />
-                                    </Button>
-                                    <Button variant="ghost" size="icon" onClick={() => void handleDeleteQuestion(question.id)}>
-                                      <Trash2 className="h-4 w-4 text-destructive" />
-                                    </Button>
-                                  </div>
-                                </CardContent>
-                              </Card>
-                            ))}
-                          </div>
-
-                          <Card>
-                            <CardHeader>
-                              <CardTitle>{editingQuestion ? "Edit Question" : "New Question"}</CardTitle>
-                            </CardHeader>
-                            <CardContent className="space-y-4">
-                              <div className="space-y-2">
-                                <Label>Question Type</Label>
-                                <Select
-                                  value={questionFormData.questionType}
-                                  onValueChange={(value: "multiple_choice" | "true_false" | "short_answer" | "essay") =>
-                                    setQuestionFormData((current) => ({
-                                      ...current,
-                                      questionType: value,
-                                      options: value === "multiple_choice" ? (current.options.length > 0 ? current.options : ["", ""]) : [],
-                                      correctAnswer: "",
-                                    }))
-                                  }
-                                >
-                                  <SelectTrigger>
-                                    <SelectValue />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    <SelectItem value="multiple_choice">Multiple Choice</SelectItem>
-                                    <SelectItem value="true_false">True or False</SelectItem>
-                                    <SelectItem value="short_answer">Short Answer</SelectItem>
-                                    <SelectItem value="essay">Essay</SelectItem>
-                                  </SelectContent>
-                                </Select>
-                              </div>
-                              <div className="space-y-2">
-                                <Label>Question</Label>
-                                <Textarea
-                                  rows={3}
-                                  value={questionFormData.question}
-                                  onChange={(event) => setQuestionFormData((current) => ({ ...current, question: event.target.value }))}
-                                  placeholder="Write the assessment question"
-                                />
-                              </div>
-
-                              {questionFormData.questionType === "multiple_choice" && (
-                                <div className="space-y-3">
-                                  <Label>Options</Label>
-                                  {questionFormData.options.map((option, index) => (
-                                    <div key={`${index}-${option}`} className="flex gap-2">
-                                      <Input
-                                        value={option}
-                                        onChange={(event) => {
-                                          setQuestionFormData((current) => ({
-                                            ...current,
-                                            options: current.options.map((candidate, candidateIndex) => candidateIndex === index ? event.target.value : candidate),
-                                          }));
-                                        }}
-                                        placeholder={`Option ${index + 1}`}
-                                      />
-                                      {questionFormData.options.length > 2 && (
-                                        <Button
-                                          type="button"
-                                          variant="outline"
-                                          size="icon"
-                                          onClick={() => {
-                                            setQuestionFormData((current) => ({
-                                              ...current,
-                                              options: current.options.filter((_, candidateIndex) => candidateIndex !== index),
-                                            }));
-                                          }}
-                                        >
-                                          <Trash2 className="h-4 w-4" />
-                                        </Button>
-                                      )}
-                                    </div>
-                                  ))}
-                                  <Button
-                                    type="button"
-                                    variant="outline"
-                                    onClick={() => setQuestionFormData((current) => ({ ...current, options: [...current.options, ""] }))}
-                                  >
-                                    <Plus className="mr-2 h-4 w-4" />
-                                    Add Option
-                                  </Button>
-                                  <div className="space-y-2">
-                                    <Label>Correct Answer</Label>
-                                    <Select
-                                      value={questionFormData.correctAnswer}
-                                      onValueChange={(value) => setQuestionFormData((current) => ({ ...current, correctAnswer: value }))}
-                                    >
-                                      <SelectTrigger>
-                                        <SelectValue placeholder="Select the correct answer" />
-                                      </SelectTrigger>
-                                      <SelectContent>
-                                        {questionFormData.options.map((option, index) => (
-                                          <SelectItem key={`${index}-${option || "empty"}`} value={option}>
-                                            {option || `Option ${index + 1}`}
-                                          </SelectItem>
-                                        ))}
-                                      </SelectContent>
-                                    </Select>
-                                  </div>
-                                </div>
-                              )}
-
-                              {(questionFormData.questionType === "true_false" || questionFormData.questionType === "short_answer" || questionFormData.questionType === "essay") && (
-                                <div className="space-y-2">
-                                  <Label>Correct Answer</Label>
-                                  <Input
-                                    value={questionFormData.correctAnswer}
-                                    onChange={(event) => setQuestionFormData((current) => ({ ...current, correctAnswer: event.target.value }))}
-                                    placeholder="Reference answer"
-                                  />
-                                </div>
-                              )}
-
-                              <div className="grid gap-4 md:grid-cols-2">
-                                <div className="space-y-2">
-                                  <Label>Points</Label>
-                                  <Input
-                                    type="number"
-                                    min="1"
-                                    value={questionFormData.points}
-                                    onChange={(event) => setQuestionFormData((current) => ({ ...current, points: parseInt(event.target.value, 10) || 1 }))}
-                                  />
-                                </div>
-                                <div className="space-y-2">
-                                  <Label>Explanation</Label>
-                                  <Input
-                                    value={questionFormData.explanation}
-                                    onChange={(event) => setQuestionFormData((current) => ({ ...current, explanation: event.target.value }))}
-                                    placeholder="Optional learner feedback"
-                                  />
-                                </div>
-                              </div>
-
-                              <Button onClick={() => void handleSaveQuestion()} disabled={saving}>
-                                {saving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                {editingQuestion ? "Update Question" : "Save Question"}
-                              </Button>
-                            </CardContent>
-                          </Card>
-                        </div>
-                      </>
-                    )}
+                    <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+                      Quiz blocks in the Content tab are now the source of assessment questions. This panel only stores assessment metadata such as passing score, time limit, attempts, active state, and taxonomy tags.
+                    </div>
                   </>
                 )}
               </CardContent>

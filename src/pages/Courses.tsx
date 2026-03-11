@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
+import { canonicalizeCourseCategory } from "@/lib/taxonomy";
 import DashboardLayout from "@/components/DashboardLayout";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
@@ -47,7 +48,7 @@ const courseTabs: Array<{ key: CourseTab; label: string }> = [
 const matchesTab = (course: Course, activeTab: CourseTab) => {
   if (activeTab === "all") return true;
 
-  const category = course.category.toLowerCase();
+  const category = (canonicalizeCourseCategory(course.category) || course.category).toLowerCase();
 
   if (activeTab === "technical") {
     return ["technical", "digital", "vocational", "web", "mobile"].some((term) =>

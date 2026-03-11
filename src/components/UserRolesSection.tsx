@@ -1,5 +1,5 @@
 import { Button } from "@/components/ui/button";
-import { Users, Building2, GraduationCap, Briefcase, ArrowRight } from "lucide-react";
+import { Building2, GraduationCap, ArrowRight, User } from "lucide-react";
 import { Link } from "react-router-dom";
 
 const roles = [
@@ -12,6 +12,15 @@ const roles = [
   //   cta: "Start Learning",
   //   gradient: "from-primary to-primary/80",
   // },
+  {
+    icon: User,
+    title: "Trainees",
+    subtitle: "Learners and Job Seekers",
+    description: "Access training, track progress, and earn certificates through guided learning and personalized recommendations.",
+    features: [],
+    cta: "Start Learning",
+    gradient: "from-primary to-primary/80",
+  },
   {
     icon: Building2,
     title: "PESO Staff",
@@ -57,8 +66,7 @@ const UserRolesSection = () => {
             <span className="text-gradient">Entire Ecosystem</span>
           </h2>
           <p className="text-lg text-muted-foreground">
-            Whether you're a job seeker, administrator, trainer, or employer, 
-            PESO Academy has the tools you need.
+            Whether you're a trainee, trainer, or administrator, PESO Academy has the tools you need.
           </p>
         </div>
         

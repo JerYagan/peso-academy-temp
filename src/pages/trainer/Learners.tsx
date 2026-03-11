@@ -12,7 +12,7 @@ import {
 import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Users, BookOpen, Loader2, RefreshCw, Award, CheckCircle2, Clock3 } from "lucide-react";
-import { certificateService, courseService, enrollmentService, moduleService, userService } from "@/services/supabaseDatabaseService";
+import { courseService, moduleService, userService } from "@/services/supabaseDatabaseService";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
 import { useState, useEffect, useMemo } from "react";
@@ -102,6 +102,60 @@ const formatSessionStatus = (status: ModuleSession["sessionStatus"]) => {
   }
 };
 
+const loadManagerEnrollments = async (courseIds: string[], learnerId?: string): Promise<Enrollment[]> => {
+  if (!supabase || courseIds.length === 0) {
+    return [];
+  }
+
+  const { data: rpcData, error: rpcError } = await supabase.rpc("get_course_manager_enrollments", {
+    p_course_ids: courseIds,
+    p_user_id: learnerId || null,
+  });
+
+  const rows = Array.isArray(rpcData) && !rpcError
+    ? rpcData
+    : (await supabase
+        .from("enrollments")
+        .select("id, user_id, course_id, progress, status, enrolled_at, completed_at, certificate_id")
+        .in("course_id", courseIds)
+        .order("enrolled_at", { ascending: false })).data || [];
+
+  return rows.map((enrollment: any) => ({
+    id: enrollment.id,
+    userId: enrollment.user_id,
+    courseId: enrollment.course_id,
+    progress: enrollment.progress,
+    status: enrollment.status,
+    enrolledAt: enrollment.enrolled_at,
+    completedAt: enrollment.completed_at || undefined,
+    certificateId: enrollment.certificate_id || undefined,
+  }));
+};
+
+const loadManagerCertificates = async (courseIds: string[], learnerId: string) => {
+  if (!supabase || courseIds.length === 0) {
+    return [] as Array<{ id: string; user_id: string; course_id: string; issued_at: string | null }>;
+  }
+
+  const { data: rpcData, error: rpcError } = await supabase.rpc("get_course_manager_certificates", {
+    p_course_ids: courseIds,
+    p_user_id: learnerId,
+  });
+
+  if (!rpcError && Array.isArray(rpcData)) {
+    return rpcData as Array<{ id: string; user_id: string; course_id: string; issued_at: string | null }>;
+  }
+
+  const { data } = await supabase
+    .from("certificates")
+    .select("id, user_id, course_id, issued_at")
+    .eq("user_id", learnerId)
+    .in("course_id", courseIds)
+    .order("issued_at", { ascending: false });
+
+  return data || [];
+};
+
 const TrainerLearners = () => {
   const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -150,6 +204,7 @@ const TrainerLearners = () => {
       
       if (visibleCourses.length === 0) {
         setLearners([]);
+        setLearnerSessionInsights({});
         setLoading(false);
         return;
       }
@@ -157,53 +212,7 @@ const TrainerLearners = () => {
       // Get enrollments directly for trainer's courses using a direct join query
       const myCourseIds = visibleCourses.map(c => c.id);
       
-      let myEnrollments: Enrollment[] = [];
-      if (myCourseIds.length > 0 && supabase) {
-        // Query enrollments for the already-resolved trainer course ids.
-        const { data, error } = await supabase
-          .from("enrollments")
-          .select("*")
-          .in("course_id", myCourseIds)
-          .order("enrolled_at", { ascending: false });
-        
-        if (error) {
-          console.error("Error fetching enrollments with join:", error);
-          // Fallback to simple query
-          const { data: simpleData, error: simpleError } = await supabase
-            .from("enrollments")
-            .select("*")
-            .in("course_id", myCourseIds)
-            .order("enrolled_at", { ascending: false });
-          
-          if (simpleError) {
-            console.error("Error fetching enrollments (fallback):", simpleError);
-            toast.error("Failed to load enrollments");
-          } else {
-            myEnrollments = (simpleData || []).map((enrollment) => ({
-              id: enrollment.id,
-              userId: enrollment.user_id,
-              courseId: enrollment.course_id,
-              progress: enrollment.progress,
-              status: enrollment.status,
-              enrolledAt: enrollment.enrolled_at,
-              completedAt: enrollment.completed_at || undefined,
-              certificateId: enrollment.certificate_id || undefined,
-            }));
-          }
-        } else {
-          myEnrollments = (data || []).map((enrollment: any) => ({
-            id: enrollment.id,
-            userId: enrollment.user_id,
-            courseId: enrollment.course_id,
-            progress: enrollment.progress,
-            status: enrollment.status,
-            enrolledAt: enrollment.enrolled_at,
-            completedAt: enrollment.completed_at || undefined,
-            certificateId: enrollment.certificate_id || undefined,
-          }));
-        }
-        
-      }
+      const myEnrollments = await loadManagerEnrollments(myCourseIds);
 
       // Get unique learner IDs
       const uniqueLearnerIds = Array.from(new Set(myEnrollments.map((e) => e.userId)));
@@ -289,13 +298,21 @@ const TrainerLearners = () => {
     setProgressLoading(true);
 
     try {
+      const managerCourseIds = visibleCourses.map((course) => course.id);
       const [learnerEnrollments, learnerCertificates, allCourses, trainerSessionSummaries, recentSessions] = await Promise.all([
-        enrollmentService.getEnrollments(learner.id),
-        certificateService.getCertificates(learner.id),
+        loadManagerEnrollments(managerCourseIds, learner.id),
+        loadManagerCertificates(managerCourseIds, learner.id),
         courseService.getCourses(),
         moduleSessionService.getTrainerLearnerSessionSummaries({ learnerId: learner.id, limit: 50 }),
         moduleSessionService.getLearnerSessionsForTrainer(user?.id || "", learner.id, 8),
       ]);
+
+      const normalizedLearnerCertificates = learnerCertificates.map((certificate) => ({
+        id: certificate.id,
+        userId: certificate.user_id,
+        courseId: certificate.course_id,
+        issuedAt: certificate.issued_at,
+      }));
 
       const enrollmentIds = learnerEnrollments.map((enrollment) => enrollment.id);
       const courseIds = Array.from(new Set(learnerEnrollments.map((enrollment) => enrollment.courseId)));
@@ -326,17 +343,23 @@ const TrainerLearners = () => {
       );
       const modulesByCourse = new Map<string, Module[]>();
 
-      await Promise.all(
+      const moduleResults = await Promise.allSettled(
         courseIds.map(async (courseId) => {
           const modules = await moduleService.getModulesByCourse(courseId);
           modulesByCourse.set(courseId, modules);
         }),
       );
 
+      moduleResults.forEach((result, index) => {
+        if (result.status === "rejected") {
+          console.error(`Error loading modules for course ${courseIds[index]}:`, result.reason);
+        }
+      });
+
       const progressRows = learnerEnrollments
         .map((enrollment) => {
           const course = courseLookup.get(enrollment.courseId) || null;
-          const certificate = learnerCertificates.find((item) => item.courseId === enrollment.courseId);
+          const certificate = normalizedLearnerCertificates.find((item) => item.courseId === enrollment.courseId);
           const completionMap = completionsLookup.get(enrollment.id) || new Map<string, { completedAt?: string; timeSpent?: number }>();
           const modules = (modulesByCourse.get(enrollment.courseId) || []).map((module) => {
             const completion = completionMap.get(module.id);
@@ -363,15 +386,16 @@ const TrainerLearners = () => {
         Object.fromEntries(trainerSessionSummaries.map((summary) => [summary.courseId, summary]))
       );
       setSelectedLearnerRecentSessions(
-        recentSessions.map((session) => ({
-          id: session.id,
-          courseTitle: courseLookup.get(session.courseId)?.title || null,
-          moduleTitle:
-            (modulesByCourse.get(session.courseId) || []).find((module) => module.id === session.moduleId)?.title || null,
-          lastSeenAt: session.lastSeenAt,
-          durationSeconds: session.durationSeconds,
-          sessionStatus: session.sessionStatus,
-        }))
+        recentSessions
+          .map((session) => ({
+            id: session.id,
+            courseTitle: courseLookup.get(session.courseId)?.title || null,
+            moduleTitle:
+              (modulesByCourse.get(session.courseId) || []).find((module) => module.id === session.moduleId)?.title || null,
+            lastSeenAt: session.lastSeenAt,
+            durationSeconds: session.durationSeconds,
+            sessionStatus: session.sessionStatus,
+          }))
       );
     } catch (error) {
       console.error("Error loading learner progress:", error);
@@ -526,8 +550,8 @@ const TrainerLearners = () => {
         </Card>
 
         <Dialog open={progressDialogOpen} onOpenChange={handleProgressDialogChange}>
-          <DialogContent className="max-w-5xl">
-            <DialogHeader>
+          <DialogContent className="flex h-[calc(100vh-1.5rem)] min-h-0 w-[calc(100vw-1.5rem)] max-w-5xl flex-col overflow-hidden p-0 sm:h-[90vh] sm:w-full">
+            <DialogHeader className="shrink-0 border-b px-4 py-4 sm:px-6">
               <DialogTitle>{selectedLearner ? `${selectedLearner.name}'s Progress` : "Learner Progress"}</DialogTitle>
               <DialogDescription>
                 View all enrolled courses, per-module progress, and certificate release status for this trainee.
@@ -535,121 +559,121 @@ const TrainerLearners = () => {
             </DialogHeader>
 
             {progressLoading ? (
-              <div className="flex items-center justify-center py-16">
+              <div className="flex items-center justify-center px-4 py-16 sm:px-6">
                 <Loader2 className="mr-3 h-6 w-6 animate-spin text-muted-foreground" />
                 <p className="text-sm text-muted-foreground">Loading learner progress...</p>
               </div>
             ) : learnerProgress.length === 0 ? (
-              <div className="py-12 text-center text-sm text-muted-foreground">
+              <div className="px-4 py-12 text-center text-sm text-muted-foreground sm:px-6">
                 No enrollment progress data is available for this learner.
               </div>
             ) : (
-              <div className="space-y-6">
-                <div className="grid gap-4 md:grid-cols-4">
-                  <Card>
-                    <CardHeader className="pb-2">
-                      <CardTitle className="text-sm font-medium">Courses</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="text-2xl font-semibold">{learnerProgress.length}</div>
-                    </CardContent>
-                  </Card>
-                  <Card>
-                    <CardHeader className="pb-2">
-                      <CardTitle className="text-sm font-medium">Completed Courses</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="text-2xl font-semibold">{completedCourses}</div>
-                    </CardContent>
-                  </Card>
-                  <Card>
-                    <CardHeader className="pb-2">
-                      <CardTitle className="text-sm font-medium">Certificates Released</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="text-2xl font-semibold">{releasedCertificates}</div>
-                    </CardContent>
-                  </Card>
-                  <Card>
-                    <CardHeader className="pb-2">
-                      <CardTitle className="text-sm font-medium">Average Progress</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="text-2xl font-semibold">{averageProgress}%</div>
-                    </CardContent>
-                  </Card>
-                </div>
+              <ScrollArea className="min-h-0 flex-1">
+                <div className="space-y-6 px-4 py-4 pb-6 sm:px-6">
+                  <div className="grid gap-4 md:grid-cols-4">
+                    <Card>
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-sm font-medium">Courses</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="text-2xl font-semibold">{learnerProgress.length}</div>
+                      </CardContent>
+                    </Card>
+                    <Card>
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-sm font-medium">Completed Courses</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="text-2xl font-semibold">{completedCourses}</div>
+                      </CardContent>
+                    </Card>
+                    <Card>
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-sm font-medium">Certificates Released</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="text-2xl font-semibold">{releasedCertificates}</div>
+                      </CardContent>
+                    </Card>
+                    <Card>
+                      <CardHeader className="pb-2">
+                        <CardTitle className="text-sm font-medium">Average Progress</CardTitle>
+                      </CardHeader>
+                      <CardContent>
+                        <div className="text-2xl font-semibold">{averageProgress}%</div>
+                      </CardContent>
+                    </Card>
+                  </div>
 
-                <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="text-base">Recent Session History</CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-3">
-                      {selectedLearnerRecentSessions.length > 0 ? (
-                        selectedLearnerRecentSessions.map((session) => (
-                          <div key={session.id} className="rounded-lg border p-3">
-                            <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
-                              <div>
-                                <p className="font-medium">{session.moduleTitle || "Untitled module"}</p>
-                                <p className="text-sm text-muted-foreground">{session.courseTitle || "Untitled course"}</p>
+                  <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="text-base">Recent Session History</CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-3">
+                        {selectedLearnerRecentSessions.length > 0 ? (
+                          selectedLearnerRecentSessions.map((session) => (
+                            <div key={session.id} className="rounded-lg border p-3">
+                              <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                                <div>
+                                  <p className="font-medium">{session.moduleTitle || "Untitled module"}</p>
+                                  <p className="text-sm text-muted-foreground">{session.courseTitle || "Untitled course"}</p>
+                                </div>
+                                <div className="flex flex-wrap gap-2">
+                                  <Badge variant="secondary">{formatSessionDuration(session.durationSeconds)}</Badge>
+                                  <Badge variant="outline">{formatSessionStatus(session.sessionStatus)}</Badge>
+                                </div>
                               </div>
-                              <div className="flex flex-wrap gap-2">
-                                <Badge variant="secondary">{formatSessionDuration(session.durationSeconds)}</Badge>
-                                <Badge variant="outline">{formatSessionStatus(session.sessionStatus)}</Badge>
-                              </div>
+                              <p className="mt-2 text-xs text-muted-foreground">
+                                Last opened {formatRelativeActivity(session.lastSeenAt)}
+                              </p>
                             </div>
-                            <p className="mt-2 text-xs text-muted-foreground">
-                              Last opened {formatRelativeActivity(session.lastSeenAt)}
-                            </p>
-                          </div>
-                        ))
-                      ) : (
-                        <p className="text-sm text-muted-foreground">No recent trainer-visible session history is available for this learner yet.</p>
-                      )}
-                    </CardContent>
-                  </Card>
+                          ))
+                        ) : (
+                          <p className="text-sm text-muted-foreground">No recent trainer-visible session history is available for this learner yet.</p>
+                        )}
+                      </CardContent>
+                    </Card>
 
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="text-base">Session Signals</CardTitle>
-                    </CardHeader>
-                    <CardContent className="space-y-3">
-                      {learnerSessionInsights[selectedLearner?.id || ""] ? (
-                        <>
-                          <div className="rounded-lg border p-3">
-                            <p className="text-sm text-muted-foreground">Last accessed module</p>
-                            <p className="mt-1 font-medium">
-                              {learnerSessionInsights[selectedLearner?.id || ""].lastModuleTitle || "No recorded session"}
-                            </p>
-                            <p className="mt-1 text-xs text-muted-foreground">
-                              {learnerSessionInsights[selectedLearner?.id || ""].lastCourseTitle || "No recorded course context"}
-                            </p>
-                          </div>
-                          <div className="rounded-lg border p-3">
-                            <p className="text-sm text-muted-foreground">Last activity</p>
-                            <p className="mt-1 font-medium">
-                              {formatRelativeActivity(learnerSessionInsights[selectedLearner?.id || ""].lastSeenAt)}
-                            </p>
-                          </div>
-                          <div className="rounded-lg border p-3">
-                            <p className="text-sm text-muted-foreground">Intervention signal</p>
-                            <p className="mt-1 font-medium">
-                              {learnerSessionInsights[selectedLearner?.id || ""].needsAttention
-                                ? `${learnerSessionInsights[selectedLearner?.id || ""].repeatedShortSessionCount} course signal(s) need review`
-                                : "No repeated short-session pattern detected"}
-                            </p>
-                          </div>
-                        </>
-                      ) : (
-                        <p className="text-sm text-muted-foreground">Session signals will appear after the learner opens tracked modules.</p>
-                      )}
-                    </CardContent>
-                  </Card>
-                </div>
+                    <Card>
+                      <CardHeader>
+                        <CardTitle className="text-base">Session Signals</CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-3">
+                        {learnerSessionInsights[selectedLearner?.id || ""] ? (
+                          <>
+                            <div className="rounded-lg border p-3">
+                              <p className="text-sm text-muted-foreground">Last accessed module</p>
+                              <p className="mt-1 font-medium">
+                                {learnerSessionInsights[selectedLearner?.id || ""].lastModuleTitle || "No recorded session"}
+                              </p>
+                              <p className="mt-1 text-xs text-muted-foreground">
+                                {learnerSessionInsights[selectedLearner?.id || ""].lastCourseTitle || "No recorded course context"}
+                              </p>
+                            </div>
+                            <div className="rounded-lg border p-3">
+                              <p className="text-sm text-muted-foreground">Last activity</p>
+                              <p className="mt-1 font-medium">
+                                {formatRelativeActivity(learnerSessionInsights[selectedLearner?.id || ""].lastSeenAt)}
+                              </p>
+                            </div>
+                            <div className="rounded-lg border p-3">
+                              <p className="text-sm text-muted-foreground">Intervention signal</p>
+                              <p className="mt-1 font-medium">
+                                {learnerSessionInsights[selectedLearner?.id || ""].needsAttention
+                                  ? `${learnerSessionInsights[selectedLearner?.id || ""].repeatedShortSessionCount} course signal(s) need review`
+                                  : "No repeated short-session pattern detected"}
+                              </p>
+                            </div>
+                          </>
+                        ) : (
+                          <p className="text-sm text-muted-foreground">Session signals will appear after the learner opens tracked modules.</p>
+                        )}
+                      </CardContent>
+                    </Card>
+                  </div>
 
-                <ScrollArea className="max-h-[60vh] pr-4">
-                  <div className="space-y-4">
+                  <div className="space-y-4 pb-1">
                     {learnerProgress.map((item) => (
                       <Card key={item.enrollment.id}>
                         <CardHeader>
@@ -780,8 +804,8 @@ const TrainerLearners = () => {
                       </Card>
                     ))}
                   </div>
-                </ScrollArea>
-              </div>
+                </div>
+              </ScrollArea>
             )}
           </DialogContent>
         </Dialog>

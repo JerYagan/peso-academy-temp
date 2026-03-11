@@ -60,6 +60,7 @@ const processSteps = [
       "Sign up with your PESO ID or create a new account. Complete your profile with your learning interests and goals.",
     icon: UserRoundPlus,
     badgeClassName: "bg-slate-800 text-white dark:bg-slate-100 dark:text-slate-900",
+    iconClassName: "bg-indigo-100 text-indigo-700 ring-1 ring-indigo-200 dark:bg-indigo-500/20 dark:text-indigo-300 dark:ring-indigo-400/20",
   },
   {
     step: "02",
@@ -68,6 +69,7 @@ const processSteps = [
       "Access learning modules, engage with interactive content, and complete assessments to validate your learning.",
     icon: GraduationCap,
     badgeClassName: "bg-rose-600 text-white dark:bg-rose-500 dark:text-white",
+    iconClassName: "bg-rose-100 text-rose-700 ring-1 ring-rose-200 dark:bg-rose-500/20 dark:text-rose-300 dark:ring-rose-400/20",
   },
   {
     step: "03",
@@ -76,6 +78,7 @@ const processSteps = [
       "Receive TESDA-supported certificates and digital badges to showcase your newly acquired skills and knowledge.",
     icon: BadgeCheck,
     badgeClassName: "bg-blue-600 text-white dark:bg-blue-500 dark:text-white",
+    iconClassName: "bg-sky-100 text-sky-700 ring-1 ring-sky-200 dark:bg-sky-500/20 dark:text-sky-300 dark:ring-sky-400/20",
   },
 ];
 
@@ -85,77 +88,77 @@ const audiences = [
     description:
       "Access skills training, certifications, and job matching to advance your career.",
     icon: SearchCheck,
-    iconClass: "bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-300",
+    iconClass: "bg-indigo-100 text-indigo-700 ring-1 ring-indigo-200 dark:bg-indigo-500/20 dark:text-indigo-300 dark:ring-indigo-400/20",
   },
   {
     title: "Employers",
     description:
       "Find skilled candidates and collaborate on workforce development programs.",
     icon: Briefcase,
-    iconClass: "bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300",
+    iconClass: "bg-rose-100 text-rose-700 ring-1 ring-rose-200 dark:bg-rose-500/20 dark:text-rose-300 dark:ring-rose-400/20",
   },
   {
     title: "Students",
     description:
       "Enhance your academic learning with practical skills and industry certifications.",
     icon: GraduationCap,
-    iconClass: "bg-blue-100 text-blue-700 dark:bg-blue-500/20 dark:text-blue-300",
+    iconClass: "bg-sky-100 text-sky-700 ring-1 ring-sky-200 dark:bg-sky-500/20 dark:text-sky-300 dark:ring-sky-400/20",
   },
   {
     title: "Out-of-School Youth",
     description:
       "Build foundational and technical skills to enter the workforce with confidence.",
     icon: Users,
-    iconClass: "bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300",
+    iconClass: "bg-amber-100 text-amber-700 ring-1 ring-amber-200 dark:bg-amber-500/20 dark:text-amber-300 dark:ring-amber-400/20",
   },
   {
     title: "Migratory Workers",
     description:
       "Upskill for employment opportunities both locally and internationally.",
     icon: Globe,
-    iconClass: "bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300",
+    iconClass: "bg-emerald-100 text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-500/20 dark:text-emerald-300 dark:ring-emerald-400/20",
   },
   {
     title: "Planners",
     description:
       "Access labor market data to inform policy and workforce development strategies.",
     icon: FileSearch,
-    iconClass: "bg-violet-100 text-violet-700 dark:bg-violet-500/20 dark:text-violet-300",
+    iconClass: "bg-violet-100 text-violet-700 ring-1 ring-violet-200 dark:bg-violet-500/20 dark:text-violet-300 dark:ring-violet-400/20",
   },
   {
     title: "Researchers",
     description:
       "Utilize employment and skills data for academic and policy research initiatives.",
     icon: FlaskConical,
-    iconClass: "bg-pink-100 text-pink-700 dark:bg-pink-500/20 dark:text-pink-300",
+    iconClass: "bg-pink-100 text-pink-700 ring-1 ring-pink-200 dark:bg-pink-500/20 dark:text-pink-300 dark:ring-pink-400/20",
   },
   {
     title: "Labor Market Information Users",
     description:
       "Leverage workforce trends and insights for decision-making and planning.",
     icon: LayoutPanelTop,
-    iconClass: "bg-orange-100 text-orange-700 dark:bg-orange-500/20 dark:text-orange-300",
+    iconClass: "bg-orange-100 text-orange-700 ring-1 ring-orange-200 dark:bg-orange-500/20 dark:text-orange-300 dark:ring-orange-400/20",
   },
   {
     title: "Persons with Disabilities (PWDs)",
     description:
       "Access inclusive learning programs designed for diverse abilities and needs.",
     icon: HeartHandshake,
-    iconClass: "bg-red-100 text-red-700 dark:bg-red-500/20 dark:text-red-300",
+    iconClass: "bg-red-100 text-red-700 ring-1 ring-red-200 dark:bg-red-500/20 dark:text-red-300 dark:ring-red-400/20",
   },
   {
     title: "Returning Overseas Filipino Workers",
     description:
       "Transition back to the local workforce with reskilling and reintegration support.",
     icon: Home,
-    iconClass: "bg-cyan-100 text-cyan-700 dark:bg-cyan-500/20 dark:text-cyan-300",
+    iconClass: "bg-cyan-100 text-cyan-700 ring-1 ring-cyan-200 dark:bg-cyan-500/20 dark:text-cyan-300 dark:ring-cyan-400/20",
   },
   {
     title: "Displaced Workers",
     description:
       "Reskill and find new opportunities after job displacement or industry changes.",
     icon: Users,
-    iconClass: "bg-slate-200 text-slate-700 dark:bg-slate-500/20 dark:text-slate-300",
+    iconClass: "bg-slate-200 text-slate-700 ring-1 ring-slate-300 dark:bg-slate-500/20 dark:text-slate-300 dark:ring-slate-400/20",
   },
 ];
 
@@ -248,7 +251,7 @@ const Index = () => {
             </div>
 
             <div className="mt-8 grid gap-4 sm:mt-12 sm:gap-6 lg:grid-cols-3">
-              {processSteps.map(({ step, title, description, icon: Icon, badgeClassName }) => (
+              {processSteps.map(({ step, title, description, icon: Icon, badgeClassName, iconClassName }) => (
                 <article
                   key={step}
                   className="rounded-[1.5rem] border border-border bg-card p-5 card-shadow dark:bg-card/85 sm:rounded-[1.9rem] sm:p-7"
@@ -257,7 +260,7 @@ const Index = () => {
                     <span className={`inline-flex min-w-10 items-center justify-center rounded-full px-2.5 py-1 text-[10px] font-extrabold tracking-[0.2em] sm:min-w-12 sm:px-3 sm:text-xs ${badgeClassName}`}>
                       {step}
                     </span>
-                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-primary dark:bg-slate-800/80 sm:h-12 sm:w-12 sm:rounded-2xl">
+                    <div className={`flex h-10 w-10 items-center justify-center rounded-xl shadow-sm sm:h-12 sm:w-12 sm:rounded-2xl ${iconClassName}`}>
                       <Icon className="h-4 w-4 sm:h-5 sm:w-5" />
                     </div>
                   </div>

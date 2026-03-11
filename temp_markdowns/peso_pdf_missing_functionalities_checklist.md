@@ -4,21 +4,20 @@ Based on the requirements extracted from `PESO ACADEMY USER DASHBOARDS-1.pdf`, t
 
 ## Scope Used For Comparison
 
-- PDF dashboard requirements for Trainee, Training Officer, and Admin users
+- PDF dashboard requirements for Trainee, Trainer, and Admin users
 - Current app routes, dashboards, profile, course browse flow, role management, and reporting pages
 - Current predictive analytics planning notes in `temp_markdowns/admin_predictive_analytics_plan.md`
 
 ## Phase 0: Baseline Audit and Scope Alignment
 
-- [ ] Decide whether to normalize the role model to the three fixed PDF roles: Trainee, Training Officer(trainer), Administrator. (It's only going to be that 3 roles)
-  - The PDF describes fixed roles and fixed permissions.
-  - The current app still carries additional runtime roles such as validator, employer, SPD, and jobseeker aliases.
+- [x] Decide whether to normalize the role model to the three fixed PDF roles: Trainee, Trainer, Administrator. (It's only going to be that 3 roles)
+  - Implemented by collapsing runtime role normalization to `trainee`, `trainer`, and `admin`, while hard-mapping legacy roles such as `training_officer`, `spd`, `validator`, `employer`, and `jobseeker` into those three supported roles.
 
-- [ ] Align role management presentation with the fixed-role document model (ignore all the role outside those 3)
-  - The admin role page already limits display to core roles, but the broader application routing and permissions still include extra roles not described in the PDF.
+- [x] Align role management presentation with the fixed-role document model (ignore all the role outside those 3)
+  - Admin role management, admin user role assignment, dashboard navigation, and public role-marketing copy now present only `trainee`, `trainer`, and `admin` as first-class roles.
 
-- [ ] Audit the current recommendation engine and formally mark it as blended heuristic until Phase 3 is complete (But implement the hybrid algorithm in the backend and persist outputs so we can claim it as hybrid in Phase 3)
-  - The current recommendation UI exists, but the engine is not yet a true hybrid implementation.
+- [x] Audit recommendation engine labels and align docs/UI with the current persisted hybrid pipeline
+  - Completed by auditing dashboard, profile, trainer analytics, admin analytics, and markdown docs, then removing stale `blended heuristic` wording and browse-page-primary recommendation references outside of historical implementation notes.
 
 - [ ] Confirm the final topic and skill taxonomy for courses, modules, and assessments 
   - Topic-level performance and content recommendations will stay inconsistent until the taxonomy is standardized.
@@ -37,7 +36,7 @@ Based on the requirements extracted from `PESO ACADEMY USER DASHBOARDS-1.pdf`, t
   - Log clicks when the learner opens a recommended course.
   - Log accepts when a learner enrolls from a recommendation flow.
   - Attribute downstream enrollments and completions back to the originating recommendation record.
-  - Implemented through `analyticsService`, dashboard and browse recommendation tracking, recommendation-attributed enrollments, module completion events, and assessment submission events.
+  - Implemented through `analyticsService`, persisted dashboard recommendation tracking, recommendation-attributed enrollments, module completion events, and assessment submission events. Historical browse-surface tracking existed before the browse recommendation rail was removed in the later trainee UX cleanup.
 
 - [x] Add topic-level or skill-level tagging for courses, modules, and assessments
   - Standardize skill tags at the course level.
@@ -56,7 +55,7 @@ Based on the requirements extracted from `PESO ACADEMY USER DASHBOARDS-1.pdf`, t
   - Persist ranked learner recommendations with score, reasons, source mix, generated timestamp, and model version.
   - Persist learner skill-profile outputs used by trainee summaries and recommendation logic.
   - Persist predictive outputs used by trainer and admin dashboards such as course risk and module quality signals.
-  - Dashboard and browse recommendation sections now hydrate from persisted recommendation rows after syncing the current blended scorer output.
+  - The trainee dashboard recommendation surface now hydrates from persisted recommendation rows after syncing the current hybrid scorer output.
 
 ## Phase 2: Learner Analytics Foundation
 
@@ -76,7 +75,7 @@ Based on the requirements extracted from `PESO ACADEMY USER DASHBOARDS-1.pdf`, t
   - Learner profile training snapshot now includes completed modules and module completion rate.
 
 - [x] Use these learner(trainee) stats as inputs for analytics and recommendation features
-  - The blended recommendation scorer now factors in average assessment score, module completion rate, completed modules, and tracked learning time when ranking follow-on courses.
+  - The hybrid recommendation engine now factors in average assessment score, module completion rate, completed modules, and tracked learning time when ranking follow-on courses.
 
 - [x] Implement learner performance summary on the trainee dashboard
   - PDF requires assessment scores, module completion records, time spent, and topic-level performance results.
@@ -93,15 +92,15 @@ Based on the requirements extracted from `PESO ACADEMY USER DASHBOARDS-1.pdf`, t
   - Recommendation outputs continue to persist, track outcomes, and refresh analytics through the existing learner recommendation and analytics pipeline.
 
 - [x] Add recommendation ranking output on top of standard browse results
-  - Implemented through the trainee `Recommended for You` section on the browse page, where ranked recommendation cards are rendered ahead of standard browse results.
-  - Note: a later trainee UX phase may still remove this section by product choice, but it is currently implemented.
+  - Historical implementation note: this was originally delivered through a trainee `Recommended for You` section on the browse page, where ranked recommendation cards rendered ahead of standard browse results.
+  - That browse-page rail was later removed by product decision so the trainee dashboard remains the primary recommendation surface.
 
 - [x] Add recommendation reasons such as matching strengths, skill gaps, or similar learner behavior
   - Implemented through explanation reasons that now cover strengths, weak topics, onboarding preferences, session behavior, starter-fit logic, and similar-learner enrollment behavior.
 
 - [x] Add recommendation refresh logic after completions and assessments
   - Implemented through recommendation syncing on trainee surfaces plus tracked `recommendation_refresh` analytics events.
-  - Assessment and completion-driven learner signals now feed recommendation recalculation, even though the engine is still not a true collaborative hybrid.
+  - Assessment and completion-driven learner signals now feed persisted hybrid recommendation recalculation.
 
 - [x] Implement personalized course recommendations on the trainee dashboard
   - PDF requires recommended courses to appear in `My Dashboard` after module or assessment completion.
@@ -111,20 +110,20 @@ Based on the requirements extracted from `PESO ACADEMY USER DASHBOARDS-1.pdf`, t
 
 - [x] Implement `Recommended for You` section on Browse Courses for trainee
   - PDF requires a recommendation section powered by a hybrid recommendation algorithm.
-  - The browse page now shows recommendation UI, but the underlying algorithm is still an early blended heuristic and not yet a full hybrid engine.
+  - Historical implementation note: the browse page temporarily exposed the recommendation rail during the hybrid rollout, but that surface was later removed so the trainee dashboard remains the primary recommendation entry point.
 
 ## Phase 4: Trainee Experience Completion
 
 - [x] Refresh trainee recommendations after assessment completion, module completion, and profile changes
   - Assessment completion and module/session activity already feed refreshed recommendation state on the trainee surfaces.
-  - Learner profile updates now trigger an explicit hybrid recommendation resync for persisted dashboard and browse recommendation surfaces, so changes to interests, preferred categories, skill level, and skills refresh recommendation output immediately after save.
+  - Learner profile updates now trigger an explicit hybrid recommendation resync for the persisted dashboard recommendation surface, so changes to interests, preferred categories, skill level, and skills refresh recommendation output immediately after save.
 
 - [x] Complete learner profile analytics so profile data can feed both recommendations and predictive features
   - The learner profile now exposes recommendation-driving inputs such as industry interests, preferred categories, skill level, and skills directly in the profile UI.
   - The profile page now surfaces learner profile analytics like recommendation signal coverage and predictive readiness so admins and trainees can see whether enough profile data exists to support personalization and downstream predictive features.
 
 - [x] Connect persisted recommendation outputs to dashboard and browse page rendering
-  - Dashboard and browse recommendation cards now sync ranked recommendation rows into storage, hydrate UI cards from persisted records, and log impression and click events per surface.
+  - The trainee dashboard recommendation cards now sync ranked recommendation rows into storage, hydrate UI cards from persisted records, and log impression and click events for the active learner-facing surface.
 
 ## Phase 5: Training Officer Analytics
 - [x] Implement recommendation system performance analytics for Training Officers
@@ -432,79 +431,102 @@ This section translates the still-open checklist items into buildable implementa
 
 ### 1. Phase 0: Role Model Normalization
 
-- Goal: reduce the live role model to the three PDF roles only: `trainee`, `training_officer`, and `admin`.
-- Step 1: inventory every extra runtime role and alias across route guards, auth hydration, role normalization, database role pages, and permission helpers.
-- Step 2: decide whether non-PDF roles will be migrated, hidden, or hard-mapped into one of the three supported roles.
-- Step 3: update role normalization and dashboard routing so unsupported roles no longer appear as first-class destinations.
-- Step 4: simplify admin role-management UI to show only the three supported roles and remove extra-role editing paths.
-- Step 5: run a migration and cleanup pass for existing user rows whose roles still fall outside the final three-role model.
-- Verification: no user-facing route, role picker, or permissions summary should present roles outside `trainee`, `training_officer`, and `admin`.
+- [x] Goal: reduce the live role model to the three PDF roles only: `trainee`, `trainer`, and `admin`.
+- [x] Step 1: inventory every extra runtime role and alias across route guards, auth hydration, role normalization, database role pages, and permission helpers.
+- [x] Step 2: decide whether non-PDF roles will be migrated, hidden, or hard-mapped into one of the three supported roles.
+- [x] Step 3: update role normalization and dashboard routing so unsupported roles no longer appear as first-class destinations.
+- [x] Step 4: simplify admin role-management UI to show only the three supported roles and remove extra-role editing paths.
+- [x] Step 5: run a migration and cleanup pass for existing user rows whose roles still fall outside the final three-role model.
+- [x] Verification: no user-facing route, role picker, or permissions summary should present roles outside `trainee`, `trainer`, and `admin`.
 
 ### 2. Phase 0: Recommendation Engine Label Audit
 
-- Goal: reconcile historical checklist wording that still references a pre-hybrid or browse-page recommendation state.
-- Step 1: audit user-facing labels in dashboard, profile, trainer analytics, admin analytics, and markdown docs for stale references to `blended heuristic` or browse-page trainee recommendations.
-- Step 2: keep only historically accurate wording in backlog sections that describe pre-Phase-3 state; update everything else to describe the current persisted hybrid pipeline.
-- Step 3: align checklist text with the current product decision that the trainee dashboard is the primary recommendation surface.
-- Verification: docs and UI copy should describe the recommender consistently and should not contradict the current implementation.
+- [x] Goal: reconcile historical checklist wording that still references a pre-hybrid or browse-page recommendation state.
+- [x] Step 1: audit user-facing labels in dashboard, profile, trainer analytics, admin analytics, and markdown docs for stale references to `blended heuristic` or browse-page trainee recommendations.
+- [x] Step 2: keep only historically accurate wording in backlog sections that describe pre-Phase-3 state; update everything else to describe the current persisted hybrid pipeline.
+- [x] Step 3: align checklist text with the current product decision that the trainee dashboard is the primary recommendation surface.
+- [x] Verification: docs and UI copy should describe the recommender consistently and should not contradict the current implementation.
 
 ### 3. Phase 0: Topic and Skill Taxonomy Finalization
 
-- Goal: stabilize the tagging model so topic-level performance, module analytics, and recommendation explanations stay consistent.
-- Step 1: define the canonical taxonomy for course categories, skill tags, topic tags, and assessment-topic associations.
-- Step 2: document allowed values and ownership rules for trainers/admins who create or edit content.
-- Step 3: add validation to course, module, and assessment editing flows so tags come from the approved taxonomy instead of free-form drift.
-- Step 4: backfill or normalize existing content rows so historical courses and assessments conform to the final taxonomy.
-- Step 5: refresh reporting logic and recommendation explanations where they currently depend on loosely matched strings.
-- Verification: topic and skill analytics should no longer depend on inconsistent free-text matches.
+- [x] Goal: stabilize the tagging model so topic-level performance, module analytics, and recommendation explanations stay consistent.
+- [x] Step 1: define the canonical taxonomy for course categories, skill tags, topic tags, and assessment-topic associations.
+- [x] Step 2: document allowed values and ownership rules for trainers/admins who create or edit content.
+- [x] Step 3: add validation to course, module, and assessment editing flows so tags come from the approved taxonomy instead of free-form drift.
+- [x] Step 4: backfill or normalize existing content rows so historical courses and assessments conform to the final taxonomy.
+- [x] Step 5: refresh reporting logic and recommendation explanations where they currently depend on loosely matched strings.
+- [x] Verification: topic and skill analytics should no longer depend on inconsistent free-text matches.
+  - Implemented through the shared taxonomy source in `src/lib/taxonomy.ts`, reusable taxonomy selectors in content authoring flows, the taxonomy guide in `TOPIC_SKILL_TAXONOMY_GUIDE.md`, canonicalized reporting and recommendation matching in `reportingService`, and the backfill plus DB constraints in `046_finalize_topic_and_skill_taxonomy.sql`.
 
 ### 4. Learner Ranking Per Course or Program
 
-- Goal: add a leaderboard or ranking feature for top learners by course or program.
-- Step 1: define the ranking formula, including how completion, assessment score, learning time, certificate completion, and recency contribute.
-- Step 2: decide scope boundaries for fairness, such as whether rankings are per course, per program, or both, and whether incomplete learners are included.
-- Step 3: add a reporting-service aggregate that computes ranked learner standings from enrollments, assessment summaries, module progress, and completion outcomes.
-- Step 4: expose the ranking in trainer and/or admin views first, then decide whether a trainee-facing leaderboard is appropriate.
-- Step 5: add tie-breaking and privacy rules so rankings do not leak sensitive learner data.
-- Verification: a trainer or admin should be able to open a course/program and see a stable ranked learner list with explained scoring factors.
+- [x] Goal: add a leaderboard or ranking feature for top learners by course or program.
+- [x] Step 1: define the ranking formula, including how completion, assessment score, learning time, certificate completion, and recency contribute.
+- [x] Step 2: decide scope boundaries for fairness, such as whether rankings are per course, per program, or both, and whether incomplete learners are included.
+- [x] Step 3: add a reporting-service aggregate that computes ranked learner standings from enrollments, assessment summaries, module progress, and completion outcomes.
+- [x] Step 4: expose the ranking in trainer and/or admin views first, then decide whether a trainee-facing leaderboard is appropriate.
+- [x] Step 5: add tie-breaking and privacy rules so rankings do not leak sensitive learner data.
+- [x] Verification: a trainer or admin should be able to open a course/program and see a stable ranked learner list with explained scoring factors.
+  - Implemented with both `reportingService.getLearnerCourseLeaderboard(...)` and `reportingService.getLearnerProgramLeaderboard(...)`, weighted by completion (35%), assessment score (30%), tracked learning time (15%), certificate completion (10%), and recency (10%).
+  - Scope decision: both course-level and true program-level rankings are live now through a first-class `programs` model linked to `courses.program_id`.
+  - Fairness and privacy rules: incomplete learners remain visible for staff monitoring, dropped enrollments are excluded, ranking ties break by completion score then assessment score then recency then enrollment date, and trainer/admin views mask learner email addresses.
+  - Staff-facing leaderboard surfaces were added to the trainer course manager, trainer program manager, and admin reports so ranking stays non-public until a separate trainee-facing privacy review happens.
 
 ### 5. Production Content Completeness For All Modules
 
-- Goal: close the platform-versus-content gap for the requirement that all modules be implemented in the actual system.
-- Step 1: produce a content-completeness audit by course showing missing modules, missing materials, missing assessments, and draft versus published states.
-- Step 2: define the minimum publish-ready checklist for each module: content body, media, assessment or activity, tags, and trainer ownership.
-- Step 3: add admin or trainer reporting that highlights incomplete production content directly from the database.
-- Step 4: block or warn on publishing courses that do not meet the minimum module completeness threshold.
-- Verification: every production course can be measured against a consistent completeness report rather than inferred from code support alone.
+- [x] Goal: close the platform-versus-content gap for the requirement that all modules be implemented in the actual system.
+- [x] Step 1: produce a content-completeness audit by course showing missing modules, missing materials, missing assessments, and draft versus published states.
+- [x] Step 2: define the minimum publish-ready checklist for each module: content body, media, assessment or activity, tags, and trainer ownership.
+- [x] Step 3: add admin or trainer reporting that highlights incomplete production content directly from the database.
+- [x] Step 4: block or warn on publishing courses that do not meet the minimum module completeness threshold.
+- [x] Verification: every production course can be measured against a consistent completeness report rather than inferred from code support alone.
+  - Implemented through `reportingService.getCourseContentCompletenessReports(...)`, which audits every course for trainer ownership, module count, finalized status, content body, media assets, assessment-or-activity coverage, and taxonomy tags.
+  - The minimum publish-ready checklist is now explicit in the trainer publish-block dialog and admin content report: every module must be finalized, include content body, include a media asset, include an assessment with questions or a learning activity resource, and include both skill and topic tags, while the course itself must have trainer ownership.
+  - Trainer course cards now show content readiness percentages and publish gaps, and publishing is blocked until the completeness threshold is satisfied.
+  - Admin Reports now include a `Content` tab with exportable completeness reporting so incomplete production content is visible directly from live database records.
 
 ### 6. Assigned Trainer Indicator In The Trainee Experience
 
-- Goal: show learners who is responsible for a specific training in a consistent trainee-facing way.
-- Step 1: decide the canonical source of trainer display data, including whether to use `instructor`, `instructorId`, or a hydrated user profile lookup.
-- Step 2: add a trainer-summary view model to the course detail and trainee dashboard course cards so instructor identity is consistently available.
-- Step 3: surface the assigned trainer or training officer in course detail, active course cards, and any relevant enrollment views.
-- Step 4: provide a graceful fallback when ownership exists technically but a public trainer display name is missing.
-- Verification: a trainee opening a course should clearly see the assigned trainer/training officer without relying on internal ownership assumptions.
+- [x] Goal: show learners who is responsible for a specific training in a consistent trainee-facing way.
+- [x] Step 1: decide the canonical source of trainer display data, including whether to use `instructor`, `instructorId`, or a hydrated user profile lookup.
+- [x] Step 2: add a trainer-summary view model to the course detail and trainee dashboard course cards so instructor identity is consistently available.
+- [x] Step 3: surface the assigned trainer or training officer in course detail, active course cards, and any relevant enrollment views.
+- [x] Step 4: provide a graceful fallback when ownership exists technically but a public trainer display name is missing.
+- [x] Verification: a trainee opening a course should clearly see the assigned trainer/training officer without relying on internal ownership assumptions.
+  - Implemented by treating `courses.instructor_id` as the canonical owner key, hydrating it through `public.users`, and exposing a shared `assignedTrainer` summary on every `Course` record returned by `courseService`.
+  - The previous plain `instructor` string is now only a fallback display source when a linked trainer profile is missing or lacks a usable public name.
+  - Trainee-facing rendering now shows the assigned trainer on course detail, dashboard recommendation cards, active course cards, and completed-course cards.
+  - Fallback behavior uses a stable non-empty label (`PESO Training Team`) so ownership remains visible even when legacy profile data is incomplete.
 
 ### 7. Staff Performance Assessment Scorecard
 
-- Goal: assess staff or trainer performance using managed-course outcomes rather than only learner analytics.
-- Step 1: define the scorecard dimensions, such as learner completion rate, average assessment performance, learner engagement, at-risk rate, recommendation conversions, and content-quality signals.
-- Step 2: decide whether the scorecard is trainer-only, training-officer-only, or shared across all staff types in the PDF scope.
-- Step 3: build reporting-service aggregates that roll learner and course outcomes up to the responsible staff member.
-- Step 4: add an admin-facing staff performance dashboard or a dedicated section in the existing admin analytics dashboard.
-- Step 5: separate informational metrics from evaluative metrics so the scorecard is explainable and not just a raw KPI dump.
-- Verification: admins should be able to compare staff members by a documented scorecard backed by managed-course outcome data.
+- [x] Goal: assess staff or trainer performance using managed-course outcomes rather than only learner analytics.
+- [x] Step 1: define the scorecard dimensions, such as learner completion rate, average assessment performance, learner engagement, at-risk rate, recommendation conversions, and content-quality signals.
+- [x] Step 2: decide whether the scorecard is trainer-only, training-officer-only, or shared across all staff types in the PDF scope.
+- [x] Step 3: build reporting-service aggregates that roll learner and course outcomes up to the responsible staff member.
+- [x] Step 4: add an admin-facing staff performance dashboard or a dedicated section in the existing admin analytics dashboard.
+- [x] Step 5: separate informational metrics from evaluative metrics so the scorecard is explainable and not just a raw KPI dump.
+- [x] Verification: admins should be able to compare staff members by a documented scorecard backed by managed-course outcome data.
+  - Implemented through `reportingService.getStaffPerformanceScorecards(...)`, which now rolls trainer-managed course outcomes up from enrollments, assessment attempts, module activity, certificates, recommendation-attributed enrollments, predictive course-risk snapshots, and the shared content-completeness audit.
+  - Scope decision: the scorecard is trainer-only because the live role model is now limited to `trainee`, `trainer`, and `admin`, and trainer ownership is the only canonical staff-to-course relationship stored in `courses.instructor_id`.
+  - Evaluative factors are weighted and documented as completion rate (25%), assessment quality (20%), learner engagement (15%), risk management (15%), recommendation conversion (10%), and content quality (15%), producing a composite score and performance band.
+  - Informational metrics stay separate from the weighted score and now expose managed courses, active learners, total enrollments, certificates issued, average learning hours per learner, and publish-ready course counts.
+  - Admin Reports now include a dedicated `Staff` tab with exportable scorecards so admins can compare trainers, inspect factor explanations, and see when a metric is informationally incomplete because source data is missing.
 
 ### 8. Assessment-Only Recommendation Mode
 
-- Goal: support a recommendation path driven only by assessment results when that is the desired use case.
-- Step 1: define what counts as `assessment-only` input and explicitly exclude onboarding, collaborative, and session-behavior signals for that mode.
-- Step 2: add a separate recommendation builder or scoring branch in the reporting service that uses only assessment-derived signals such as score bands, strongest topic, weakest topic, and failed competencies.
-- Step 3: decide where this mode is exposed: as a dedicated learner view, a trainer-triggered recommendation helper, or an admin advisory tool.
-- Step 4: persist and label these outputs distinctly so the UI can explain that the recommendation came only from assessment evidence.
-- Step 5: add messaging and analytics events to compare assessment-only recommendations against the main hybrid flow.
-- Verification: the system should be able to generate a recommendation list whose explanation references only assessment evidence.
+- [x] Goal: support a recommendation path driven only by assessment results when that is the desired use case.
+- [x] Step 1: define what counts as `assessment-only` input and explicitly exclude onboarding, collaborative, and session-behavior signals for that mode.
+- [x] Step 2: add a separate recommendation builder or scoring branch in the reporting service that uses only assessment-derived signals such as score bands, strongest topic, weakest topic, and failed competencies.
+- [x] Step 3: decide where this mode is exposed: as a dedicated learner view, a trainer-triggered recommendation helper, or an admin advisory tool.
+- [x] Step 4: persist and label these outputs distinctly so the UI can explain that the recommendation came only from assessment evidence.
+- [x] Step 5: add messaging and analytics events to compare assessment-only recommendations against the main hybrid flow.
+- [x] Verification: the system should be able to generate a recommendation list whose explanation references only assessment evidence.
+  - Implemented through `deriveAssessmentOnlyRecommendationEvidence(...)` and `buildAssessmentOnlyCourseRecommendations(...)`, which treat only scored assessment outputs as valid evidence: score band, strongest topic, weakest topic, assessed topics, and failed competencies.
+  - Exclusions are explicit in both code and UI messaging: onboarding/profile inputs, collaborative learner similarity, popularity weighting, and session-behavior signals are all excluded from this mode.
+  - Exposure decision: the mode now appears as a dedicated trainee dashboard advisory section so learners can compare the main hybrid recommendations with an assessment-only recommendation path side by side.
+  - Persistence and labeling use a distinct recommendation surface (`dashboard_assessment_recommendations`) and model version (`phase8-assessment-only-v1`), while cards are labeled `Assessment only` in the dashboard.
+  - Analytics comparison is supported through separate refresh, impression, click, and accept events on the new surface plus a dedicated `recommendation_mode_compare_view` event when both hybrid and assessment-only modes are visible together.
 
 ## Practical Delivery Sequence For The Remaining Work
 

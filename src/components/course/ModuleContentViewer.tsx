@@ -14,8 +14,10 @@ import DocumentViewer from "./DocumentViewer";
 import AssignmentSubmission from "./AssignmentSubmission";
 import AssessmentInterface from "./AssessmentInterface";
 import { ContentBlock } from "./ContentBlock";
+import { assessmentService, type Assessment } from "@/services/assessmentService";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
+import { getGradableQuizBlocks, parseModuleContentBlocks } from "@/lib/contentBlocks";
 
 interface ModuleContentViewerProps {
   module: Module;
@@ -40,6 +42,8 @@ const ModuleContentViewer = ({
   const [currentTimeSpent, setCurrentTimeSpent] = useState(0);
   const [quizAnswers, setQuizAnswers] = useState<Record<string, string>>({});
   const [quizResults, setQuizResults] = useState<Record<string, boolean>>({});
+  const [moduleAssessment, setModuleAssessment] = useState<Assessment | null>(null);
+  const [assessmentLoaded, setAssessmentLoaded] = useState(isPreviewMode);
   const sessionIdRef = useRef<string | null>(null);
   const sessionStartedAtRef = useRef<number | null>(null);
   const heartbeatIntervalRef = useRef<number | null>(null);
@@ -244,26 +248,46 @@ const ModuleContentViewer = ({
 
   // Parse content blocks from JSON content
   const contentBlocks = useMemo(() => {
-    if (!module.content) return [];
-    
-    try {
-      // Try to parse JSON content blocks
-      const parsed = JSON.parse(module.content);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        return parsed as ContentBlock[];
-      }
-    } catch {
-      // If not JSON, treat as HTML/text content
-      return [
-        {
-          id: "1",
-          type: "text" as const,
-          content: module.content,
-        },
-      ];
-    }
-    return [];
+    return parseModuleContentBlocks(module.content);
   }, [module.content]);
+
+  const gradableQuizBlocks = useMemo(() => getGradableQuizBlocks(contentBlocks), [contentBlocks]);
+
+  useEffect(() => {
+    if (isPreviewMode) {
+      setModuleAssessment(null);
+      setAssessmentLoaded(true);
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadModuleAssessment = async () => {
+      setAssessmentLoaded(false);
+      try {
+        const assessment = await assessmentService.getAssessmentByModule(module.id);
+        if (!cancelled) {
+          setModuleAssessment(assessment);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setModuleAssessment(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setAssessmentLoaded(true);
+        }
+      }
+    };
+
+    void loadModuleAssessment();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isPreviewMode, module.id]);
+
+  const hasAssessmentActivity = !isPreviewMode && (Boolean(moduleAssessment) || hasAssessments);
 
   // Get first heading (h1/h2/h3) text from HTML for use as section title
   const getFirstHeadingFromHtml = (html: string): string | null => {
@@ -409,10 +433,57 @@ const ModuleContentViewer = ({
 
       case "quiz":
         const blockId = block.id || `quiz-${index}`;
+        const isDerivedAssessmentQuestion = !isPreviewMode && Boolean(moduleAssessment) && block.isGradable !== false;
         const userAnswer = quizAnswers[blockId];
         const hasAnswered = userAnswer !== undefined;
         const isCorrect = hasAnswered && quizResults[blockId];
         const correctAnswerIndex = block.correctAnswer?.toString();
+
+        if (isDerivedAssessmentQuestion) {
+          return (
+            <Card key={blockId} className="border-2 border-dashed">
+              <CardHeader>
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <FileQuestion className="w-5 h-5" />
+                      {block.title || "Assessment Question Preview"}
+                    </CardTitle>
+                    <CardDescription className="mt-2">
+                      This graded question is part of the module assessment. Use the Activities tab to answer it for credit.
+                    </CardDescription>
+                  </div>
+                  <Badge variant="secondary">
+                    {block.points || 0} point{(block.points || 0) === 1 ? "" : "s"}
+                  </Badge>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div>
+                  <Label className="text-base font-semibold">{block.content || "Question"}</Label>
+                </div>
+                {block.options && block.options.length > 0 && (
+                  <div className="space-y-2">
+                    {block.options.map((option, optIdx) => (
+                      <div key={optIdx} className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm text-muted-foreground">
+                        <span className="font-medium">{String.fromCharCode(65 + optIdx)}.</span>
+                        <span>{option}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div className="flex items-center justify-between gap-3 rounded-lg bg-muted/50 px-4 py-3">
+                  <p className="text-sm text-muted-foreground">
+                    The graded attempt, score, and pass/fail result are recorded only from the assessment flow.
+                  </p>
+                  <Button type="button" variant="outline" onClick={() => setActiveTab("activities")}>
+                    Open Assessment
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          );
+        }
         
         return (
           <Card key={blockId} className="border-2">
@@ -550,7 +621,7 @@ const ModuleContentViewer = ({
           <TabsTrigger value="content">Content</TabsTrigger>
           {videoMaterials.length > 0 && <TabsTrigger value="videos">Videos</TabsTrigger>}
           {documentMaterials.length > 0 && <TabsTrigger value="documents">Documents</TabsTrigger>}
-          {(hasAssignments || hasAssessments) && (
+          {(hasAssignments || hasAssessmentActivity) && (
             <TabsTrigger value="activities">Activities</TabsTrigger>
           )}
         </TabsList>
@@ -671,7 +742,7 @@ const ModuleContentViewer = ({
         )}
 
         {/* Activities Tab */}
-        {(hasAssignments || hasAssessments) && (
+        {(hasAssignments || hasAssessmentActivity) && (
           <TabsContent value="activities" className="space-y-4">
             {hasAssignments && (
               <Card>
@@ -694,7 +765,7 @@ const ModuleContentViewer = ({
               </Card>
             )}
 
-            {hasAssessments && (
+            {hasAssessmentActivity && (
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
@@ -702,15 +773,23 @@ const ModuleContentViewer = ({
                     Assessment
                   </CardTitle>
                   <CardDescription>
-                    Take the assessment for this module
+                    {assessmentLoaded
+                      ? "Take the assessment for this module"
+                      : "Loading the assessment for this module"}
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  <AssessmentInterface
-                    enrollmentId={enrollment.id}
-                    moduleId={module.id}
-                    courseId={enrollment.courseId}
-                  />
+                  {assessmentLoaded ? (
+                    <AssessmentInterface
+                      enrollmentId={enrollment.id}
+                      moduleId={module.id}
+                      courseId={enrollment.courseId}
+                    />
+                  ) : (
+                    <div className="py-6 text-sm text-muted-foreground">
+                      Loading assessment...
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             )}

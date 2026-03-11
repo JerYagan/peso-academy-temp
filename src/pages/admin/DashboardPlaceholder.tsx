@@ -246,7 +246,7 @@ const AdminDashboardPlaceholder = () => {
           const { data: learnerRows, error: learnerRowsError } = await supabase
             .from("users")
             .select("id, name, email")
-            .eq("role", "jobseeker")
+            .eq("role", "trainee")
             .order("name", { ascending: true });
 
           if (learnerRowsError) {

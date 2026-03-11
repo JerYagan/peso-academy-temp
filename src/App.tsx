@@ -28,9 +28,6 @@ import TrainerCourses from "./pages/trainer/Courses";
 import TrainerLearners from "./pages/trainer/Learners";
 import ManageModules from "@/pages/trainer/ManageModules";
 import ModuleEditorPage from "@/pages/trainer/ModuleEditorPage";
-import ValidatorDashboard from "./pages/validator/Dashboard";
-import ValidatorSubmissions from "./pages/validator/Submissions";
-import SubmissionReview from "./pages/validator/SubmissionReview";
 import ProgressDashboard from "./pages/ProgressDashboard";
 import NotFound from "./pages/NotFound";
 import { initializeMockData } from "@/services/mockData";
@@ -199,11 +196,11 @@ const App = () => (
               }
             />
             
-            {/* Trainer/SPD/Training Officer Routes - Permissions checked dynamically */}
+            {/* Trainer Routes - Permissions checked dynamically */}
             <Route
               path="/trainer/dashboard"
               element={
-                <ProtectedRoute allowedRoles={["training_officer", "trainer", "spd"]}>
+                <ProtectedRoute allowedRoles={["trainer"]}>
                   <TrainerDashboardPlaceholder />
                 </ProtectedRoute>
               }
@@ -219,7 +216,7 @@ const App = () => (
             <Route
               path="/trainer/learners"
               element={
-                <ProtectedRoute allowedRoles={["training_officer", "trainer", "validator"]}>
+                <ProtectedRoute allowedRoles={["trainer", "admin"]}>
                   <TrainerLearners />
                 </ProtectedRoute>
               }
@@ -249,31 +246,6 @@ const App = () => (
               }
             />
             
-            {/* Validator Routes - allowedRoles fallback so validator always sees UI */}
-            <Route
-              path="/validator/dashboard"
-              element={
-                <ProtectedRoute allowedRoles={["validator"]}>
-                  <ValidatorDashboard />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/validator/submissions"
-              element={
-                <ProtectedRoute allowedRoles={["validator"]}>
-                  <ValidatorSubmissions />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/validator/submissions/:id"
-              element={
-                <ProtectedRoute allowedRoles={["validator"]}>
-                  <SubmissionReview />
-                </ProtectedRoute>
-              }
-            />
             <Route
               path="/progress"
               element={

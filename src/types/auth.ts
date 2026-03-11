@@ -1,22 +1,22 @@
-export type UserRole = "admin" | "training_officer" | "validator" | "trainee" | "trainer" | "spd" | "employer" | "jobseeker";
+export type UserRole = "admin" | "trainer" | "trainee";
 
 export const USER_ROLES: UserRole[] = [
   "admin",
-  "training_officer",
-  "validator",
-  "trainee",
   "trainer",
-  "spd",
-  "employer",
-  "jobseeker",
+  "trainee",
 ];
 
 const ROLE_ALIASES: Record<string, UserRole> = {
-  "training officer": "training_officer",
-  trainingofficer: "training_officer",
+  "training officer": "trainer",
+  training_officer: "trainer",
+  trainingofficer: "trainer",
+  spd: "trainer",
+  validator: "admin",
   learner: "trainee",
   student: "trainee",
   "job seeker": "trainee",
+  jobseeker: "trainee",
+  employer: "trainee",
 };
 
 export function normalizeUserRole(rawRole: unknown): UserRole {
@@ -27,7 +27,7 @@ export function normalizeUserRole(rawRole: unknown): UserRole {
   const normalizedRole = rawRole.toLowerCase().trim();
 
   if (USER_ROLES.includes(normalizedRole as UserRole)) {
-    return normalizedRole === "jobseeker" ? "trainee" : (normalizedRole as UserRole);
+    return normalizedRole as UserRole;
   }
 
   return ROLE_ALIASES[normalizedRole] ?? "trainee";

@@ -9,14 +9,9 @@ export const ONBOARDING_INDUSTRY_OPTIONS = [
   "Creative and Design",
 ] as const;
 
-export const ONBOARDING_CATEGORY_OPTIONS = [
-  "Digital Skills",
-  "Technical Skills",
-  "Employability Skills",
-  "Business & Management",
-  "Entrepreneurship",
-  "Personal Development",
-] as const;
+import { TAXONOMY_COURSE_CATEGORIES } from "@/lib/taxonomy";
+
+export const ONBOARDING_CATEGORY_OPTIONS = TAXONOMY_COURSE_CATEGORIES;
 
 export const ONBOARDING_SKILL_LEVEL_OPTIONS = [
   { value: "exploring", label: "Exploring options" },

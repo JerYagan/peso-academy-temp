@@ -124,7 +124,7 @@ const Notifications = () => {
         state: { entrySource: "notification_open" },
       });
     } else if (notification.metadata?.submissionId) {
-      navigate(`/validator/submissions/${notification.metadata.submissionId}`);
+      navigate("/dashboard");
     } else if (notification.metadata?.certificateId) {
       navigate("/certificates");
     }

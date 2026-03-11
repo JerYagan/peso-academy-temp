@@ -10,35 +10,37 @@ Deliver a real phase-by-phase predictive analytics and hybrid recommendation cap
 
 ## Current Implementation Status
 
-The current application already has learner performance summaries and recommendation UI surfaces, but the recommendation engine is not yet a true hybrid algorithm.
+The current application now has learner performance summaries, persisted recommendation outputs, recommendation event tracking, and a true hybrid recommendation pipeline.
 
 What exists now:
 
-- content-based style scoring from learner skills, completed categories, strongest topic, and weak topic signals
-- popularity weighting through course enrollment counts
-- recommendation display on trainee dashboard and browse courses
+- content-based scoring from learner skills, completed categories, strongest topic, weak topic signals, onboarding inputs, and recent learning activity
+- collaborative filtering signals from similar-learner enrollment, completion, and progress behavior
+- persisted recommendation outputs with reasons, source mix, ranking, and downstream analytics attribution
+- recommendation event tracking for impression, click, accept, and conversion flows
+- dashboard-first recommendation delivery for trainees, with the browse-page recommendation rail intentionally removed later by product decision
 
 What does not exist yet:
 
-- collaborative filtering signals such as co-enrollment, co-completion, or similar-learner scoring
-- recommendation event tracking for impression, click, accept, and conversion
-- persisted recommendation outputs and recommendation-performance tables
-- predictive score storage for risk, disengagement, or acceptance likelihood
+- finalized topic and skill taxonomy governance across all authoring flows
+- dedicated assessment-only recommendation mode
+- leaderboard and staff-scorecard features that depend on the analytics foundation
+- broader predictive model operations beyond the current persisted risk and recommendation outputs
 
 ## Schema Support Assessment
 
 ### Does the current schema support predictive analytics via a hybrid algorithm?
 
-Partially.
+Yes for the current recommendation scope.
 
 The current schema is strong enough to support:
 
-- a first-phase content-based recommendation engine
+- a persisted hybrid recommendation engine
 - learner performance summaries
 - training analytics based on enrollments, module completions, assessment attempts, certificates, and notifications
-- feature engineering for a later predictive model
+- recommendation event attribution and predictive score storage already used by trainer and admin analytics
 
-The current schema does not yet support a full hybrid recommendation and predictive analytics pipeline end to end because it lacks dedicated analytics and recommendation persistence tables.
+The current schema still has room to mature for broader predictive analytics, but it no longer blocks the shipped hybrid recommendation pipeline.
 
 ### Existing schema strengths
 
@@ -54,35 +56,19 @@ The current schema already provides strong source data through:
 - `certificates`: completion outcomes
 - `notifications`: downstream communication and engagement signals
 
-### Schema gaps blocking a true hybrid pipeline
+### Remaining gaps for broader predictive maturity
 
-The following tables or equivalent structures still need to be added:
+The following additions would improve long-term analytics maturity beyond the already shipped hybrid recommendation pipeline:
 
-1. `analytics_events`
-   - raw event stream for course views, module opens, recommendation impressions, clicks, accepts, and downstream actions
-2. `analytics_user_daily`
-   - learner-level daily rollups for recency, engagement, and progress velocity
-3. `analytics_course_daily`
-   - course-level daily rollups for enrollments, completions, and engagement
-4. `analytics_module_daily`
-   - module-level quality and difficulty rollups
-5. `analytics_recommendation_daily`
-   - recommendation delivery and conversion reporting
-6. `learner_recommendations`
-   - persisted ranked recommendations with reasons and model version
-7. `learner_skill_profile`
-   - derived topic and skill strengths/weaknesses
-8. `course_risk_scores`
-   - predicted completion or disengagement risk by course
-9. `module_quality_signals`
-   - persistent flags for low score, high failure, and high time spent
-10. `recommendation_performance_snapshots`
-   - trainer and admin reporting on recommendation effectiveness
+1. taxonomy governance tables or configuration for approved course, module, and assessment tags
+2. richer offline-training feature views for future predictive model experimentation
+3. dedicated leaderboard or staff-scorecard aggregates for downstream reporting features
+4. stronger lifecycle controls for stale recommendation and prediction refresh cadence
 
 Conclusion:
 
-- the current schema supports phase 1 and part of phase 2
-- it does not yet support a full hybrid recommendation implementation or predictive analytics lifecycle without schema additions
+- the current schema supports the shipped hybrid recommendation implementation
+- future schema work should focus on taxonomy governance and broader predictive maturity rather than on basic recommendation persistence
 
 ## Target Hybrid Recommendation Design
 
@@ -123,13 +109,17 @@ Apply business rules before final ranking:
 
 ## Phase 0: Baseline Audit and Data Readiness
 
+Status:
+
+Recommendation label audit implemented.
+
 Objective:
 
-Confirm the exact data already available and identify what is missing to move from heuristic recommendations to a true hybrid pipeline.
+Confirm the exact data already available, keep recommendation labeling historically accurate, and identify what is still missing for broader predictive maturity.
 
 Deliverables:
 
-1. audit current recommendation logic and mark it as blended heuristic, not true hybrid
+1. audit recommendation labels and docs so the shipped engine is described as persisted hybrid where appropriate, with historical notes preserved only where needed
 2. inventory current schema inputs already available for analytics and recommendations
 3. define missing analytics and recommendation tables
 4. define the canonical topic and skill taxonomy for courses, modules, and assessments
@@ -182,12 +172,12 @@ Implementation notes:
 
 - Implemented migration `036_add_phase1_analytics_schema.sql` to add analytics events, learner recommendations, tagging columns, rollup tables, derived analytics tables, event RPCs, and recommendation attribution on enrollments.
 - Added `src/services/analyticsService.ts` to sync learner recommendations, log recommendation impressions and clicks, and trigger rollup refreshes.
-- Wired learner event tracking into browse recommendations, dashboard recommendations, enrollments, module completions, and assessment submissions.
+- Wired learner event tracking into the persisted dashboard recommendation surface, enrollments, module completions, and assessment submissions. Historical browse-surface instrumentation existed before the browse recommendation rail was removed.
 
 Exit criteria:
 
 - recommendation delivery and learner activity are traceable in raw events
-- dashboard and browse recommendation surfaces read persisted recommendation rows instead of relying only on inline recommendation objects
+- the active learner-facing dashboard recommendation surface reads persisted recommendation rows instead of relying only on inline recommendation objects
 
 ## Phase 2: Feature Rollups and Derived Analytics Tables
 
@@ -219,9 +209,13 @@ Exit criteria:
 
 ## Phase 3: Real Hybrid Recommendation Engine
 
+Status:
+
+Implemented.
+
 Objective:
 
-Replace the current heuristic-only scorer with a true hybrid recommendation engine.
+Replace the earlier heuristic-only scorer with a true hybrid recommendation engine.
 
 New tables recommended:
 
@@ -257,7 +251,7 @@ Exit criteria:
 
 Status:
 
-Partially implemented.
+Implemented with dashboard-first delivery.
 
 Objective:
 
@@ -267,7 +261,6 @@ UI outputs:
 
 1. dashboard learning performance summary
 2. dashboard personalized recommendation rail
-3. `Recommended for You` on browse courses
 4. profile learning statistics including:
    - average assessment score
    - total learning time
@@ -282,7 +275,7 @@ Implementation notes:
 
 - Trainee dashboard now includes explicit overall learning progress indicators for course completion rate, module progress, assessment pass rate, and recent activity.
 - Learner profile now surfaces average assessment score, total learning time, completed modules, strongest topic, and needs-improvement topic inside the training snapshot.
-- The current blended recommendation scorer now uses those learner analytics signals to better distinguish between progression-friendly and foundational next-course suggestions.
+- The persisted hybrid recommendation engine now uses those learner analytics signals to better distinguish between progression-friendly and foundational next-course suggestions.
 
 Exit criteria:
 

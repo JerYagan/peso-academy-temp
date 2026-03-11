@@ -14,7 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { User } from "@/types/auth";
 import { formatDistanceToNow, startOfMonth, endOfMonth, isWithinInterval } from "date-fns";
-import { buildLearnerCourseRecommendations, reportingService, type CollaborativeRecommendationSignal, type LearnerCourseRecommendation, type LearnerPerformanceSummary, type LearnerPerformanceTopicResult } from "@/services/reportingService";
+import { buildAssessmentOnlyCourseRecommendations, buildLearnerCourseRecommendations, deriveAssessmentOnlyRecommendationEvidence, reportingService, type AssessmentOnlyRecommendationEvidence, type CollaborativeRecommendationSignal, type LearnerCourseRecommendation, type LearnerPerformanceSummary, type LearnerPerformanceTopicResult } from "@/services/reportingService";
 import { analyticsService, type PersistedLearnerRecommendation } from "@/services/analyticsService";
 import { moduleSessionService, type EnrichedModuleSession, type ModuleSessionAggregate } from "@/services/moduleSessionService";
 import { getDashboardRoute } from "@/lib/roles";
@@ -45,6 +45,7 @@ const TraineeDashboard = ({ user, stats, onboardingSummary }: TraineeDashboardPr
   const [allEnrollments, setAllEnrollments] = useState<Enrollment[]>([]);
   const [performanceSummary, setPerformanceSummary] = useState<LearnerPerformanceSummary | null>(null);
   const [persistedRecommendations, setPersistedRecommendations] = useState<PersistedLearnerRecommendation[]>([]);
+  const [persistedAssessmentOnlyRecommendations, setPersistedAssessmentOnlyRecommendations] = useState<PersistedLearnerRecommendation[]>([]);
   const [lastAccessedModule, setLastAccessedModule] = useState<EnrichedModuleSession | null>(null);
   const [sessionAggregates, setSessionAggregates] = useState<ModuleSessionAggregate[]>([]);
   const [collaborativeSignals, setCollaborativeSignals] = useState<Record<string, CollaborativeRecommendationSignal>>({});
@@ -232,9 +233,28 @@ const TraineeDashboard = ({ user, stats, onboardingSummary }: TraineeDashboardPr
     );
   }, [allCourses, allEnrollments, collaborativeSignals, performanceSummary, sessionAggregates, user]);
 
+  const assessmentOnlyEvidence = useMemo<AssessmentOnlyRecommendationEvidence | null>(
+    () => deriveAssessmentOnlyRecommendationEvidence(performanceSummary),
+    [performanceSummary],
+  );
+
+  const assessmentOnlyRecommendedCourses = useMemo<LearnerCourseRecommendation[]>(() => {
+    return buildAssessmentOnlyCourseRecommendations(
+      allCourses,
+      allEnrollments,
+      performanceSummary,
+      3,
+    );
+  }, [allCourses, allEnrollments, performanceSummary]);
+
   const recommendationCards = useMemo(
     () => analyticsService.hydrateRecommendationCards(recommendedCourses, persistedRecommendations),
     [persistedRecommendations, recommendedCourses],
+  );
+
+  const assessmentOnlyRecommendationCards = useMemo(
+    () => analyticsService.hydrateRecommendationCards(assessmentOnlyRecommendedCourses, persistedAssessmentOnlyRecommendations),
+    [assessmentOnlyRecommendedCourses, persistedAssessmentOnlyRecommendations],
   );
 
   useEffect(() => {
@@ -293,8 +313,80 @@ const TraineeDashboard = ({ user, stats, onboardingSummary }: TraineeDashboardPr
     };
   }, [collaborativeSignals, completedCourses.length, performanceSummary, recommendedCourses, sessionAggregates, user.id, user.role]);
 
+  useEffect(() => {
+    if (user.role !== "trainee" || assessmentOnlyRecommendedCourses.length === 0 || !assessmentOnlyEvidence) {
+      setPersistedAssessmentOnlyRecommendations([]);
+      return;
+    }
+
+    let cancelled = false;
+
+    const syncAssessmentOnlyRecommendations = async () => {
+      try {
+        const syncedRecommendations = await analyticsService.syncLearnerRecommendations(
+          user.id,
+          assessmentOnlyRecommendedCourses,
+          "dashboard_assessment_recommendations",
+          {
+            recommendationMode: "assessment_only",
+            excludesOnboardingSignals: true,
+            excludesCollaborativeSignals: true,
+            excludesSessionSignals: true,
+            scoredAssessments: assessmentOnlyEvidence.scoredAssessments,
+            scoreBand: assessmentOnlyEvidence.scoreBand,
+            strongestTopic: assessmentOnlyEvidence.strongestTopic?.topic || null,
+            weakestTopic: assessmentOnlyEvidence.weakestTopic?.topic || null,
+            failedCompetencies: assessmentOnlyEvidence.failedCompetencies.map((topic) => topic.topic),
+            assessedTopics: assessmentOnlyEvidence.assessedTopics,
+          },
+        );
+
+        if (cancelled) {
+          return;
+        }
+
+        setPersistedAssessmentOnlyRecommendations(syncedRecommendations);
+        await analyticsService.logRecommendationImpressions(
+          user.id,
+          syncedRecommendations,
+          "dashboard_assessment_recommendations",
+        );
+      } catch (error) {
+        console.error("Failed to sync assessment-only recommendations:", error);
+      }
+    };
+
+    void syncAssessmentOnlyRecommendations();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [assessmentOnlyEvidence, assessmentOnlyRecommendedCourses, user.id, user.role]);
+
+  useEffect(() => {
+    if (user.role !== "trainee" || recommendedCourses.length === 0 || assessmentOnlyRecommendedCourses.length === 0) {
+      return;
+    }
+
+    void analyticsService.trackEvent({
+      eventName: "recommendation_mode_compare_view",
+      userId: user.id,
+      surface: "dashboard_recommendation_modes",
+      metadata: {
+        hybridRecommendationCount: recommendedCourses.length,
+        assessmentOnlyRecommendationCount: assessmentOnlyRecommendedCourses.length,
+        hybridModelVersion: recommendedCourses[0]?.modelVersion || null,
+        assessmentOnlyModelVersion: assessmentOnlyRecommendedCourses[0]?.modelVersion || null,
+      },
+    });
+  }, [assessmentOnlyRecommendedCourses, recommendedCourses, user.id, user.role]);
+
   const hasRecommendationContext = Boolean(
     recommendedCourses.length > 0,
+  );
+
+  const hasAssessmentOnlyRecommendationContext = Boolean(
+    assessmentOnlyRecommendedCourses.length > 0 && assessmentOnlyEvidence,
   );
 
   const hasLearningHistory = Boolean(
@@ -358,6 +450,37 @@ const TraineeDashboard = ({ user, stats, onboardingSummary }: TraineeDashboardPr
     }
 
     return "These picks use your profile skills, completed courses, and popular trainee pathways.";
+  })();
+
+  const assessmentOnlyHeadline = (() => {
+    if (!assessmentOnlyEvidence) {
+      return "Assessment-only recommendations unlock after scored assessments";
+    }
+
+    if (assessmentOnlyEvidence.weakestTopic?.topic) {
+      return `Assessment-only support for ${assessmentOnlyEvidence.weakestTopic.topic}`;
+    }
+
+    if (assessmentOnlyEvidence.strongestTopic?.topic) {
+      return `Assessment-only next steps after ${assessmentOnlyEvidence.strongestTopic.topic}`;
+    }
+
+    return "Recommendations based only on your assessment evidence";
+  })();
+
+  const assessmentOnlyDescription = (() => {
+    if (!assessmentOnlyEvidence) {
+      return "Complete at least one scored assessment to unlock a recommendation view that ignores onboarding, collaborative, and session-behavior signals.";
+    }
+
+    const weakestTopic = assessmentOnlyEvidence.weakestTopic?.topic;
+    const strongestTopic = assessmentOnlyEvidence.strongestTopic?.topic;
+
+    if (weakestTopic && strongestTopic) {
+      return `This advisory mode uses only your assessment score band, strongest topic (${strongestTopic}), weakest topic (${weakestTopic}), and failed competencies. It excludes onboarding answers, collaborative behavior, and session activity.`;
+    }
+
+    return "This advisory mode uses only scored assessment outcomes, assessed topics, and score bands. It excludes onboarding answers, collaborative behavior, and session activity.";
   })();
 
   const progressIndicators = useMemo(() => {
@@ -563,7 +686,9 @@ const TraineeDashboard = ({ user, stats, onboardingSummary }: TraineeDashboardPr
                     <Button
                       size="sm"
                       onClick={() => {
-                        const card = recommendationCards.find((item) => item.course.id === recommendationRecovery.courseId);
+                        const card = [...recommendationCards, ...assessmentOnlyRecommendationCards].find(
+                          (item) => item.course.id === recommendationRecovery.courseId,
+                        );
                         if (card) {
                           void handleRecommendationEnroll(card.course, card.persisted);
                         }
@@ -629,6 +754,10 @@ const TraineeDashboard = ({ user, stats, onboardingSummary }: TraineeDashboardPr
                     <BookOpen className="h-4 w-4" />
                     <span>{course.category}</span>
                   </div>
+                  <div className="flex items-center gap-2">
+                    <Users className="h-4 w-4" />
+                    <span>Assigned trainer: {course.assignedTrainer?.displayName || course.instructor || "PESO Training Team"}</span>
+                  </div>
                 </div>
 
                 <div className="flex flex-wrap gap-2">
@@ -661,6 +790,161 @@ const TraineeDashboard = ({ user, stats, onboardingSummary }: TraineeDashboardPr
                       onClick={() => {
                         if (persisted) {
                           void analyticsService.logRecommendationClick(user.id, persisted, "dashboard_recommendations");
+                        }
+                      }}
+                    >
+                      <Eye className="mr-2 h-4 w-4" />
+                      Preview
+                    </Link>
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      </section>
+    );
+  };
+
+  const renderAssessmentOnlyRecommendations = () => {
+    if (loadingCourses || loadingPerformance) {
+      return null;
+    }
+
+    if (!performanceSummary || performanceSummary.scoredAssessments === 0) {
+      return (
+        <Card>
+          <CardContent className="py-8 text-center space-y-3">
+            <Brain className="h-10 w-10 text-primary/70 mx-auto" />
+            <div>
+              <p className="font-medium">Assessment-only recommendations need scored assessment evidence.</p>
+              <p className="text-sm text-muted-foreground">
+                Finish a graded assessment and this advisory mode will suggest courses using only score bands, strongest topics, weakest topics, and failed competencies.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      );
+    }
+
+    if (!hasAssessmentOnlyRecommendationContext) {
+      return null;
+    }
+
+    return (
+      <section className="space-y-4 rounded-[1.5rem] border border-border bg-[linear-gradient(135deg,rgba(14,116,144,0.06)_0%,rgba(245,158,11,0.10)_100%)] p-5 sm:p-6">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <div className="flex items-center gap-2 text-primary">
+              <Brain className="h-5 w-5" />
+              <span className="text-sm font-semibold uppercase tracking-[0.18em]">Assessment-Only Advisory</span>
+            </div>
+            <h2 className="mt-2 text-2xl font-semibold tracking-[-0.03em] text-foreground">{assessmentOnlyHeadline}</h2>
+            <p className="mt-2 max-w-3xl text-sm leading-7 text-muted-foreground">{assessmentOnlyDescription}</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Badge variant="outline" className="w-fit rounded-full bg-background/80 px-3 py-1 text-xs font-semibold">
+              {assessmentOnlyEvidence?.scoreBand || "assessment_only"} score band
+            </Badge>
+            <Badge variant="outline" className="w-fit rounded-full bg-background/80 px-3 py-1 text-xs font-semibold">
+              {assessmentOnlyEvidence?.scoredAssessments || 0} scored assessment{assessmentOnlyEvidence?.scoredAssessments === 1 ? "" : "s"}
+            </Badge>
+          </div>
+        </div>
+
+        {assessmentOnlyEvidence ? (
+          <div className="grid gap-3 md:grid-cols-3">
+            <div className="rounded-lg border bg-background/85 p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Strongest topic</p>
+              <p className="mt-2 font-semibold">{assessmentOnlyEvidence.strongestTopic?.topic || "Not enough evidence yet"}</p>
+            </div>
+            <div className="rounded-lg border bg-background/85 p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Weakest topic</p>
+              <p className="mt-2 font-semibold">{assessmentOnlyEvidence.weakestTopic?.topic || "No clear focus area yet"}</p>
+            </div>
+            <div className="rounded-lg border bg-background/85 p-4">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Failed competencies</p>
+              <p className="mt-2 font-semibold">
+                {assessmentOnlyEvidence.failedCompetencies.length > 0
+                  ? assessmentOnlyEvidence.failedCompetencies.map((topic) => topic.topic).join(", ")
+                  : "No failed competency clusters"}
+              </p>
+            </div>
+          </div>
+        ) : null}
+
+        <div className="grid gap-4 lg:grid-cols-3">
+          {assessmentOnlyRecommendationCards.map(({ course, reasons, persisted }) => (
+            <Card key={course.id} className="overflow-hidden border-border/80 bg-background/95 shadow-[0_18px_40px_-30px_rgba(15,23,42,0.4)]">
+              <div className="relative aspect-[16/10] overflow-hidden border-b border-border bg-muted">
+                {course.thumbnail ? (
+                  <img src={course.thumbnail} alt={course.title} className="h-full w-full object-cover" />
+                ) : (
+                  <div className="flex h-full items-center justify-center bg-[linear-gradient(135deg,#fef3c7_0%,#dbeafe_50%,#ecfeff_100%)]">
+                    <ImageIcon className="h-10 w-10 text-slate-500" />
+                  </div>
+                )}
+                <div className="absolute left-4 top-4 flex items-center gap-2">
+                  <Badge className="rounded-full bg-primary px-3 py-1 text-[11px] font-semibold text-primary-foreground hover:bg-primary">
+                    {course.level}
+                  </Badge>
+                  <Badge variant="outline" className="rounded-full bg-background/90 px-3 py-1 text-[11px] font-semibold backdrop-blur">
+                    Assessment only
+                  </Badge>
+                </div>
+              </div>
+              <CardHeader className="space-y-3">
+                <div>
+                  <CardTitle className="line-clamp-2 text-xl">{course.title}</CardTitle>
+                  <CardDescription className="mt-2 line-clamp-3">{course.description}</CardDescription>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="space-y-2 text-sm text-muted-foreground">
+                  <div className="flex items-center gap-2">
+                    <Clock3 className="h-4 w-4" />
+                    <span>{course.duration} learning hours</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <BookOpen className="h-4 w-4" />
+                    <span>{course.category}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Users className="h-4 w-4" />
+                    <span>Assigned trainer: {course.assignedTrainer?.displayName || course.instructor || "PESO Training Team"}</span>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  {reasons.map((reason) => (
+                    <Badge key={reason} variant="secondary" className="rounded-full px-3 py-1 text-xs font-medium">
+                      {reason}
+                    </Badge>
+                  ))}
+                </div>
+
+                <div className="flex gap-3">
+                  <Button
+                    className="flex-1"
+                    onClick={() => void handleRecommendationEnroll(course, persisted)}
+                    disabled={enrollingRecommendationCourseId === course.id}
+                  >
+                    {enrollingRecommendationCourseId === course.id ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Enrolling...
+                      </>
+                    ) : (
+                      "Enroll Now"
+                    )}
+                  </Button>
+                  <Button variant="outline" asChild>
+                    <Link
+                      to={`/courses/${course.id}`}
+                      state={{ entrySource: "dashboard_assessment_recommendations" }}
+                      onClick={() => {
+                        if (persisted) {
+                          void analyticsService.logRecommendationClick(user.id, persisted, "dashboard_assessment_recommendations");
                         }
                       }}
                     >
@@ -1213,7 +1497,9 @@ const TraineeDashboard = ({ user, stats, onboardingSummary }: TraineeDashboardPr
         </Card>
         </div>
 
-  {renderRecommendedCourses()}
+    {renderRecommendedCourses()}
+
+      {renderAssessmentOnlyRecommendations()}
 
         <div>
           <div className="mb-4 flex items-center justify-between">
@@ -1252,7 +1538,9 @@ const TraineeDashboard = ({ user, stats, onboardingSummary }: TraineeDashboardPr
                         <div className="flex items-start justify-between gap-2">
                           <div className="min-w-0 flex-1">
                             <CardTitle className="line-clamp-2">{course.title}</CardTitle>
-                            <CardDescription>{course.category} • {course.level}</CardDescription>
+                            <CardDescription>
+                              {course.category} • {course.level} • {course.assignedTrainer?.displayName || course.instructor || "PESO Training Team"}
+                            </CardDescription>
                           </div>
                           {isCompleted && (
                             <Badge variant="outline" className="shrink-0 text-green-600 border-green-300">
@@ -1344,7 +1632,12 @@ const TraineeDashboard = ({ user, stats, onboardingSummary }: TraineeDashboardPr
                       Completed
                     </Badge>
                     <CardTitle className="line-clamp-2">{course.title}</CardTitle>
-                    <CardDescription className="line-clamp-2">{course.description}</CardDescription>
+                    <CardDescription className="line-clamp-2">
+                      {course.description}
+                    </CardDescription>
+                    <p className="text-sm text-muted-foreground">
+                      Assigned trainer: {course.assignedTrainer?.displayName || course.instructor || "PESO Training Team"}
+                    </p>
                   </CardHeader>
                   <CardContent className="mt-auto">
                     <Button asChild variant="default" className="w-full gap-2">
@@ -1760,79 +2053,9 @@ const Dashboard = () => {
     );
   }
 
-  // Training Officer / Trainer Dashboard (real data from Supabase; no redundant My Courses section)
-  if (user.role === "training_officer" || user.role === "trainer") {
+  // Trainer dashboard (real data from Supabase; no redundant My Courses section)
+  if (user.role === "trainer") {
     return <TrainingOfficerDashboard user={user} />;
-  }
-
-  // Validator Dashboard
-  if (user.role === "validator") {
-    // Redirect to validator dashboard page instead
-    return (
-      <DashboardLayout>
-        <div className="space-y-8">
-          <div>
-            <h1 className="text-3xl font-bold">Validator Dashboard</h1>
-            <p className="text-muted-foreground mt-2">Review and validate submissions</p>
-          </div>
-
-          <div className="grid gap-4 md:grid-cols-3">
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Pending Reviews</CardTitle>
-                <FileText className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">-</div>
-                <p className="text-xs text-muted-foreground">Awaiting validation</p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Completed</CardTitle>
-                <Award className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">-</div>
-                <p className="text-xs text-muted-foreground">Validated submissions</p>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">This Month</CardTitle>
-                <TrendingUp className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">-</div>
-                <p className="text-xs text-muted-foreground">Reviews completed</p>
-              </CardContent>
-            </Card>
-          </div>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Quick Actions</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              <Button asChild className="w-full justify-start" variant="outline">
-                <Link to="/validator/submissions">
-                  <FileText className="mr-2 h-4 w-4" />
-                  Review Submissions
-                </Link>
-                      </Button>
-              <Button asChild className="w-full justify-start" variant="outline">
-                <Link to="/validator/dashboard">
-                  <TrendingUp className="mr-2 h-4 w-4" />
-                  View Dashboard
-                </Link>
-                  </Button>
-            </CardContent>
-          </Card>
-        </div>
-      </DashboardLayout>
-    );
   }
 
   // Fallback: If role doesn't match any dashboard, show a default message

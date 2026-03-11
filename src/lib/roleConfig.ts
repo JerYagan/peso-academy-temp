@@ -167,27 +167,6 @@ export const ROLE_CONFIGS: Record<UserRole, RoleConfig> = {
     },
   },
 
-  validator: {
-    id: "validator",
-    name: "Validator",
-    description: "Review and validate training completions",
-    category: "internal",
-    icon: "CheckCircle",
-    color: "blue",
-    permissions: [
-      "courses.view",
-      "training.validate",
-      "training.certify",
-      "reports.view",
-    ],
-    dashboardRoute: "/validator/dashboard",
-    canSignup: false,
-    metadata: {
-      level: "internal",
-      requiresApproval: true,
-    },
-  },
-
   trainer: {
     id: "trainer",
     name: "Trainer",
@@ -199,8 +178,8 @@ export const ROLE_CONFIGS: Record<UserRole, RoleConfig> = {
       "courses.view",
       "courses.create",
       "courses.update",
+      "courses.delete",
       "training.manage",
-      "training.validate",
       "reports.view",
     ],
     dashboardRoute: "/trainer/courses",
@@ -211,54 +190,9 @@ export const ROLE_CONFIGS: Record<UserRole, RoleConfig> = {
     },
   },
 
-  spd: {
-    id: "spd",
-    name: "Special Projects Division",
-    description: "Manage modules, training programs, and content delivery",
-    category: "end_user",
-    icon: "FolderKanban",
-    color: "purple",
-    permissions: [
-      "courses.view",
-      "courses.create",
-      "courses.update",
-      "training.manage",
-      "training.validate",
-      "reports.view",
-    ],
-    dashboardRoute: "/trainer/courses",
-    canSignup: false,
-    metadata: {
-      level: "moderate",
-      requiresApproval: true,
-    },
-  },
-
-  employer: {
-    id: "employer",
-    name: "Employer",
-    description: "Post jobs and access skill-verified candidate pool",
-    category: "end_user",
-    icon: "Briefcase",
-    color: "orange",
-    permissions: [
-      "jobs.view",
-      "jobs.create",
-      "jobs.update",
-      "jobs.delete",
-      "reports.view",
-    ],
-    dashboardRoute: "/dashboard",
-    canSignup: true,
-    metadata: {
-      level: "basic",
-      requiresApproval: false,
-    },
-  },
-
-  jobseeker: {
-    id: "jobseeker",
-    name: "Job Seeker",
+  trainee: {
+    id: "trainee",
+    name: "Trainee",
     description: "Access learning materials and complete training courses",
     category: "end_user",
     icon: "User",

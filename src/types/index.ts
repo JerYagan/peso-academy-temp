@@ -1,16 +1,38 @@
+export interface Program {
+  id: string;
+  title: string;
+  description: string;
+  category?: string | null;
+  createdBy?: string | null;
+  courseCount?: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CourseTrainerSummary {
+  id?: string | null;
+  displayName: string;
+  roleLabel: string;
+  email?: string | null;
+}
+
 export interface Course {
   id: string;
   title: string;
   description: string;
+  programId?: string | null;
+  programTitle?: string | null;
   category: string;
   level: "Beginner" | "Intermediate" | "Advanced";
   duration: number; // hours
   instructor: string;
   instructorId: string;
+  assignedTrainer?: CourseTrainerSummary | null;
   thumbnail?: string;
   courseDocument?: string; // URL to uploaded PDF/PPTX document
   isTESDAAccredited: boolean;
   skills: string[];
+  topicTags?: string[];
   industryTags?: string[];
   careerPaths?: string[];
   enrolledCount: number;
@@ -45,6 +67,8 @@ export interface Module {
   prerequisites: string[]; // Array of module IDs that must be completed first
   module_thumbnail?: string; // Optional thumbnail shown in module management and previews
   module_document?: string; // URL to the module document (PDF/PPTX)
+  skillTags?: string[];
+  topicTags?: string[];
   created_at: string;
   /** When set, last update time (for "Last modified" in Module Management) */
   updated_at?: string;

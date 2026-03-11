@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { LearnerLeaderboardCard } from "@/components/course/LearnerLeaderboardCard";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -24,14 +25,19 @@ import {
   BarChart3,
   PieChart,
   FileSpreadsheet,
+  Trophy,
+  ClipboardCheck,
 } from "lucide-react";
 import { reportingService } from "@/services/reportingService";
 import {
   CompletionReport,
+  CourseContentCompletenessReport,
   UserActivityReport,
   CertificateReport,
   ComplianceReportData,
   EnrollmentReport,
+  LearnerLeaderboard,
+  StaffPerformanceScorecard,
 } from "@/services/reportingService";
 import { format, subDays, startOfMonth, endOfMonth, startOfYear, endOfYear } from "date-fns";
 import { toast } from "sonner";
@@ -50,8 +56,8 @@ import {
   Legend,
   ResponsiveContainer,
 } from "recharts";
-import { courseService } from "@/services/supabaseDatabaseService";
-import { Course } from "@/types";
+import { courseService, programService } from "@/services/supabaseDatabaseService";
+import { Course, Program } from "@/types";
 import jsPDF from "jspdf";
 
 const COLORS = ["#1e40af", "#059669", "#dc2626", "#ea580c", "#7c3aed", "#be185d"];
@@ -66,6 +72,8 @@ const Reports = () => {
   );
   const [endDate, setEndDate] = useState<string>(format(new Date(), "yyyy-MM-dd"));
   const [selectedCourseId, setSelectedCourseId] = useState<string>("all");
+  const [selectedProgramId, setSelectedProgramId] = useState<string>("all");
+  const [rankingScope, setRankingScope] = useState<"course" | "program">("course");
   const [selectedRole, setSelectedRole] = useState<string>("all");
   const [compliancePeriod, setCompliancePeriod] = useState<"month" | "quarter" | "year">("month");
 
@@ -75,11 +83,30 @@ const Reports = () => {
   const [certificateReports, setCertificateReports] = useState<CertificateReport[]>([]);
   const [complianceReport, setComplianceReport] = useState<ComplianceReportData | null>(null);
   const [enrollmentReports, setEnrollmentReports] = useState<EnrollmentReport[]>([]);
+  const [courseLeaderboard, setCourseLeaderboard] = useState<LearnerLeaderboard | null>(null);
+  const [contentCompletenessReports, setContentCompletenessReports] = useState<CourseContentCompletenessReport[]>([]);
+  const [staffPerformanceScorecards, setStaffPerformanceScorecards] = useState<StaffPerformanceScorecard[]>([]);
   const [courses, setCourses] = useState<Course[]>([]);
+  const [programs, setPrograms] = useState<Program[]>([]);
 
   useEffect(() => {
-    loadCourses();
+    void loadCatalog();
   }, []);
+
+  useEffect(() => {
+    if (activeTab !== "rankings") {
+      return;
+    }
+
+    if (rankingScope === "course" && selectedCourseId === "all" && courses.length > 0) {
+      setSelectedCourseId(courses[0].id);
+      return;
+    }
+
+    if (rankingScope === "program" && selectedProgramId === "all" && programs.length > 0) {
+      setSelectedProgramId(programs[0].id);
+    }
+  }, [activeTab, courses, programs, rankingScope, selectedCourseId, selectedProgramId]);
 
   useEffect(() => {
     if (activeTab === "completion") {
@@ -92,15 +119,25 @@ const Reports = () => {
       loadComplianceReport();
     } else if (activeTab === "enrollments") {
       loadEnrollmentReports();
+    } else if (activeTab === "rankings") {
+      loadCourseLeaderboard();
+    } else if (activeTab === "content") {
+      loadContentCompletenessReports();
+    } else if (activeTab === "staff") {
+      loadStaffPerformanceScorecards();
     }
-  }, [activeTab, startDate, endDate, selectedCourseId, selectedRole, compliancePeriod]);
+  }, [activeTab, startDate, endDate, selectedCourseId, selectedProgramId, rankingScope, selectedRole, compliancePeriod]);
 
-  const loadCourses = async () => {
+  const loadCatalog = async () => {
     try {
-      const allCourses = await courseService.getCourses();
+      const [allCourses, allPrograms] = await Promise.all([
+        courseService.getCourses(),
+        programService.getPrograms(),
+      ]);
       setCourses(allCourses);
+      setPrograms(allPrograms);
     } catch (error) {
-      console.error("Error loading courses:", error);
+      console.error("Error loading report catalog:", error);
     }
   };
 
@@ -184,6 +221,71 @@ const Reports = () => {
     }
   };
 
+  const loadCourseLeaderboard = async () => {
+    if (rankingScope === "course" && selectedCourseId === "all") {
+      setCourseLeaderboard(null);
+      setLoading(false);
+      return;
+    }
+
+    if (rankingScope === "program" && selectedProgramId === "all") {
+      setCourseLeaderboard(null);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const leaderboard = rankingScope === "course"
+        ? await reportingService.getLearnerCourseLeaderboard(selectedCourseId, {
+            includeIncomplete: true,
+            limit: 15,
+          })
+        : await reportingService.getLearnerProgramLeaderboard(selectedProgramId, {
+            includeIncomplete: true,
+            limit: 15,
+          });
+      setCourseLeaderboard(leaderboard);
+    } catch (error) {
+      console.error("Error loading learner leaderboard:", error);
+      toast.error("Failed to load learner leaderboard");
+      setCourseLeaderboard(null);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadContentCompletenessReports = async () => {
+    setLoading(true);
+    try {
+      const reports = await reportingService.getCourseContentCompletenessReports(
+        selectedCourseId !== "all" ? selectedCourseId : undefined,
+      );
+      setContentCompletenessReports(reports);
+    } catch (error) {
+      console.error("Error loading content completeness reports:", error);
+      toast.error("Failed to load content completeness reports");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadStaffPerformanceScorecards = async () => {
+    setLoading(true);
+    try {
+      const scorecards = await reportingService.getStaffPerformanceScorecards(
+        startDate ? new Date(startDate) : undefined,
+        endDate ? new Date(endDate) : undefined,
+      );
+      setStaffPerformanceScorecards(scorecards);
+    } catch (error) {
+      console.error("Error loading staff performance scorecards:", error);
+      toast.error("Failed to load staff performance scorecards");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const exportToPDF = (content: string, filename: string) => {
     const pdf = new jsPDF();
     pdf.setFontSize(16);
@@ -227,6 +329,19 @@ const Reports = () => {
     return `${hours}h ${mins}m`;
   };
 
+  const getStaffBandClasses = (band: StaffPerformanceScorecard["evaluationBand"]) => {
+    switch (band) {
+      case "exemplary":
+        return "bg-emerald-100 text-emerald-700 border-emerald-200";
+      case "strong":
+        return "bg-blue-100 text-blue-700 border-blue-200";
+      case "watch":
+        return "bg-amber-100 text-amber-700 border-amber-200";
+      default:
+        return "bg-rose-100 text-rose-700 border-rose-200";
+    }
+  };
+
   return (
     <DashboardLayout>
       <div className="space-y-6">
@@ -265,24 +380,57 @@ const Reports = () => {
                   onChange={(e) => setEndDate(e.target.value)}
                 />
               </div>
-              {activeTab === "completion" || activeTab === "enrollments" ? (
+              {activeTab === "completion" || activeTab === "enrollments" || activeTab === "rankings" || activeTab === "content" ? (
                 <div className="space-y-2">
-                  <Label htmlFor="course">Course</Label>
-                  <Select value={selectedCourseId} onValueChange={setSelectedCourseId}>
-                    <SelectTrigger id="course">
-                      <SelectValue placeholder="All Courses" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All Courses</SelectItem>
-                      {courses.map((course) => (
-                        <SelectItem key={course.id} value={course.id}>
-                          {course.title}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                    <Label htmlFor="course">{activeTab === "rankings" ? "Ranking scope" : "Course"}</Label>
+                    {activeTab === "rankings" ? (
+                      <Select value={rankingScope} onValueChange={(value) => setRankingScope(value as "course" | "program")}>
+                        <SelectTrigger id="ranking-scope">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="course">Course</SelectItem>
+                          <SelectItem value="program">Program</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <Select value={selectedCourseId} onValueChange={setSelectedCourseId}>
+                        <SelectTrigger id="course">
+                          <SelectValue placeholder="All Courses" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All Courses</SelectItem>
+                          {courses.map((course) => (
+                            <SelectItem key={course.id} value={course.id}>
+                              {course.title}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
                 </div>
               ) : null}
+                {activeTab === "rankings" ? (
+                  <div className="space-y-2">
+                    <Label htmlFor="ranking-entity">{rankingScope === "course" ? "Course" : "Program"}</Label>
+                    <Select
+                      value={rankingScope === "course" ? selectedCourseId : selectedProgramId}
+                      onValueChange={rankingScope === "course" ? setSelectedCourseId : setSelectedProgramId}
+                    >
+                      <SelectTrigger id="ranking-entity">
+                        <SelectValue placeholder={rankingScope === "course" ? "Select a course" : "Select a program"} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">{rankingScope === "course" ? "All Courses" : "All Programs"}</SelectItem>
+                        {(rankingScope === "course" ? courses : programs).map((item) => (
+                          <SelectItem key={item.id} value={item.id}>
+                            {item.title}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ) : null}
               {activeTab === "users" ? (
                 <div className="space-y-2">
                   <Label htmlFor="role">Role</Label>
@@ -292,9 +440,8 @@ const Reports = () => {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">All Roles</SelectItem>
-                      <SelectItem value="learner">Learner</SelectItem>
+                      <SelectItem value="trainee">Trainee</SelectItem>
                       <SelectItem value="trainer">Trainer</SelectItem>
-                      <SelectItem value="validator">Validator</SelectItem>
                       <SelectItem value="admin">Admin</SelectItem>
                     </SelectContent>
                   </Select>
@@ -324,7 +471,7 @@ const Reports = () => {
 
         {/* Reports Tabs */}
         <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-          <TabsList className="grid w-full grid-cols-5">
+          <TabsList className="grid w-full grid-cols-8">
             <TabsTrigger value="completion">
               <BarChart3 className="w-4 h-4 mr-2" />
               Completion
@@ -345,7 +492,444 @@ const Reports = () => {
               <BookOpen className="w-4 h-4 mr-2" />
               Enrollments
             </TabsTrigger>
+            <TabsTrigger value="rankings">
+              <Trophy className="w-4 h-4 mr-2" />
+              Rankings
+            </TabsTrigger>
+            <TabsTrigger value="content">
+              <ClipboardCheck className="w-4 h-4 mr-2" />
+              Content
+            </TabsTrigger>
+            <TabsTrigger value="staff">
+              <TrendingUp className="w-4 h-4 mr-2" />
+              Staff
+            </TabsTrigger>
           </TabsList>
+
+          <TabsContent value="content" className="space-y-4">
+            <Card className="border-primary/20 bg-primary/5">
+              <CardContent className="p-4 text-sm text-primary">
+                Publish-ready modules require finalized status, content body, a media asset, an assessment or learning activity, skill/topic tags, and trainer ownership.
+              </CardContent>
+            </Card>
+
+            <div className="flex items-center justify-end">
+              <Button
+                variant="outline"
+                disabled={contentCompletenessReports.length === 0}
+                onClick={() => {
+                  const csvData = contentCompletenessReports.map((report) => ({
+                    "Course Title": report.courseTitle,
+                    Category: report.courseCategory,
+                    Published: report.published ? "Yes" : "No",
+                    "Trainer Ownership": report.hasTrainerOwnership ? "Yes" : "No",
+                    "Total Modules": report.totalModules,
+                    Finalized: report.finalizedModules,
+                    Drafts: report.draftModules,
+                    "Publish-ready Modules": report.publishReadyModules,
+                    "Completeness (%)": report.completenessRate,
+                    "Missing Content": report.modulesWithoutContent,
+                    "Missing Media": report.modulesWithoutMedia,
+                    "Missing Assessment Or Activity": report.modulesWithoutAssessmentOrActivity,
+                    "Missing Tags": report.modulesWithoutTags,
+                    "Ready To Publish": report.readyToPublish ? "Yes" : "No",
+                    "Missing Summary": report.missingSummary.join(" | "),
+                  }));
+
+                  exportToCSV(
+                    csvData,
+                    `content-completeness-report-${format(new Date(), "yyyy-MM-dd")}.csv`,
+                    [
+                      "Course Title",
+                      "Category",
+                      "Published",
+                      "Trainer Ownership",
+                      "Total Modules",
+                      "Finalized",
+                      "Drafts",
+                      "Publish-ready Modules",
+                      "Completeness (%)",
+                      "Missing Content",
+                      "Missing Media",
+                      "Missing Assessment Or Activity",
+                      "Missing Tags",
+                      "Ready To Publish",
+                      "Missing Summary",
+                    ],
+                  );
+                }}
+              >
+                <FileSpreadsheet className="w-4 h-4 mr-2" />
+                Export CSV
+              </Button>
+            </div>
+
+            {loading ? (
+              <Card>
+                <CardContent className="py-12 text-center text-muted-foreground">Loading content completeness report...</CardContent>
+              </Card>
+            ) : contentCompletenessReports.length > 0 ? (
+              <div className="space-y-6">
+                <div className="grid gap-4 md:grid-cols-4">
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-medium">Courses Audited</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-2xl font-bold">{contentCompletenessReports.length}</div>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-medium">Ready To Publish</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-2xl font-bold text-emerald-600">{contentCompletenessReports.filter((report) => report.readyToPublish).length}</div>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-medium">Draft Modules</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-2xl font-bold text-amber-600">{contentCompletenessReports.reduce((sum, report) => sum + report.draftModules, 0)}</div>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-medium">Avg Completeness</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-2xl font-bold">
+                        {Math.round(contentCompletenessReports.reduce((sum, report) => sum + report.completenessRate, 0) / contentCompletenessReports.length)}%
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Production Content Completeness</CardTitle>
+                    <CardDescription>
+                      Courses are blocked from publishing until every module meets the publish-ready checklist.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="overflow-x-auto rounded-lg border">
+                      <table className="w-full min-w-[980px]">
+                        <thead className="bg-muted">
+                          <tr>
+                            <th className="p-3 text-left text-sm font-medium">Course</th>
+                            <th className="p-3 text-left text-sm font-medium">Readiness</th>
+                            <th className="p-3 text-left text-sm font-medium">Modules</th>
+                            <th className="p-3 text-left text-sm font-medium">Drafts</th>
+                            <th className="p-3 text-left text-sm font-medium">Missing Content</th>
+                            <th className="p-3 text-left text-sm font-medium">Missing Media</th>
+                            <th className="p-3 text-left text-sm font-medium">Missing Activity</th>
+                            <th className="p-3 text-left text-sm font-medium">Missing Tags</th>
+                            <th className="p-3 text-left text-sm font-medium">Summary</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {[...contentCompletenessReports]
+                            .sort((left, right) => {
+                              if (left.readyToPublish !== right.readyToPublish) {
+                                return Number(left.readyToPublish) - Number(right.readyToPublish);
+                              }
+                              return left.completenessRate - right.completenessRate;
+                            })
+                            .map((report) => (
+                              <tr key={report.courseId} className="border-t align-top">
+                                <td className="p-3 text-sm">
+                                  <div>
+                                    <p className="font-medium">{report.courseTitle}</p>
+                                    <p className="text-muted-foreground">{report.courseCategory}</p>
+                                  </div>
+                                </td>
+                                <td className="p-3 text-sm">
+                                  <Badge variant={report.readyToPublish ? "default" : "secondary"}>
+                                    {report.readyToPublish ? `Ready (${report.completenessRate}%)` : `Blocked (${report.completenessRate}%)`}
+                                  </Badge>
+                                  {!report.hasTrainerOwnership ? <p className="mt-2 text-xs text-destructive">Missing trainer owner</p> : null}
+                                </td>
+                                <td className="p-3 text-sm">{report.publishReadyModules}/{report.totalModules}</td>
+                                <td className="p-3 text-sm">{report.draftModules}</td>
+                                <td className="p-3 text-sm">{report.modulesWithoutContent}</td>
+                                <td className="p-3 text-sm">{report.modulesWithoutMedia}</td>
+                                <td className="p-3 text-sm">{report.modulesWithoutAssessmentOrActivity}</td>
+                                <td className="p-3 text-sm">{report.modulesWithoutTags}</td>
+                                <td className="p-3 text-sm text-muted-foreground">{report.missingSummary.join(" ") || "All requirements satisfied."}</td>
+                              </tr>
+                            ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            ) : (
+              <Card>
+                <CardContent className="py-12 text-center text-muted-foreground">No content completeness data available.</CardContent>
+              </Card>
+            )}
+          </TabsContent>
+
+          <TabsContent value="rankings" className="space-y-4">
+            <div className="flex items-center justify-end">
+              <Button
+                variant="outline"
+                disabled={!courseLeaderboard || courseLeaderboard.entries.length === 0}
+                onClick={() => {
+                  if (!courseLeaderboard) return;
+                  const csvData = courseLeaderboard.entries.map((entry) => ({
+                    Rank: entry.rank,
+                    Learner: entry.learnerName,
+                    "Masked Email": entry.learnerEmailMasked || "",
+                    Status: entry.status,
+                    "Composite Score": entry.compositeScore,
+                    "Progress (%)": entry.progress,
+                    [`${courseLeaderboard.unitsLabel} Completed`]: `${entry.completedUnits}/${entry.totalUnits}`,
+                    "Average Assessment (%)": entry.averageAssessmentScore ?? "",
+                    "Learning Minutes": entry.learningMinutes,
+                    Certificates: `${entry.certificatesEarned}/${entry.expectedCertificates}`,
+                    "Last Activity": entry.lastActivityAt || "",
+                  }));
+                  exportToCSV(
+                    csvData,
+                    `learner-${courseLeaderboard.scope}-leaderboard-${format(new Date(), "yyyy-MM-dd")}.csv`,
+                    [
+                      "Rank",
+                      "Learner",
+                      "Masked Email",
+                      "Status",
+                      "Composite Score",
+                      "Progress (%)",
+                      `${courseLeaderboard.unitsLabel} Completed`,
+                      "Average Assessment (%)",
+                      "Learning Minutes",
+                      "Certificates",
+                      "Last Activity",
+                    ],
+                  );
+                }}
+              >
+                <FileSpreadsheet className="w-4 h-4 mr-2" />
+                Export CSV
+              </Button>
+            </div>
+
+            <LearnerLeaderboardCard
+              leaderboard={courseLeaderboard}
+              loading={loading}
+              emptyMessage={rankingScope === "course"
+                ? "Select a specific course to view ranked learner standings."
+                : "Select a specific program to view ranked learner standings."}
+            />
+          </TabsContent>
+
+          <TabsContent value="staff" className="space-y-4">
+            <Card className="border-primary/20 bg-primary/5">
+              <CardContent className="p-4 text-sm text-primary">
+                Staff scorecards are trainer-only and separate evaluative factors from informational operational metrics so admins can compare managed-course outcomes without hiding data gaps.
+              </CardContent>
+            </Card>
+
+            <div className="flex items-center justify-end">
+              <Button
+                variant="outline"
+                disabled={staffPerformanceScorecards.length === 0}
+                onClick={() => {
+                  const csvData = staffPerformanceScorecards.map((scorecard) => ({
+                    Trainer: scorecard.staffName,
+                    Email: scorecard.staffEmail,
+                    "Composite Score": scorecard.compositeScore,
+                    Band: scorecard.evaluationBand,
+                    "Managed Courses": scorecard.informationalMetrics.managedCourses,
+                    "Active Learners": scorecard.informationalMetrics.activeLearners,
+                    "Total Enrollments": scorecard.informationalMetrics.totalEnrollments,
+                    "Certificates Issued": scorecard.informationalMetrics.certificatesIssued,
+                    "Avg Learning Hours Per Learner": scorecard.informationalMetrics.averageLearningHoursPerLearner,
+                    "Publish-ready Courses": scorecard.informationalMetrics.publishReadyCourses,
+                    "Completion Rate (%)": scorecard.courseOutcomeMetrics.completionRate,
+                    "Average Assessment (%)": scorecard.courseOutcomeMetrics.averageAssessmentScore ?? "",
+                    "Engagement Rate (%)": scorecard.courseOutcomeMetrics.learnerEngagementRate,
+                    "At-risk Rate (%)": scorecard.courseOutcomeMetrics.atRiskRate,
+                    "Recommendation Conversion (%)": scorecard.courseOutcomeMetrics.recommendationConversionRate,
+                    "Content Quality (%)": scorecard.courseOutcomeMetrics.contentQualityRate,
+                    Notes: scorecard.notes.join(" | "),
+                  }));
+
+                  exportToCSV(
+                    csvData,
+                    `staff-performance-scorecard-${format(new Date(), "yyyy-MM-dd")}.csv`,
+                    [
+                      "Trainer",
+                      "Email",
+                      "Composite Score",
+                      "Band",
+                      "Managed Courses",
+                      "Active Learners",
+                      "Total Enrollments",
+                      "Certificates Issued",
+                      "Avg Learning Hours Per Learner",
+                      "Publish-ready Courses",
+                      "Completion Rate (%)",
+                      "Average Assessment (%)",
+                      "Engagement Rate (%)",
+                      "At-risk Rate (%)",
+                      "Recommendation Conversion (%)",
+                      "Content Quality (%)",
+                      "Notes",
+                    ],
+                  );
+                }}
+              >
+                <FileSpreadsheet className="w-4 h-4 mr-2" />
+                Export CSV
+              </Button>
+            </div>
+
+            {loading ? (
+              <Card>
+                <CardContent className="py-12 text-center text-muted-foreground">Loading staff performance scorecards...</CardContent>
+              </Card>
+            ) : staffPerformanceScorecards.length > 0 ? (
+              <div className="space-y-6">
+                <div className="grid gap-4 md:grid-cols-4">
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-medium">Trainers Scored</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-2xl font-bold">{staffPerformanceScorecards.length}</div>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-medium">Average Score</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-2xl font-bold">
+                        {Math.round(staffPerformanceScorecards.reduce((sum, scorecard) => sum + scorecard.compositeScore, 0) / staffPerformanceScorecards.length)}
+                      </div>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-medium">Managed Courses</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-2xl font-bold text-blue-600">
+                        {staffPerformanceScorecards.reduce((sum, scorecard) => sum + scorecard.informationalMetrics.managedCourses, 0)}
+                      </div>
+                    </CardContent>
+                  </Card>
+                  <Card>
+                    <CardHeader className="pb-2">
+                      <CardTitle className="text-sm font-medium">Avg Content Quality</CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="text-2xl font-bold text-emerald-600">
+                        {Math.round(staffPerformanceScorecards.reduce((sum, scorecard) => sum + scorecard.courseOutcomeMetrics.contentQualityRate, 0) / staffPerformanceScorecards.length)}%
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Staff Performance Assessment Scorecard</CardTitle>
+                    <CardDescription>
+                      Composite score = completion, assessment quality, learner engagement, risk management, recommendation conversion, and content quality across trainer-managed courses.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="overflow-x-auto rounded-lg border">
+                      <table className="w-full min-w-[1200px]">
+                        <thead className="bg-muted">
+                          <tr>
+                            <th className="p-3 text-left text-sm font-medium">Trainer</th>
+                            <th className="p-3 text-left text-sm font-medium">Score</th>
+                            <th className="p-3 text-left text-sm font-medium">Managed Courses</th>
+                            <th className="p-3 text-left text-sm font-medium">Completion</th>
+                            <th className="p-3 text-left text-sm font-medium">Assessment</th>
+                            <th className="p-3 text-left text-sm font-medium">Engagement</th>
+                            <th className="p-3 text-left text-sm font-medium">Risk</th>
+                            <th className="p-3 text-left text-sm font-medium">Recommendation</th>
+                            <th className="p-3 text-left text-sm font-medium">Content</th>
+                            <th className="p-3 text-left text-sm font-medium">Operational Metrics</th>
+                            <th className="p-3 text-left text-sm font-medium">Notes</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {staffPerformanceScorecards.map((scorecard) => (
+                            <tr key={scorecard.staffId} className="border-t align-top">
+                              <td className="p-3 text-sm">
+                                <div>
+                                  <p className="font-medium">{scorecard.staffName}</p>
+                                  <p className="text-muted-foreground">{scorecard.staffEmail}</p>
+                                </div>
+                              </td>
+                              <td className="p-3 text-sm">
+                                <div className="space-y-2">
+                                  <p className="text-lg font-semibold">{scorecard.compositeScore}</p>
+                                  <Badge variant="outline" className={getStaffBandClasses(scorecard.evaluationBand)}>
+                                    {scorecard.evaluationBand}
+                                  </Badge>
+                                </div>
+                              </td>
+                              <td className="p-3 text-sm text-muted-foreground">
+                                <p>{scorecard.informationalMetrics.managedCourses} course(s)</p>
+                                <p>{scorecard.managedCourseTitles.join(", ")}</p>
+                              </td>
+                              <td className="p-3 text-sm">
+                                <p>{scorecard.courseOutcomeMetrics.completionRate}%</p>
+                                <p className="text-xs text-muted-foreground">{scorecard.factorScores.completionRate.explanation}</p>
+                              </td>
+                              <td className="p-3 text-sm">
+                                <p>{scorecard.courseOutcomeMetrics.averageAssessmentScore ?? "N/A"}{scorecard.courseOutcomeMetrics.averageAssessmentScore !== null ? "%" : ""}</p>
+                                <p className="text-xs text-muted-foreground">{scorecard.factorScores.assessmentQuality.explanation}</p>
+                              </td>
+                              <td className="p-3 text-sm">
+                                <p>{scorecard.courseOutcomeMetrics.learnerEngagementRate}%</p>
+                                <p className="text-xs text-muted-foreground">{scorecard.factorScores.learnerEngagement.explanation}</p>
+                              </td>
+                              <td className="p-3 text-sm">
+                                <p>{scorecard.courseOutcomeMetrics.atRiskRate}% at risk</p>
+                                <p className="text-xs text-muted-foreground">{scorecard.factorScores.riskManagement.explanation}</p>
+                              </td>
+                              <td className="p-3 text-sm">
+                                <p>{scorecard.courseOutcomeMetrics.recommendationConversionRate}%</p>
+                                <p className="text-xs text-muted-foreground">{scorecard.factorScores.recommendationConversion.explanation}</p>
+                              </td>
+                              <td className="p-3 text-sm">
+                                <p>{scorecard.courseOutcomeMetrics.contentQualityRate}%</p>
+                                <p className="text-xs text-muted-foreground">{scorecard.factorScores.contentQuality.explanation}</p>
+                              </td>
+                              <td className="p-3 text-sm text-muted-foreground">
+                                <p>{scorecard.informationalMetrics.activeLearners} active learners</p>
+                                <p>{scorecard.informationalMetrics.totalEnrollments} enrollments</p>
+                                <p>{scorecard.informationalMetrics.certificatesIssued} certificates</p>
+                                <p>{scorecard.informationalMetrics.averageLearningHoursPerLearner} avg hrs/learner</p>
+                                <p>{scorecard.informationalMetrics.publishReadyCourses} publish-ready course(s)</p>
+                              </td>
+                              <td className="p-3 text-sm text-muted-foreground">
+                                {scorecard.notes.length > 0 ? scorecard.notes.join(" ") : "All score dimensions have data coverage."}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            ) : (
+              <Card>
+                <CardContent className="py-12 text-center text-muted-foreground">No staff performance scorecards are available for the selected period.</CardContent>
+              </Card>
+            )}
+          </TabsContent>
 
           {/* Completion Reports */}
           <TabsContent value="completion" className="space-y-4">

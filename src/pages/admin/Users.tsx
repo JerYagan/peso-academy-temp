@@ -30,7 +30,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Users, Mail, Search, Edit2, Shield, User as UserIcon, Settings, Plus, Loader2, Trash2 } from "lucide-react";
-import { User, UserRole } from "@/types/auth";
+import { User, UserRole, normalizeUserRole } from "@/types/auth";
 import { userService } from "@/services/supabaseDatabaseService";
 import { defaultRoleDisplayNames, getRoleDisplayName } from "@/lib/roles";
 import { toast } from "sonner";
@@ -42,17 +42,7 @@ import { roleService, DatabaseRole } from "@/services/roleService";
 const SYSTEM_USER_ROLES: UserRole[] = ["trainee", "trainer", "admin"];
 const ROLE_CHANGE_ELIGIBLE_ROLES: UserRole[] = ["trainer", "admin"];
 
-const normalizeAdminRole = (role: UserRole): UserRole => {
-  if (role === "training_officer") {
-    return "trainer";
-  }
-
-  if (role === "jobseeker") {
-    return "trainee";
-  }
-
-  return role;
-};
+const normalizeAdminRole = (role: string): UserRole => normalizeUserRole(role);
 
 const AdminUsers = () => {
   const { user: currentUser, loading: authLoading } = useAuth();
