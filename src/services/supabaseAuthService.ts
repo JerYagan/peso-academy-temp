@@ -30,6 +30,10 @@ type UserProfileRecord = {
   created_at: string;
 };
 
+const getMetadataString = (value: unknown): string | undefined => {
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+};
+
 const getMetadataStringArray = (value: unknown): string[] | undefined => {
   if (!Array.isArray(value)) {
     return undefined;
@@ -86,6 +90,10 @@ const buildUserFromSources = (
       (typeof authUser.user_metadata?.onboarding_skill_level === "string"
         ? (authUser.user_metadata.onboarding_skill_level as User["onboardingSkillLevel"])
         : undefined),
+    onboardingConfidenceLevel: getMetadataString(authUser.user_metadata?.onboarding_confidence_level) as User["onboardingConfidenceLevel"] | undefined,
+    onboardingWeeklyCommitment: getMetadataString(authUser.user_metadata?.onboarding_weekly_commitment) as User["onboardingWeeklyCommitment"] | undefined,
+    onboardingDigitalComfort: getMetadataString(authUser.user_metadata?.onboarding_digital_comfort) as User["onboardingDigitalComfort"] | undefined,
+    onboardingCompletedAt: getMetadataString(authUser.user_metadata?.onboarding_completed_at),
     skills: profileData?.skills || getMetadataStringArray(authUser.user_metadata?.skills),
     createdAt: profileData?.created_at || authUser.created_at || new Date().toISOString(),
   };
@@ -252,6 +260,10 @@ export const supabaseAuthService = {
             industry_interests: profile?.industryInterests ?? [],
             preferred_categories: profile?.preferredCategories ?? [],
             onboarding_skill_level: profile?.onboardingSkillLevel ?? null,
+            onboarding_confidence_level: profile?.onboardingConfidenceLevel ?? null,
+            onboarding_weekly_commitment: profile?.onboardingWeeklyCommitment ?? null,
+            onboarding_digital_comfort: profile?.onboardingDigitalComfort ?? null,
+            onboarding_completed_at: profile?.onboardingCompletedAt ?? null,
             skills: profile?.skills ?? [],
           },
           // For development: auto-confirm email if email confirmation is disabled
@@ -542,6 +554,10 @@ export const supabaseAuthService = {
           industryInterests: profile?.industryInterests,
           preferredCategories: profile?.preferredCategories,
           onboardingSkillLevel: profile?.onboardingSkillLevel,
+          onboardingConfidenceLevel: profile?.onboardingConfidenceLevel,
+          onboardingWeeklyCommitment: profile?.onboardingWeeklyCommitment,
+          onboardingDigitalComfort: profile?.onboardingDigitalComfort,
+          onboardingCompletedAt: profile?.onboardingCompletedAt,
           skills: profile?.skills,
           createdAt: authData.user.created_at || new Date().toISOString(),
         };
@@ -569,6 +585,10 @@ export const supabaseAuthService = {
         industryInterests: profileData.industry_interests || undefined,
         preferredCategories: profileData.preferred_categories || undefined,
         onboardingSkillLevel: (profileData.onboarding_skill_level as User["onboardingSkillLevel"] | undefined) || undefined,
+        onboardingConfidenceLevel: getMetadataString(authData.user.user_metadata?.onboarding_confidence_level) as User["onboardingConfidenceLevel"] | undefined,
+        onboardingWeeklyCommitment: getMetadataString(authData.user.user_metadata?.onboarding_weekly_commitment) as User["onboardingWeeklyCommitment"] | undefined,
+        onboardingDigitalComfort: getMetadataString(authData.user.user_metadata?.onboarding_digital_comfort) as User["onboardingDigitalComfort"] | undefined,
+        onboardingCompletedAt: getMetadataString(authData.user.user_metadata?.onboarding_completed_at),
         skills: profileData.skills || undefined,
         createdAt: profileData.created_at,
       };
@@ -835,6 +855,10 @@ export const supabaseAuthService = {
       if (updates.industryInterests !== undefined) metadataUpdates.industry_interests = updates.industryInterests || [];
       if (updates.preferredCategories !== undefined) metadataUpdates.preferred_categories = updates.preferredCategories || [];
       if (updates.onboardingSkillLevel !== undefined) metadataUpdates.onboarding_skill_level = updates.onboardingSkillLevel || null;
+      if (updates.onboardingConfidenceLevel !== undefined) metadataUpdates.onboarding_confidence_level = updates.onboardingConfidenceLevel || null;
+      if (updates.onboardingWeeklyCommitment !== undefined) metadataUpdates.onboarding_weekly_commitment = updates.onboardingWeeklyCommitment || null;
+      if (updates.onboardingDigitalComfort !== undefined) metadataUpdates.onboarding_digital_comfort = updates.onboardingDigitalComfort || null;
+      if (updates.onboardingCompletedAt !== undefined) metadataUpdates.onboarding_completed_at = updates.onboardingCompletedAt || null;
       if (updates.skills !== undefined) metadataUpdates.skills = updates.skills || [];
 
       if (Object.keys(metadataUpdates).length > 0) {

@@ -147,10 +147,10 @@ export const assessmentService = {
         userId: a.user_id,
         startedAt: a.started_at,
         submittedAt: a.submitted_at || undefined,
-        score: a.score || undefined,
-        passed: a.passed || undefined,
+        score: a.score === null || a.score === undefined ? undefined : a.score,
+        passed: a.passed === null || a.passed === undefined ? undefined : a.passed,
         answers: a.answers || {},
-        timeSpent: a.time_spent || undefined,
+        timeSpent: a.time_spent === null || a.time_spent === undefined ? undefined : a.time_spent,
       })) || []
     );
   },
@@ -191,10 +191,10 @@ export const assessmentService = {
       userId: data.user_id,
       startedAt: data.started_at,
       submittedAt: data.submitted_at || undefined,
-      score: data.score || undefined,
-      passed: data.passed || undefined,
+      score: data.score === null || data.score === undefined ? undefined : data.score,
+      passed: data.passed === null || data.passed === undefined ? undefined : data.passed,
       answers: data.answers || {},
-      timeSpent: data.time_spent || undefined,
+      timeSpent: data.time_spent === null || data.time_spent === undefined ? undefined : data.time_spent,
     };
   },
 

@@ -4,8 +4,10 @@ import { useAuth } from "@/contexts/AuthContext";
 import DashboardLayout from "@/components/DashboardLayout";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Dialog,
   DialogContent,
@@ -16,26 +18,22 @@ import {
 } from "@/components/ui/dialog";
 import {
   Award,
+  AlertCircle,
   BookOpen,
   BriefcaseBusiness,
   CalendarDays,
   Clock3,
-  Eye,
   GraduationCap,
   ImageIcon,
   Laptop2,
   Loader2,
   MessageSquareHeart,
   Ribbon,
-  Sparkles,
   Users,
 } from "lucide-react";
-import { analyticsService, type PersistedLearnerRecommendation } from "@/services/analyticsService";
-import { courseService, enrollmentService, moduleService } from "@/services/supabaseDatabaseService";
+import { courseService, enrollmentService, getEnrollmentErrorFeedback, moduleService } from "@/services/supabaseDatabaseService";
 import { Course, Enrollment } from "@/types";
 import { toast } from "sonner";
-import { buildLearnerCourseRecommendations, reportingService, type CollaborativeRecommendationSignal, type LearnerCourseRecommendation, type LearnerPerformanceSummary } from "@/services/reportingService";
-import { moduleSessionService, type ModuleSessionAggregate } from "@/services/moduleSessionService";
 
 type CourseTab = "all" | "technical" | "business" | "personal";
 
@@ -118,24 +116,22 @@ const Courses = () => {
   const [loading, setLoading] = useState(true);
   const [enrolling, setEnrolling] = useState<string | null>(null);
   const [previewCourse, setPreviewCourse] = useState<Course | null>(null);
-  const [previewRecommendation, setPreviewRecommendation] = useState<PersistedLearnerRecommendation | null>(null);
   const [previewModuleCount, setPreviewModuleCount] = useState(0);
-  const [persistedRecommendations, setPersistedRecommendations] = useState<PersistedLearnerRecommendation[]>([]);
-  const [performanceSummary, setPerformanceSummary] = useState<LearnerPerformanceSummary | null>(null);
-  const [sessionAggregates, setSessionAggregates] = useState<ModuleSessionAggregate[]>([]);
-  const [collaborativeSignals, setCollaborativeSignals] = useState<Record<string, CollaborativeRecommendationSignal>>({});
+  const [enrollmentRecovery, setEnrollmentRecovery] = useState<{
+    courseId: string;
+    courseTitle: string;
+    feedback: ReturnType<typeof getEnrollmentErrorFeedback>;
+  } | null>(null);
 
   useEffect(() => {
     loadCourses();
     loadEnrollments();
-    void loadRecommendationSignals();
   }, [user]);
 
   useEffect(() => {
     if (!user) return;
     const onFocus = () => {
       void loadEnrollments();
-      void loadRecommendationSignals();
     };
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
@@ -144,7 +140,6 @@ const Courses = () => {
   useEffect(() => {
     if (!previewCourse) {
       setPreviewModuleCount(0);
-      setPreviewRecommendation(null);
       return;
     }
     let cancelled = false;
@@ -183,64 +178,41 @@ const Courses = () => {
     }
   };
 
-  const loadRecommendationSignals = async () => {
-    if (!user || user.role !== "trainee") {
-      setPerformanceSummary(null);
-      setSessionAggregates([]);
-      return;
-    }
-
-    try {
-      const [summary, aggregates, collaborative] = await Promise.all([
-        reportingService.getLearnerPerformanceSummary(user.id),
-        moduleSessionService.getSessionAggregatesByModule(user.id),
-        reportingService.getCollaborativeRecommendationSignals(user.id),
-      ]);
-      setPerformanceSummary(summary);
-      setSessionAggregates(aggregates);
-      setCollaborativeSignals(collaborative);
-    } catch (error) {
-      console.error("Error loading recommendation signals:", error);
-    }
-  };
-
-  const handleEnrollClick = (
-    course: Course,
-    recommendation?: PersistedLearnerRecommendation,
-    sourceSurface = "course_catalog",
-  ) => {
+  const handleEnrollClick = (course: Course) => {
     if (!user) {
       navigate(`/signup?redirect=${encodeURIComponent(`/courses/${course.id}`)}`);
       return;
     }
-    void handleEnroll(course.id, recommendation, sourceSurface);
+    void handleEnroll(course);
   };
 
-  const handleEnroll = async (
-    courseId: string,
-    recommendation?: PersistedLearnerRecommendation,
-    sourceSurface = "course_catalog",
-  ) => {
+  const handleEnroll = async (course: Course) => {
     if (!user) return;
 
-    if (enrollments.some((enrollment) => enrollment.courseId === courseId)) {
+    if (enrollments.some((enrollment) => enrollment.courseId === course.id)) {
       toast.info("You are already enrolled in this course");
       return;
     }
 
-    setEnrolling(courseId);
+    setEnrolling(course.id);
+    setEnrollmentRecovery(null);
     try {
-      await enrollmentService.enrollInCourse(
-        user.id,
-        courseId,
-        analyticsService.getOriginatingRecommendationOptions(recommendation, sourceSurface),
-      );
+      await enrollmentService.enrollInCourse(user.id, course.id, { sourceSurface: "course_catalog" });
       await loadEnrollments();
       await loadCourses();
       toast.success("Successfully enrolled in course!");
     } catch (error) {
       console.error("Error enrolling in course:", error);
-      toast.error("Failed to enroll in course. Please try again.");
+      const feedback = getEnrollmentErrorFeedback(error, course.title);
+      if (feedback.code === "already_enrolled") {
+        await loadEnrollments();
+      }
+      setEnrollmentRecovery({
+        courseId: course.id,
+        courseTitle: course.title,
+        feedback,
+      });
+      toast.error(feedback.toastMessage);
     } finally {
       setEnrolling(null);
     }
@@ -259,76 +231,28 @@ const Courses = () => {
     [courses, activeTab],
   );
 
-  const recommendedCourses = useMemo<LearnerCourseRecommendation[]>(() => {
-    return buildLearnerCourseRecommendations(
-      user,
-      courses,
-      enrollments,
-      performanceSummary,
-      3,
-      sessionAggregates,
-      collaborativeSignals,
-    );
-  }, [collaborativeSignals, courses, enrollments, performanceSummary, sessionAggregates, user]);
-
-  const hasOnboardingSignals = Boolean(
-    user &&
-      ((user.industryInterests && user.industryInterests.length > 0) ||
-        (user.preferredCategories && user.preferredCategories.length > 0) ||
-        user.onboardingSkillLevel ||
-        (user.skills && user.skills.length > 0)),
+  const profileSignalCoverage = Math.round(
+    ([
+      Boolean(user?.onboardingSkillLevel),
+      Boolean(user?.industryInterests && user.industryInterests.length > 0),
+      Boolean(user?.preferredCategories && user.preferredCategories.length > 0),
+      Boolean(user?.skills && user.skills.length > 0),
+    ].filter(Boolean).length / 4) * 100,
   );
-
-  const recommendationCards = useMemo(
-    () => analyticsService.hydrateRecommendationCards(recommendedCourses, persistedRecommendations),
-    [persistedRecommendations, recommendedCourses],
-  );
-
-  useEffect(() => {
-    if (!user || user.role !== "trainee" || recommendedCourses.length === 0) {
-      setPersistedRecommendations([]);
-      return;
-    }
-
-    let cancelled = false;
-
-    const syncRecommendations = async () => {
-      try {
-        const syncedRecommendations = await analyticsService.syncLearnerRecommendations(
-          user.id,
-          recommendedCourses,
-          "browse_recommendations",
-          {
-            totalEnrollments: enrollments.length,
-            industryInterestCount: user.industryInterests?.length || 0,
-            preferredCategoryCount: user.preferredCategories?.length || 0,
-            onboardingSkillLevel: user.onboardingSkillLevel || null,
-            hasProfileSkills: Boolean(user.skills && user.skills.length > 0),
-            hasPerformanceSummary: Boolean(performanceSummary),
-            recentSessionCount: sessionAggregates.reduce((sum, aggregate) => sum + aggregate.sessionCount, 0),
-            repeatedIncompleteModules: sessionAggregates.filter((aggregate) => aggregate.lastSessionStatus !== "completed" && aggregate.sessionCount >= 2).length,
-            collaborativeCandidateCount: Object.keys(collaborativeSignals).length,
-            hybridRecommendationEngine: true,
-          },
-        );
-
-        if (cancelled) {
-          return;
-        }
-
-        setPersistedRecommendations(syncedRecommendations);
-        await analyticsService.logRecommendationImpressions(user.id, syncedRecommendations, "browse_recommendations");
-      } catch (error) {
-        console.error("Error syncing browse recommendations:", error);
+  const activeEnrollment = enrollments.find((enrollment) => enrollment.status !== "completed") || enrollments[0] || null;
+  const browsePrimaryAction = activeEnrollment
+    ? {
+        title: "Choose between resuming and exploring",
+        description: "You already have an active course. Resume it first if you want momentum, or stay here if you are intentionally looking for another learning path.",
+        href: `/courses/${activeEnrollment.courseId}`,
+        label: "Continue current course",
       }
-    };
-
-    void syncRecommendations();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [collaborativeSignals, enrollments.length, performanceSummary, recommendedCourses, sessionAggregates, user]);
+    : {
+        title: "Pick a course that creates your next step",
+        description: "Browse by category, preview the course details, then enroll when you find a fit for your current skill goals.",
+        href: "/dashboard",
+        label: "Open dashboard",
+      };
 
   const renderCourseCard = (course: Course) => {
     const enrollment = enrollmentByCourseId[course.id];
@@ -506,7 +430,7 @@ const Courses = () => {
                 <Button asChild className="w-full sm:w-auto">
                   <Link
                     to={`/courses/${previewCourse.id}`}
-                    state={{ entrySource: previewRecommendation ? "browse_recommendations" : "courses_continue_learning" }}
+                    state={{ entrySource: "courses_continue_learning" }}
                     onClick={() => setPreviewCourse(null)}
                   >
                     Continue Learning
@@ -541,11 +465,19 @@ const Courses = () => {
   const renderCourseGrid = () => {
     if (loading) {
       return (
-        <div className="flex min-h-[260px] items-center justify-center rounded-[1.8rem] border border-border bg-card">
-          <div className="flex flex-col items-center gap-3 text-muted-foreground">
-            <Loader2 className="h-8 w-8 animate-spin" />
-            <p>Loading courses...</p>
-          </div>
+        <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
+          {Array.from({ length: 6 }).map((_, index) => (
+            <div key={index} className="overflow-hidden rounded-[1.6rem] border border-border bg-card">
+              <Skeleton className="aspect-[16/10] w-full rounded-none" />
+              <div className="space-y-4 p-5 sm:p-6">
+                <Skeleton className="h-8 w-3/4" />
+                <Skeleton className="h-4 w-full" />
+                <Skeleton className="h-4 w-5/6" />
+                <Skeleton className="h-4 w-1/2" />
+                <Skeleton className="h-12 w-full rounded-xl" />
+              </div>
+            </div>
+          ))}
         </div>
       );
     }
@@ -562,115 +494,6 @@ const Courses = () => {
     }
 
     return <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">{displayedCourses.map(renderCourseCard)}</div>;
-  };
-
-  const renderRecommendedSection = () => {
-    if (!user || user.role !== "trainee" || recommendedCourses.length === 0) {
-      return null;
-    }
-
-    return (
-      <section className="rounded-[1.8rem] border border-border bg-[linear-gradient(135deg,rgba(15,118,110,0.08)_0%,rgba(29,78,216,0.08)_100%)] p-6 sm:p-8">
-        <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-          <div>
-            <div className="flex items-center gap-2 text-primary">
-              <Sparkles className="h-5 w-5" />
-              <span className="text-sm font-semibold uppercase tracking-[0.18em]">Recommended for You</span>
-            </div>
-            <h2 className="mt-3 text-2xl font-semibold tracking-[-0.03em] text-foreground sm:text-3xl">
-              {hasOnboardingSignals
-                ? "Starter courses picked from your onboarding profile"
-                : "Starter courses picked from beginner-friendly learner paths"}
-            </h2>
-            <p className="mt-3 max-w-3xl text-sm leading-7 text-muted-foreground sm:text-base">
-              {hasOnboardingSignals
-                ? "These recommendations use the interests, preferred categories, skill level, and skills you shared during signup so you can start with relevant training immediately."
-                : "These recommendations fall back to curated starter courses and popular beginner pathways so new trainees can begin learning right away."}
-            </p>
-          </div>
-          <Badge variant="outline" className="w-fit rounded-full bg-background/80 px-3 py-1 text-xs font-semibold">
-            {hasOnboardingSignals ? "Cold-start onboarding signals" : "Curated starter defaults"}
-          </Badge>
-        </div>
-
-        <div className="mt-8 grid gap-6 md:grid-cols-2 xl:grid-cols-3">
-          {recommendationCards.map(({ course, reasons, persisted }) => (
-            <article key={course.id} className="rounded-[1.6rem] border border-border/80 bg-background/90 p-4 shadow-[0_16px_50px_-35px_rgba(15,23,42,0.45)] backdrop-blur">
-              <div className="mb-4 flex items-center justify-between gap-3">
-                <Badge className="rounded-full bg-primary px-3 py-1 text-[11px] font-semibold text-primary-foreground hover:bg-primary">
-                  {course.level}
-                </Badge>
-                {course.isTESDAAccredited && (
-                  <Badge variant="outline" className="rounded-full px-3 py-1 text-[11px] font-semibold">
-                    <Award className="mr-1 h-3 w-3" />
-                    TESDA
-                  </Badge>
-                )}
-              </div>
-
-              <div className="space-y-3">
-                <h3 className="text-xl font-semibold leading-tight tracking-[-0.03em] text-foreground">
-                  {course.title}
-                </h3>
-                <p className="line-clamp-3 text-sm leading-7 text-muted-foreground">
-                  {course.description}
-                </p>
-              </div>
-
-              <div className="mt-4 space-y-2 text-sm text-muted-foreground">
-                <div className="flex items-center gap-2">
-                  <Clock3 className="h-4 w-4" />
-                  <span>{getDurationLabel(course.duration)}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <Users className="h-4 w-4" />
-                  <span>{formatLearnerCount(course.enrolledCount)}</span>
-                </div>
-              </div>
-
-              <div className="mt-5 flex flex-wrap gap-2">
-                {reasons.map((reason) => (
-                  <Badge key={reason} variant="secondary" className="rounded-full px-3 py-1 text-xs font-medium">
-                    {reason}
-                  </Badge>
-                ))}
-              </div>
-
-              <div className="mt-5 flex gap-3">
-                <Button
-                  className="flex-1 rounded-xl"
-                  onClick={() => handleEnrollClick(course, persisted, "browse_recommendations")}
-                  disabled={enrolling === course.id}
-                >
-                  {enrolling === course.id ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Enrolling...
-                    </>
-                  ) : (
-                    "Enroll Now"
-                  )}
-                </Button>
-                <Button
-                  variant="outline"
-                  className="rounded-xl"
-                  onClick={() => {
-                    setPreviewCourse(course);
-                    setPreviewRecommendation(persisted || null);
-                    if (user && persisted) {
-                      void analyticsService.logRecommendationClick(user.id, persisted, "browse_recommendations");
-                    }
-                  }}
-                >
-                  <Eye className="mr-2 h-4 w-4" />
-                  Preview
-                </Button>
-              </div>
-            </article>
-          ))}
-        </div>
-      </section>
-    );
   };
 
   const publicPage = (
@@ -742,14 +565,87 @@ const Courses = () => {
   return (
     <DashboardLayout>
       <div className="space-y-8">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Training Courses</h1>
-          <p className="mt-2 text-muted-foreground">
-            Browse available training programs and continue learning from your dashboard.
-          </p>
+        <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
+          <div className="rounded-[1.8rem] border border-primary/15 bg-gradient-to-br from-primary/10 via-card to-card p-6 sm:p-7">
+            <p className="text-xs font-medium uppercase tracking-[0.18em] text-primary">Course catalog</p>
+            <h1 className="mt-3 text-3xl font-bold tracking-tight">Training Courses</h1>
+            <p className="mt-3 max-w-2xl text-sm leading-7 text-muted-foreground sm:text-base">
+              Browse available training programs, compare options by category, and keep your next move explicit: resume a current course or intentionally start a new one.
+            </p>
+
+            <div className="mt-5 rounded-3xl border border-primary/15 bg-background/80 p-5">
+              <p className="text-xs font-medium uppercase tracking-[0.18em] text-primary">Primary next step</p>
+              <h2 className="mt-3 text-2xl font-semibold tracking-[-0.03em]">{browsePrimaryAction.title}</h2>
+              <p className="mt-2 text-sm leading-7 text-muted-foreground">{browsePrimaryAction.description}</p>
+              <div className="mt-5 flex flex-wrap gap-2">
+                <Button asChild>
+                  <Link to={browsePrimaryAction.href}>{browsePrimaryAction.label}</Link>
+                </Button>
+                <Button asChild variant="outline">
+                  <Link to="/progress">View progress</Link>
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid gap-3">
+            <div className="rounded-[1.5rem] border border-border bg-card p-5">
+              <p className="font-medium">Recommendation readiness</p>
+              <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                {profileSignalCoverage >= 75
+                  ? `Your profile signals are ${profileSignalCoverage}% complete, so course discovery can stay more targeted.`
+                  : `Your profile signals are ${profileSignalCoverage}% complete. Add interests, categories, and skills for sharper recommendations.`}
+              </p>
+              <Button asChild size="sm" variant="outline" className="mt-4">
+                <Link to="/profile">Update profile</Link>
+              </Button>
+            </div>
+            <div className="rounded-[1.5rem] border border-border bg-card p-5">
+              <p className="font-medium">When to use this page</p>
+              <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                Stay here when you are comparing options. Switch back to the dashboard when you already know which course or module you need to continue.
+              </p>
+              <Button asChild size="sm" variant="outline" className="mt-4">
+                <Link to="/dashboard">Open dashboard</Link>
+              </Button>
+            </div>
+          </div>
         </div>
 
-        {renderRecommendedSection()}
+        {enrollmentRecovery ? (
+          <Alert variant={enrollmentRecovery.feedback.code === "unknown" ? "destructive" : "default"}>
+            <AlertCircle className="h-4 w-4" />
+            <AlertTitle>{enrollmentRecovery.feedback.title}</AlertTitle>
+            <AlertDescription>
+              <div className="space-y-3">
+                <p>{enrollmentRecovery.feedback.description}</p>
+                <div className="flex flex-wrap gap-2">
+                  {enrollmentRecovery.feedback.canRetry ? (
+                    <Button
+                      size="sm"
+                      onClick={() => {
+                        const course = courses.find((item) => item.id === enrollmentRecovery.courseId);
+                        if (course) {
+                          void handleEnroll(course);
+                        }
+                      }}
+                    >
+                      Retry enrollment
+                    </Button>
+                  ) : null}
+                  {enrollmentRecovery.feedback.suggestedActions.includes("profile") ? (
+                    <Button asChild size="sm" variant="outline">
+                      <Link to="/profile">Update profile</Link>
+                    </Button>
+                  ) : null}
+                  <Button size="sm" variant="ghost" onClick={() => setEnrollmentRecovery(null)}>
+                    Dismiss
+                  </Button>
+                </div>
+              </div>
+            </AlertDescription>
+          </Alert>
+        ) : null}
 
         <div className="flex flex-wrap gap-3">
           {courseTabs.map((tab) => (

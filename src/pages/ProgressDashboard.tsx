@@ -6,6 +6,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Clock,
   BookOpen,
@@ -194,13 +195,81 @@ const ProgressDashboard = () => {
     { name: "In Progress", value: overallStats.totalCourses - overallStats.completedCourses, color: COLORS[0] },
   ];
 
+  const profileSignalCoverage = Math.round(
+    ([
+      Boolean(user?.onboardingSkillLevel),
+      Boolean(user?.industryInterests && user.industryInterests.length > 0),
+      Boolean(user?.preferredCategories && user.preferredCategories.length > 0),
+      Boolean(user?.skills && user.skills.length > 0),
+    ].filter(Boolean).length / 4) * 100,
+  );
+
+  const primaryAction = recentSessions[0]
+    ? {
+        title: "Resume your most recent module",
+        description: `${recentSessions[0].moduleTitle || "Latest module"} in ${recentSessions[0].courseTitle || "your course"} was opened ${formatRelativeDateTime(recentSessions[0].lastSeenAt)}.`,
+        href: `/courses/${recentSessions[0].courseId}`,
+        label: "Resume module",
+        state: {
+          entrySource: "progress_dashboard_primary_resume",
+          moduleId: recentSessions[0].moduleId,
+        },
+      }
+    : courseProgress[0]
+      ? {
+          title: "Continue your current course",
+          description: `${courseProgress[0].courseTitle} is ${courseProgress[0].progress}% complete. Use the course view when you want to keep moving, and return here when you need detail.`,
+          href: `/courses/${courseProgress[0].courseId}`,
+          label: "Continue learning",
+          state: {
+            entrySource: "progress_dashboard_primary_course",
+          },
+        }
+      : {
+          title: "Start building your progress history",
+          description: "Enroll in your first course so this page can track progress, session activity, and completion trends.",
+          href: "/courses",
+          label: "Browse courses",
+          state: undefined,
+        };
+
   if (loading) {
     return (
       <DashboardLayout>
-        <div className="flex items-center justify-center min-h-[400px]">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
-            <p className="text-muted-foreground">Loading progress...</p>
+        <div className="space-y-6">
+          <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
+            <Card>
+              <CardContent className="space-y-4 p-6">
+                <Skeleton className="h-4 w-32" />
+                <Skeleton className="h-10 w-72 max-w-full" />
+                <Skeleton className="h-4 w-full" />
+                <Skeleton className="h-4 w-5/6" />
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <Skeleton className="h-24 w-full rounded-2xl" />
+                  <Skeleton className="h-24 w-full rounded-2xl" />
+                  <Skeleton className="h-24 w-full rounded-2xl" />
+                </div>
+              </CardContent>
+            </Card>
+            <Card>
+              <CardContent className="space-y-3 p-6">
+                <Skeleton className="h-6 w-40" />
+                <Skeleton className="h-20 w-full rounded-2xl" />
+                <Skeleton className="h-20 w-full rounded-2xl" />
+                <Skeleton className="h-20 w-full rounded-2xl" />
+              </CardContent>
+            </Card>
+          </div>
+          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            {Array.from({ length: 4 }).map((_, index) => (
+              <Card key={index}>
+                <CardContent className="space-y-3 p-6">
+                  <Skeleton className="h-4 w-28" />
+                  <Skeleton className="h-8 w-16" />
+                  <Skeleton className="h-4 w-24" />
+                </CardContent>
+              </Card>
+            ))}
           </div>
         </div>
       </DashboardLayout>
@@ -210,10 +279,63 @@ const ProgressDashboard = () => {
   return (
     <DashboardLayout>
       <div className="space-y-6">
-        {/* Header */}
-        <div>
-          <h1 className="text-3xl font-bold">Progress Dashboard</h1>
-          <p className="text-muted-foreground mt-2">Track your learning progress and statistics</p>
+        <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
+          <Card className="overflow-hidden border-primary/15 bg-gradient-to-br from-primary/10 via-card to-card">
+            <CardContent className="space-y-5 p-6 sm:p-7">
+              <div>
+                <p className="text-xs font-medium uppercase tracking-[0.18em] text-primary">Progress dashboard</p>
+                <h1 className="mt-3 text-3xl font-bold tracking-tight">Track progress without losing your next step</h1>
+                <p className="mt-3 max-w-2xl text-sm leading-7 text-muted-foreground sm:text-base">
+                  Use this page when you need detail: session history, completion patterns, and course-by-course progress. Return to course view when you are ready to continue learning.
+                </p>
+              </div>
+
+              <div className="rounded-3xl border border-primary/15 bg-background/80 p-5">
+                <p className="text-xs font-medium uppercase tracking-[0.18em] text-primary">Primary next step</p>
+                <h2 className="mt-3 text-2xl font-semibold tracking-[-0.03em]">{primaryAction.title}</h2>
+                <p className="mt-2 text-sm leading-7 text-muted-foreground">{primaryAction.description}</p>
+                <div className="mt-5 flex flex-wrap gap-2">
+                  <Button asChild>
+                    <Link to={primaryAction.href} state={primaryAction.state}>{primaryAction.label}</Link>
+                  </Button>
+                  <Button asChild variant="outline">
+                    <Link to="/dashboard">Back to dashboard</Link>
+                  </Button>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Next-step shortcuts</CardTitle>
+              <CardDescription>Keep the next action obvious whether you need to resume, browse, or sharpen recommendations.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="rounded-2xl border border-border/70 p-4">
+                <p className="font-medium">Recommendation readiness</p>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                  {profileSignalCoverage >= 75
+                    ? "Your profile already has strong recommendation signals."
+                    : "Complete more profile signals so recommendations and predictive insights stay specific."}
+                </p>
+                <Button asChild size="sm" variant="outline" className="mt-4">
+                  <Link to="/profile">Open profile</Link>
+                </Button>
+              </div>
+              <div className="rounded-2xl border border-border/70 p-4">
+                <p className="font-medium">Course catalog</p>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                  {overallStats.totalCourses > 0
+                    ? "Browse the catalog when you want a new course, not when you are deciding what to resume next."
+                    : "Start with the catalog to create your first progress data and learning history."}
+                </p>
+                <Button asChild size="sm" variant="outline" className="mt-4">
+                  <Link to="/courses">Browse courses</Link>
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
         </div>
 
         {/* Overall Statistics */}
@@ -292,8 +414,18 @@ const ProgressDashboard = () => {
                 </CardHeader>
                 <CardContent className="space-y-3">
                   {loadingSessionHistory ? (
-                    <div className="flex items-center justify-center py-8">
-                      <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                    <div className="space-y-3 py-2">
+                      {Array.from({ length: 3 }).map((_, index) => (
+                        <div key={index} className="rounded-lg border p-4 space-y-3">
+                          <Skeleton className="h-5 w-1/2" />
+                          <Skeleton className="h-4 w-2/3" />
+                          <div className="flex gap-2">
+                            <Skeleton className="h-6 w-20 rounded-full" />
+                            <Skeleton className="h-6 w-24 rounded-full" />
+                          </div>
+                          <Skeleton className="h-9 w-32" />
+                        </div>
+                      ))}
                     </div>
                   ) : recentSessions.length > 0 ? (
                     recentSessions.map((session) => (
@@ -337,6 +469,14 @@ const ProgressDashboard = () => {
                       <p className="text-sm text-muted-foreground">
                         Recent session history will appear here after you open modules from your enrolled courses.
                       </p>
+                      <div className="mt-4 flex flex-wrap justify-center gap-2">
+                        <Button asChild size="sm" variant="outline">
+                          <Link to="/dashboard">Open dashboard</Link>
+                        </Button>
+                        <Button asChild size="sm">
+                          <Link to="/courses">Browse courses</Link>
+                        </Button>
+                      </div>
                     </div>
                   )}
                 </CardContent>
@@ -361,8 +501,14 @@ const ProgressDashboard = () => {
                       </BarChart>
                     </ResponsiveContainer>
                   ) : (
-                    <div className="flex items-center justify-center h-[300px] text-muted-foreground">
-                      No data available
+                    <div className="flex h-[300px] flex-col items-center justify-center gap-3 text-center text-muted-foreground">
+                      <BarChart3 className="h-8 w-8 opacity-60" />
+                      <p className="max-w-sm text-sm leading-6">
+                        Progress bars appear here after you enroll in courses and start completing modules.
+                      </p>
+                      <Button asChild size="sm" variant="outline">
+                        <Link to="/courses">Browse courses</Link>
+                      </Button>
                     </div>
                   )}
                 </CardContent>
@@ -397,8 +543,14 @@ const ProgressDashboard = () => {
                       </RechartsPieChart>
                     </ResponsiveContainer>
                   ) : (
-                    <div className="flex items-center justify-center h-[300px] text-muted-foreground">
-                      No courses enrolled
+                    <div className="flex h-[300px] flex-col items-center justify-center gap-3 text-center text-muted-foreground">
+                      <PieChart className="h-8 w-8 opacity-60" />
+                      <p className="max-w-sm text-sm leading-6">
+                        Completion status will appear after you enroll in courses and begin building progress history.
+                      </p>
+                      <Button asChild size="sm" variant="outline">
+                        <Link to="/courses">Browse courses</Link>
+                      </Button>
                     </div>
                   )}
                 </CardContent>
@@ -485,12 +637,20 @@ const ProgressDashboard = () => {
                 })
               ) : (
                 <Card>
-                  <CardContent className="flex flex-col items-center justify-center py-12">
+                  <CardContent className="flex flex-col items-center justify-center py-12 text-center">
                     <BookOpen className="w-16 h-16 text-muted-foreground mb-4 opacity-50" />
-                    <p className="text-muted-foreground mb-4">No courses enrolled yet</p>
-                    <Button asChild>
-                      <Link to="/courses">Browse Courses</Link>
-                    </Button>
+                    <p className="text-muted-foreground mb-2">No courses enrolled yet</p>
+                    <p className="mb-4 max-w-lg text-sm text-muted-foreground">
+                      Enroll in a course first. Then this tab becomes your course-by-course control panel for viewing details and continuing modules.
+                    </p>
+                    <div className="flex flex-wrap justify-center gap-2">
+                      <Button asChild>
+                        <Link to="/courses">Browse Courses</Link>
+                      </Button>
+                      <Button asChild variant="outline">
+                        <Link to="/profile">Update profile</Link>
+                      </Button>
+                    </div>
                   </CardContent>
                 </Card>
               )}

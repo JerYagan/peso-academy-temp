@@ -9,6 +9,11 @@ import type { User } from "@/types/auth";
 
 export type LearnerRecommendationSurface = "dashboard_recommendations" | "browse_recommendations";
 
+type RecommendationRefreshOptions = {
+  trigger?: "profile_update" | "onboarding_completion";
+  extraContext?: Record<string, unknown>;
+};
+
 const DEFAULT_SURFACES: LearnerRecommendationSurface[] = [
   "dashboard_recommendations",
   "browse_recommendations",
@@ -18,6 +23,7 @@ export const recommendationSyncService = {
   refreshProfileDrivenRecommendations: async (
     user: User,
     surfaces: LearnerRecommendationSurface[] = DEFAULT_SURFACES,
+    options: RecommendationRefreshOptions = {},
   ): Promise<PersistedLearnerRecommendation[]> => {
     const normalizedUser: User = {
       ...user,
@@ -51,11 +57,15 @@ export const recommendationSyncService = {
     }
 
     const recommendationContext = {
-      trigger: "profile_update",
+      trigger: options.trigger || "profile_update",
       totalEnrollments: enrollments.length,
       industryInterestCount: normalizedUser.industryInterests?.length || 0,
       preferredCategoryCount: normalizedUser.preferredCategories?.length || 0,
       onboardingSkillLevel: normalizedUser.onboardingSkillLevel || null,
+      onboardingConfidenceLevel: normalizedUser.onboardingConfidenceLevel || null,
+      onboardingWeeklyCommitment: normalizedUser.onboardingWeeklyCommitment || null,
+      onboardingDigitalComfort: normalizedUser.onboardingDigitalComfort || null,
+      onboardingCompletedAt: normalizedUser.onboardingCompletedAt || null,
       hasProfileSkills: Boolean(normalizedUser.skills && normalizedUser.skills.length > 0),
       hasPerformanceSummary: Boolean(performanceSummary),
       recentSessionCount: sessionAggregates.reduce((sum, aggregate) => sum + aggregate.sessionCount, 0),
@@ -64,6 +74,7 @@ export const recommendationSyncService = {
       ).length,
       collaborativeCandidateCount: Object.keys(collaborativeSignals).length,
       hybridRecommendationEngine: true,
+      ...(options.extraContext || {}),
     };
 
     const persistedBySurface = await Promise.all(

@@ -12,7 +12,7 @@ import { courseService } from "@/services/supabaseDatabaseService";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
-import { resolveTrainerOwnership } from "@/lib/trainerOwnership";
+import type { UserRole } from "@/types/auth";
 
 type CourseSaveMode = "draft" | "finalized";
 
@@ -34,6 +34,26 @@ const COURSE_CATEGORIES = [
 ];
 
 const COURSE_LEVELS = ["Beginner", "Intermediate", "Advanced"] as const;
+const COURSE_PREVIEW_STORAGE_PREFIX = "peso-course-preview:";
+const COURSE_MANAGER_PROFILE_ROLES = ["admin", "trainer", "spd", "training_officer"] as const;
+
+const mapUserRoleToProfileRole = (role: UserRole): "admin" | "trainer" | "validator" | "spd" | "employer" | "jobseeker" => {
+  switch (role) {
+    case "admin":
+      return "admin";
+    case "trainer":
+    case "training_officer":
+      return "trainer";
+    case "spd":
+      return "spd";
+    case "validator":
+      return "validator";
+    case "employer":
+      return "employer";
+    default:
+      return "jobseeker";
+  }
+};
 
 export const CourseCreateEditDialog = ({
   open,
@@ -61,12 +81,93 @@ export const CourseCreateEditDialog = ({
   const [selectedThumbnailFile, setSelectedThumbnailFile] = useState<File | null>(null);
   const [thumbnailPreviewUrl, setThumbnailPreviewUrl] = useState<string | null>(null);
 
+  const resolveCourseOwnerId = async () => {
+    if (!user) {
+      throw new Error("You must be logged in to create/edit courses");
+    }
+
+    if (!supabase || !user.email) {
+      throw new Error("Your account is missing a usable course manager profile. Refresh your account or contact an administrator before creating a course.");
+    }
+
+    const { data: exactUserProfile, error: exactUserProfileError } = await supabase
+      .from("users")
+      .select("id")
+      .eq("id", user.id)
+      .maybeSingle();
+
+    if (!exactUserProfileError && exactUserProfile?.id) {
+      return exactUserProfile.id;
+    }
+
+    const { data: matchedProfilesByEmail, error: emailLookupError } = await supabase
+      .from("users")
+      .select("id")
+      .ilike("email", user.email)
+      .order("created_at", { ascending: true })
+      .limit(1);
+
+    if (!emailLookupError && matchedProfilesByEmail && matchedProfilesByEmail.length > 0) {
+      return matchedProfilesByEmail[0].id;
+    }
+
+    const preferredProfileRoles = Array.from(new Set([
+      mapUserRoleToProfileRole(user.role),
+      ...COURSE_MANAGER_PROFILE_ROLES,
+    ]));
+
+    const { data: managerProfiles, error: managerProfilesError } = await supabase
+      .from("users")
+      .select("id, role, created_at")
+      .in("role", preferredProfileRoles)
+      .order("created_at", { ascending: true });
+
+    if (!managerProfilesError && managerProfiles && managerProfiles.length > 0) {
+      const sortedManagerProfiles = [...managerProfiles].sort((left, right) => {
+        const leftRoleRank = preferredProfileRoles.indexOf(String(left.role));
+        const rightRoleRank = preferredProfileRoles.indexOf(String(right.role));
+
+        if (leftRoleRank !== rightRoleRank) {
+          return leftRoleRank - rightRoleRank;
+        }
+
+        return String(left.created_at || "").localeCompare(String(right.created_at || ""));
+      });
+
+      if (sortedManagerProfiles[0]?.id) {
+        return sortedManagerProfiles[0].id;
+      }
+    }
+
+    const now = new Date().toISOString();
+    const fallbackProfile = {
+      id: user.id,
+      email: user.email,
+      name: user.name || user.email,
+      role: mapUserRoleToProfileRole(user.role),
+      created_at: now,
+      updated_at: now,
+    };
+
+    const { data: insertedProfile, error: insertError } = await supabase
+      .from("users")
+      .upsert(fallbackProfile, { onConflict: "id" })
+      .select("id")
+      .single();
+
+    if (!insertError && insertedProfile?.id) {
+      return insertedProfile.id;
+    }
+
+    throw new Error("No usable course manager profile is available yet. Refresh your account or contact an administrator before creating a course.");
+  };
+
   const buildCoursePayload = async (published: boolean) => {
     if (!user) {
       throw new Error("You must be logged in to create/edit courses");
     }
 
-    const ownership = await resolveTrainerOwnership(user);
+    const ownerId = await resolveCourseOwnerId();
     const categoryValue = formData.category === "Other" ? categoryOther.trim() : formData.category;
 
     return {
@@ -75,7 +176,7 @@ export const CourseCreateEditDialog = ({
       category: categoryValue,
       level: formData.level,
       duration: parseInt(formData.duration, 10),
-      instructorId: ownership.primaryOwnerId || user.id,
+      instructorId: ownerId,
       instructor: user.name || user.email,
       thumbnail: thumbnailPreviewUrl || formData.thumbnail || undefined,
       courseDocument: course?.courseDocument || undefined,
@@ -115,6 +216,7 @@ export const CourseCreateEditDialog = ({
       }
 
       window.sessionStorage.setItem(previewKey, JSON.stringify(previewPayload));
+      window.localStorage.setItem(`${COURSE_PREVIEW_STORAGE_PREFIX}${previewKey}`, JSON.stringify(previewPayload));
       const previewTargetId = course?.id || "__preview__";
       const previewUrl = new URL(
         `/courses/preview/${previewTargetId}?preview=course-draft&previewKey=${encodeURIComponent(previewKey)}`,
@@ -284,6 +386,8 @@ export const CourseCreateEditDialog = ({
             ? "Failed to update course due to Supabase RLS. Apply migration 028_fix_course_and_storage_rls_roles.sql."
             : "Failed to create course due to Supabase RLS. Apply migration 028_fix_course_and_storage_rls_roles.sql.",
         );
+      } else if (message.includes("foreign key") || message.includes("course owner profile") || message.includes("trainer profile is not linked") || message.includes("course manager profile")) {
+        toast.error("Course creation failed because no usable course manager profile could be resolved.");
       } else {
         toast.error(course ? "Failed to save course" : "Failed to create course");
       }

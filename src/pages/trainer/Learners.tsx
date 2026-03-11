@@ -15,13 +15,13 @@ import { Users, BookOpen, Loader2, RefreshCw, Award, CheckCircle2, Clock3 } from
 import { certificateService, courseService, enrollmentService, moduleService, userService } from "@/services/supabaseDatabaseService";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Course, Enrollment, Module } from "@/types";
 import { User } from "@/types/auth";
 import { toast } from "sonner";
-import { resolveTrainerOwnership } from "@/lib/trainerOwnership";
 import { formatDistanceToNow } from "date-fns";
 import { moduleSessionService, type ModuleSession, type TrainerLearnerSessionSummary } from "@/services/moduleSessionService";
+import { useSearchParams } from "react-router-dom";
 
 interface LearnerData extends User {
   enrollments: Enrollment[];
@@ -104,10 +104,10 @@ const formatSessionStatus = (status: ModuleSession["sessionStatus"]) => {
 
 const TrainerLearners = () => {
   const { user } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [learners, setLearners] = useState<LearnerData[]>([]);
   const [visibleCourses, setVisibleCourses] = useState<Course[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showingAllCoursesFallback, setShowingAllCoursesFallback] = useState(false);
   const [progressDialogOpen, setProgressDialogOpen] = useState(false);
   const [selectedLearner, setSelectedLearner] = useState<LearnerData | null>(null);
   const [progressLoading, setProgressLoading] = useState(false);
@@ -115,6 +115,23 @@ const TrainerLearners = () => {
   const [learnerSessionInsights, setLearnerSessionInsights] = useState<Record<string, LearnerSessionInsight>>({});
   const [selectedLearnerSessionSummaries, setSelectedLearnerSessionSummaries] = useState<Record<string, TrainerLearnerSessionSummary>>({});
   const [selectedLearnerRecentSessions, setSelectedLearnerRecentSessions] = useState<RecentLearnerSessionCard[]>([]);
+  const focusedCourseId = searchParams.get("courseId");
+  const attentionOnly = searchParams.get("attention") === "1";
+  const focusedCourse = focusedCourseId ? visibleCourses.find((course) => course.id === focusedCourseId) || null : null;
+
+  const filteredLearners = useMemo(() => {
+    let nextLearners = learners;
+
+    if (focusedCourseId) {
+      nextLearners = nextLearners.filter((learner) => learner.enrollments.some((enrollment) => enrollment.courseId === focusedCourseId));
+    }
+
+    if (attentionOnly) {
+      nextLearners = nextLearners.filter((learner) => learnerSessionInsights[learner.id]?.needsAttention);
+    }
+
+    return nextLearners;
+  }, [attentionOnly, focusedCourseId, learnerSessionInsights, learners]);
 
   useEffect(() => {
     if (user) {
@@ -127,16 +144,9 @@ const TrainerLearners = () => {
     
     setLoading(true);
     try {
-      const ownership = await resolveTrainerOwnership(user);
-
-      // Get all courses for this trainer
       const allCourses = await courseService.getCourses();
-      
-      // Filter courses for any profile row that belongs to this trainer account
-      const myCourses = allCourses.filter((course) => ownership.ownerIds.includes(course.instructorId));
-      const visibleCourses = myCourses.length > 0 ? myCourses : allCourses;
+      const visibleCourses = allCourses;
       setVisibleCourses(visibleCourses);
-      setShowingAllCoursesFallback(myCourses.length === 0 && allCourses.length > 0);
       
       if (visibleCourses.length === 0) {
         setLearners([]);
@@ -403,12 +413,8 @@ const TrainerLearners = () => {
       <div className="space-y-8">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold">My Learners</h1>
-            <p className="text-muted-foreground mt-2">
-              {showingAllCoursesFallback
-                ? "Showing learners across all manageable courses because no direct trainer ownership match was found."
-                : "View and manage your course learners"}
-            </p>
+            <h1 className="text-3xl font-bold">Learners</h1>
+            <p className="text-muted-foreground mt-2">View and manage learners across all courses</p>
           </div>
           <Button onClick={loadLearners} variant="outline" disabled={loading}>
             <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
@@ -416,9 +422,35 @@ const TrainerLearners = () => {
           </Button>
         </div>
 
+        {focusedCourse || attentionOnly ? (
+          <Card className="border-primary/30 bg-primary/5">
+            <CardContent className="flex flex-col gap-3 p-5 md:flex-row md:items-center md:justify-between">
+              <div>
+                <p className="text-sm font-medium text-primary">Focused learner review</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {focusedCourse
+                    ? `Showing learners tied to ${focusedCourse.title}${attentionOnly ? " with attention flags only" : ""}.`
+                    : "Showing only learners with current attention flags from session behavior."}
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  const nextParams = new URLSearchParams(searchParams);
+                  nextParams.delete("courseId");
+                  nextParams.delete("attention");
+                  setSearchParams(nextParams);
+                }}
+              >
+                Clear focus
+              </Button>
+            </CardContent>
+          </Card>
+        ) : null}
+
         <Card>
           <CardHeader>
-            <CardTitle>All Learners ({learners.length})</CardTitle>
+            <CardTitle>All Learners ({filteredLearners.length})</CardTitle>
           </CardHeader>
           <CardContent>
             {loading ? (
@@ -426,9 +458,9 @@ const TrainerLearners = () => {
                 <Loader2 className="w-8 h-8 text-muted-foreground animate-spin" />
                 <p className="ml-3 text-muted-foreground">Loading learners...</p>
               </div>
-            ) : learners.length > 0 ? (
+            ) : filteredLearners.length > 0 ? (
               <div className="space-y-4">
-                {learners.map((learner) => (
+                {filteredLearners.map((learner) => (
                   <div
                     key={learner.id}
                     className="flex items-center justify-between gap-4 rounded-lg border p-4 transition-colors hover:bg-muted/50"
@@ -483,7 +515,11 @@ const TrainerLearners = () => {
             ) : (
               <div className="text-center py-12">
                 <Users className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
-                <p className="text-muted-foreground">No learners enrolled in your courses yet</p>
+                <p className="text-muted-foreground">
+                  {focusedCourse || attentionOnly
+                    ? "No learners match the current dashboard focus."
+                    : "No learners enrolled in your courses yet"}
+                </p>
               </div>
             )}
           </CardContent>

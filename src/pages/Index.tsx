@@ -195,7 +195,7 @@ const Index = () => {
               <div className="absolute inset-x-2 top-6 h-40 rounded-full bg-primary/10 blur-3xl dark:bg-primary/20 sm:inset-x-0 sm:top-10 sm:h-80" />
               <div className="relative flex w-full max-w-[240px] items-center justify-center px-2 py-6 sm:max-w-[360px] sm:p-8 lg:max-w-[560px] lg:p-10">
                 <img
-                  src="/images/logo.png"
+                  src="/images/logo_hero.png"
                   alt="PESO Academy"
                   className="h-auto w-full max-w-[220px] object-contain sm:max-w-[320px] lg:max-w-[420px]"
                 />

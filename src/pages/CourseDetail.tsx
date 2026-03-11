@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useParams, useNavigate, Link, useSearchParams, useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import DashboardLayout from "@/components/DashboardLayout";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -40,13 +41,16 @@ import {
   Upload,
   FileQuestion,
   LogOut,
+  AlertCircle,
 } from "lucide-react";
-import { courseService, enrollmentService, moduleService, moduleCompletionService } from "@/services/supabaseDatabaseService";
+import { courseService, enrollmentService, getEnrollmentErrorFeedback, moduleService, moduleCompletionService } from "@/services/supabaseDatabaseService";
 import { Course, Module, Enrollment } from "@/types";
 import { toast } from "sonner";
 import ModuleContentViewer from "@/components/course/ModuleContentViewer";
 import DocumentViewer from "@/components/course/DocumentViewer";
 import { supabase } from "@/lib/supabase";
+
+const COURSE_PREVIEW_STORAGE_PREFIX = "peso-course-preview:";
 
 const CourseDetail = () => {
   const { id } = useParams<{ id: string }>();
@@ -64,6 +68,7 @@ const CourseDetail = () => {
   const [showCompletionDialog, setShowCompletionDialog] = useState(false);
   const [showUnenrollConfirm, setShowUnenrollConfirm] = useState(false);
   const [unenrolling, setUnenrolling] = useState(false);
+  const [enrollmentRecovery, setEnrollmentRecovery] = useState<ReturnType<typeof getEnrollmentErrorFeedback> | null>(null);
   const previewKey = searchParams.get("previewKey");
   const isPreviewMode = Boolean(searchParams.get("preview") && previewKey);
   const previewEnrollmentId = `preview-enrollment-${id || "course"}`;
@@ -101,7 +106,9 @@ const CourseDetail = () => {
       let modulesSourceCourseId: string | null = id;
 
       if (isPreviewMode && typeof window !== "undefined" && previewKey) {
-        const rawPreview = window.sessionStorage.getItem(previewKey);
+        const rawPreview =
+          window.sessionStorage.getItem(previewKey) ||
+          window.localStorage.getItem(`${COURSE_PREVIEW_STORAGE_PREFIX}${previewKey}`);
 
         if (rawPreview) {
           const previewData = JSON.parse(rawPreview) as Partial<Course> & {
@@ -294,13 +301,19 @@ const CourseDetail = () => {
   const handleEnrollInCourse = async () => {
     if (!id || !user) return;
     setEnrolling(true);
+    setEnrollmentRecovery(null);
     try {
       await enrollmentService.enrollInCourse(user.id, id);
       toast.success("You are now enrolled!");
       await loadCourseData();
     } catch (error) {
       console.error("Error enrolling:", error);
-      toast.error("Failed to enroll. Please try again.");
+      const feedback = getEnrollmentErrorFeedback(error, course?.title);
+      if (feedback.code === "already_enrolled") {
+        await loadCourseData();
+      }
+      setEnrollmentRecovery(feedback);
+      toast.error(feedback.toastMessage);
     } finally {
       setEnrolling(false);
     }
@@ -401,6 +414,32 @@ const CourseDetail = () => {
                   </ul>
                 </div>
               )}
+              {enrollmentRecovery ? (
+                <Alert variant={enrollmentRecovery.code === "unknown" ? "destructive" : "default"}>
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertTitle>{enrollmentRecovery.title}</AlertTitle>
+                  <AlertDescription>
+                    <div className="space-y-3">
+                      <p>{enrollmentRecovery.description}</p>
+                      <div className="flex flex-wrap gap-2">
+                        {enrollmentRecovery.canRetry ? (
+                          <Button size="sm" onClick={() => void handleEnrollInCourse()} disabled={enrolling}>
+                            Retry enrollment
+                          </Button>
+                        ) : null}
+                        {enrollmentRecovery.suggestedActions.includes("profile") ? (
+                          <Button asChild size="sm" variant="outline">
+                            <Link to="/profile">Update profile</Link>
+                          </Button>
+                        ) : null}
+                        <Button size="sm" variant="ghost" onClick={() => setEnrollmentRecovery(null)}>
+                          Dismiss
+                        </Button>
+                      </div>
+                    </div>
+                  </AlertDescription>
+                </Alert>
+              ) : null}
               <div className="flex flex-wrap gap-3">
                 {isPreviewMode ? null : user ? (
                   <Button onClick={handleEnrollInCourse} disabled={enrolling}>

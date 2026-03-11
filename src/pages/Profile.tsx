@@ -3,6 +3,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -43,6 +44,7 @@ import {
   ONBOARDING_SKILL_LEVEL_OPTIONS,
 } from "@/lib/onboarding";
 import { recommendationSyncService } from "@/services/recommendationSyncService";
+import { Link } from "react-router-dom";
 
 const genderOptions: Array<{ value: NonNullable<AuthUser["gender"]>; label: string }> = [
   { value: "male", label: "Male" },
@@ -432,6 +434,26 @@ const Profile = () => {
   const predictiveReadiness = Math.round(
     (profileCompletion + recommendationSignalCoverage + (hasLearningHistory ? 100 : 0)) / 3,
   );
+  const profilePrimaryAction = profileCompletion < 100
+    ? {
+        title: "Complete the profile fields that drive recommendations",
+        description: "Fill the missing identity, location, and preference fields so personalized suggestions and predictive insights stay grounded in current learner data.",
+        href: "#profile-editor",
+        label: isEditing ? "Continue editing" : "Edit profile",
+      }
+    : inProgressEnrollments > 0
+      ? {
+          title: "Return to your active learning path",
+          description: "Your learner profile is already in good shape. The next high-value step is to continue an in-progress course or review progress detail.",
+          href: "/dashboard",
+          label: "Open dashboard",
+        }
+      : {
+          title: "Use your finished profile to start training",
+          description: "Your profile has the core signals needed for stronger recommendations. Enroll in a course to begin generating learning history.",
+          href: "/courses",
+          label: "Browse courses",
+        };
 
   const toggleFormListValue = (field: "industryInterests" | "preferredCategories", value: string) => {
     setFormData((current) => {
@@ -499,6 +521,69 @@ const Profile = () => {
             </Button>
           )}
         </div>
+
+        {isLearner && (
+          <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
+            <Card className="border-primary/15 bg-gradient-to-br from-primary/10 via-card to-card">
+              <CardContent className="space-y-4 p-6">
+                <div>
+                  <p className="text-xs font-medium uppercase tracking-[0.18em] text-primary">Next profile action</p>
+                  <h2 className="mt-3 text-2xl font-semibold tracking-[-0.03em]">{profilePrimaryAction.title}</h2>
+                  <p className="mt-2 max-w-2xl text-sm leading-7 text-muted-foreground">{profilePrimaryAction.description}</p>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <div className="rounded-2xl border border-border/60 bg-background/70 p-4">
+                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Profile completion</p>
+                    <p className="mt-2 text-3xl font-semibold">{profileCompletion}%</p>
+                  </div>
+                  <div className="rounded-2xl border border-border/60 bg-background/70 p-4">
+                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Recommendation signals</p>
+                    <p className="mt-2 text-3xl font-semibold">{recommendationSignalCoverage}%</p>
+                  </div>
+                  <div className="rounded-2xl border border-border/60 bg-background/70 p-4">
+                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Predictive readiness</p>
+                    <p className="mt-2 text-3xl font-semibold">{predictiveReadiness}%</p>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {profilePrimaryAction.href.startsWith("#") ? (
+                    <Button onClick={() => setIsEditing(true)}>{profilePrimaryAction.label}</Button>
+                  ) : (
+                    <Button asChild>
+                      <Link to={profilePrimaryAction.href}>{profilePrimaryAction.label}</Link>
+                    </Button>
+                  )}
+                  <Button asChild variant="outline">
+                    <Link to={hasLearningHistory ? "/progress" : "/courses"}>
+                      {hasLearningHistory ? "View progress" : "Browse courses"}
+                    </Link>
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Profile routing</CardTitle>
+                <CardDescription>Use the profile page for data quality, then switch surfaces for learning or review.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="rounded-2xl border border-border/70 p-4">
+                  <p className="font-medium">Edit here</p>
+                  <p className="mt-2 text-sm leading-6 text-muted-foreground">Identity details, location, interests, categories, skill level, and skills all belong on this page.</p>
+                </div>
+                <div className="rounded-2xl border border-border/70 p-4">
+                  <p className="font-medium">Learn from dashboard</p>
+                  <p className="mt-2 text-sm leading-6 text-muted-foreground">Use the dashboard when you want the fastest route back into a course or recommendation.</p>
+                </div>
+                <div className="rounded-2xl border border-border/70 p-4">
+                  <p className="font-medium">Review from progress</p>
+                  <p className="mt-2 text-sm leading-6 text-muted-foreground">Open the progress page for session history, completion trends, and course-by-course detail.</p>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
 
         <div className="grid gap-6 xl:grid-cols-[1.45fr_0.85fr]">
           <div className="space-y-6">
@@ -1056,8 +1141,14 @@ const Profile = () => {
                 </CardHeader>
                 <CardContent className="space-y-4">
                   {loadingData ? (
-                    <div className="flex items-center justify-center py-10">
-                      <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+                    <div className="grid gap-3 sm:grid-cols-2">
+                      {Array.from({ length: 6 }).map((_, index) => (
+                        <div key={index} className="rounded-2xl border border-border/60 bg-background/60 p-4 space-y-3">
+                          <Skeleton className="h-4 w-32" />
+                          <Skeleton className="h-8 w-20" />
+                          <Skeleton className="h-4 w-24" />
+                        </div>
+                      ))}
                     </div>
                   ) : (
                     <>

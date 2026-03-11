@@ -9,10 +9,250 @@ if (!supabase) {
   console.warn("Supabase client not initialized. Please set up environment variables.");
 }
 
+export type EnrollmentErrorCode =
+  | "already_enrolled"
+  | "course_unavailable"
+  | "access_restricted"
+  | "unknown";
+
+export interface EnrollmentErrorFeedback {
+  code: EnrollmentErrorCode;
+  title: string;
+  description: string;
+  toastMessage: string;
+  canRetry: boolean;
+  suggestedActions: Array<"retry" | "browse" | "profile">;
+}
+
+type EnrollmentErrorWithFeedback = Error & {
+  code?: EnrollmentErrorCode;
+  feedback?: EnrollmentErrorFeedback;
+};
+
+const createEnrollmentError = (feedback: EnrollmentErrorFeedback): EnrollmentErrorWithFeedback => {
+  const error = new Error(feedback.description) as EnrollmentErrorWithFeedback;
+  error.name = "EnrollmentError";
+  error.code = feedback.code;
+  error.feedback = feedback;
+  return error;
+};
+
+const buildEnrollmentErrorFeedback = (
+  code: EnrollmentErrorCode,
+  courseTitle?: string,
+): EnrollmentErrorFeedback => {
+  const courseLabel = courseTitle ? ` for ${courseTitle}` : "";
+
+  switch (code) {
+    case "already_enrolled":
+      return {
+        code,
+        title: "Already enrolled",
+        description: `You already have an active enrollment${courseLabel}. Open the course and continue learning instead of enrolling again.`,
+        toastMessage: "You are already enrolled in this course.",
+        canRetry: false,
+        suggestedActions: ["browse"],
+      };
+    case "course_unavailable":
+      return {
+        code,
+        title: "Course unavailable",
+        description: `This course is not currently available for trainee enrollment${courseLabel}. It may be unpublished, archived, or missing required access setup.`,
+        toastMessage: "This course is not available for enrollment right now.",
+        canRetry: false,
+        suggestedActions: ["browse"],
+      };
+    case "access_restricted":
+      return {
+        code,
+        title: "Enrollment blocked",
+        description: `Your account could not enroll${courseLabel} because access is currently restricted. Refresh your profile details or try again later after permissions are updated.`,
+        toastMessage: "Enrollment is currently blocked for your account.",
+        canRetry: true,
+        suggestedActions: ["retry", "profile", "browse"],
+      };
+    default:
+      return {
+        code: "unknown",
+        title: "Enrollment failed",
+        description: `We could not complete your enrollment${courseLabel}. You can retry now or choose another course while the issue is investigated.`,
+        toastMessage: "Enrollment failed. You can retry now or pick another course.",
+        canRetry: true,
+        suggestedActions: ["retry", "browse"],
+      };
+  }
+};
+
+export const getEnrollmentErrorFeedback = (
+  error: unknown,
+  courseTitle?: string,
+): EnrollmentErrorFeedback => {
+  if (error && typeof error === "object" && "feedback" in error) {
+    const feedback = (error as EnrollmentErrorWithFeedback).feedback;
+    if (feedback) {
+      return feedback;
+    }
+  }
+
+  const code = typeof error === "object" && error !== null && "code" in error
+    ? String((error as { code?: string }).code || "")
+    : "";
+  const message = typeof error === "object" && error !== null && "message" in error
+    ? String((error as { message?: string }).message || "")
+    : String(error || "");
+  const normalizedMessage = message.toLowerCase();
+
+  if (
+    code === "already_enrolled" ||
+    code === "23505" ||
+    normalizedMessage.includes("duplicate key") ||
+    normalizedMessage.includes("already enrolled") ||
+    normalizedMessage.includes("already have an active enrollment")
+  ) {
+    return buildEnrollmentErrorFeedback("already_enrolled", courseTitle);
+  }
+
+  if (
+    code === "course_unavailable" ||
+    normalizedMessage.includes("not available") ||
+    normalizedMessage.includes("not currently available") ||
+    normalizedMessage.includes("unpublished") ||
+    normalizedMessage.includes("not found") ||
+    normalizedMessage.includes("violates foreign key")
+  ) {
+    return buildEnrollmentErrorFeedback("course_unavailable", courseTitle);
+  }
+
+  if (
+    code === "access_restricted" ||
+    code === "42501" ||
+    normalizedMessage.includes("row-level security") ||
+    normalizedMessage.includes("permission") ||
+    normalizedMessage.includes("policy") ||
+    normalizedMessage.includes("not allowed") ||
+    normalizedMessage.includes("access is currently restricted")
+  ) {
+    return buildEnrollmentErrorFeedback("access_restricted", courseTitle);
+  }
+
+  return buildEnrollmentErrorFeedback("unknown", courseTitle);
+};
+
 /**
  * Supabase Database Service
  * Handles all database operations using Supabase
  */
+
+const loadActiveEnrollmentCounts = async (courseIds: string[]): Promise<Map<string, number>> => {
+  if (!supabase || courseIds.length === 0) {
+    return new Map();
+  }
+
+  const { data, error } = await supabase
+    .from("enrollments")
+    .select("course_id")
+    .in("course_id", courseIds)
+    .neq("status", "dropped");
+
+  if (error) {
+    console.warn("Failed to load live enrollment counts for courses:", error);
+    return new Map();
+  }
+
+  const counts = new Map<string, number>();
+  for (const row of data || []) {
+    const courseId = row.course_id;
+    if (!courseId) {
+      continue;
+    }
+
+    counts.set(courseId, (counts.get(courseId) || 0) + 1);
+  }
+
+  return counts;
+};
+
+const mapCourseRecord = (
+  course: any,
+  liveEnrollmentCounts?: Map<string, number>,
+): Course => ({
+  id: course.id,
+  title: course.title,
+  description: course.description,
+  category: course.category,
+  level: course.level,
+  duration: course.duration,
+  instructor: "",
+  instructorId: course.instructor_id,
+  thumbnail: resolveCourseMaterialUrl(course.thumbnail),
+  courseDocument: resolveCourseMaterialUrl(course.course_document),
+  isTESDAAccredited: course.is_tesda_accredited,
+  skills: course.skills,
+  industryTags: course.industry_tags || [],
+  careerPaths: course.career_paths || [],
+  enrolledCount: liveEnrollmentCounts?.get(course.id) ?? course.enrolled_count ?? 0,
+  rating: course.rating,
+  createdAt: course.created_at,
+  published: course.published ?? true,
+});
+
+const unsupportedCourseColumns = new Set<string>();
+
+const getMissingCourseColumn = (error: unknown): string | null => {
+  const message = typeof error === "object" && error !== null && "message" in error
+    ? String((error as { message?: string }).message || "")
+    : "";
+  const details = typeof error === "object" && error !== null && "details" in error
+    ? String((error as { details?: string }).details || "")
+    : "";
+  const haystack = `${message} ${details}`;
+
+  const schemaCacheMatch = haystack.match(/'([^']+)' column of 'courses'/i);
+  if (schemaCacheMatch?.[1]) {
+    return schemaCacheMatch[1];
+  }
+
+  const postgresMatch = haystack.match(/column\s+"([^"]+)"\s+does not exist/i);
+  if (postgresMatch?.[1]) {
+    return postgresMatch[1];
+  }
+
+  return null;
+};
+
+const sanitizeCourseWritePayload = (payload: Record<string, unknown>) => {
+  const nextPayload = { ...payload };
+
+  for (const column of unsupportedCourseColumns) {
+    delete nextPayload[column];
+  }
+
+  return nextPayload;
+};
+
+const executeCourseWriteWithFallback = async <T>(
+  execute: (payload: Record<string, unknown>) => Promise<{ data: T | null; error: any }>,
+  payload: Record<string, unknown>,
+): Promise<{ data: T | null; error: any }> => {
+  let nextPayload = sanitizeCourseWritePayload(payload);
+
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const result = await execute(nextPayload);
+    if (!result.error) {
+      return result;
+    }
+
+    const missingColumn = getMissingCourseColumn(result.error);
+    if (!missingColumn || !(missingColumn in nextPayload)) {
+      return result;
+    }
+
+    unsupportedCourseColumns.add(missingColumn);
+    delete nextPayload[missingColumn];
+  }
+
+  return execute(nextPayload);
+};
 
 // Course operations
 export const courseService = {
@@ -34,28 +274,9 @@ export const courseService = {
       return [];
     }
 
-    return (
-      data?.map((course) => ({
-        id: course.id,
-        title: course.title,
-        description: course.description,
-        category: course.category,
-        level: course.level,
-        duration: course.duration,
-        instructor: "", // Will be populated via join if needed
-        instructorId: course.instructor_id,
-        thumbnail: resolveCourseMaterialUrl(course.thumbnail),
-        courseDocument: resolveCourseMaterialUrl(course.course_document),
-        isTESDAAccredited: course.is_tesda_accredited,
-        skills: course.skills,
-        industryTags: course.industry_tags || [],
-        careerPaths: course.career_paths || [],
-        enrolledCount: course.enrolled_count,
-        rating: course.rating,
-        createdAt: course.created_at,
-        published: course.published ?? true,
-      })) || []
-    );
+    const liveEnrollmentCounts = await loadActiveEnrollmentCounts((data || []).map((course) => course.id));
+
+    return data?.map((course) => mapCourseRecord(course, liveEnrollmentCounts)) || [];
   },
 
   /**
@@ -75,6 +296,12 @@ export const courseService = {
 
     if (!data) return null;
 
+    let enrolledCount = data.enrolled_count ?? 0;
+    const liveEnrollmentCounts = await loadActiveEnrollmentCounts([data.id]);
+    if (liveEnrollmentCounts.has(data.id)) {
+      enrolledCount = liveEnrollmentCounts.get(data.id) || 0;
+    }
+
     return {
       id: data.id,
       title: data.title,
@@ -90,7 +317,7 @@ export const courseService = {
       skills: data.skills,
       industryTags: data.industry_tags || [],
       careerPaths: data.career_paths || [],
-      enrolledCount: data.enrolled_count,
+      enrolledCount,
       rating: data.rating,
       createdAt: data.created_at,
       published: data.published ?? true,
@@ -101,30 +328,35 @@ export const courseService = {
    * Create a new course
    */
   createCourse: async (course: Omit<Course, "id" | "createdAt" | "enrolledCount" | "rating">): Promise<Course> => {
-    const { data, error } = await supabase
-      .from("courses")
-      .insert({
-        title: course.title,
-        description: course.description,
-        category: course.category,
-        level: course.level,
-        duration: course.duration,
-        instructor_id: course.instructorId,
-        thumbnail: course.thumbnail || null,
-        course_document: course.courseDocument || null,
-        is_tesda_accredited: course.isTESDAAccredited,
-        skills: course.skills,
-        industry_tags: course.industryTags || [],
-        career_paths: course.careerPaths || [],
-        enrolled_count: 0,
-        rating: 0,
-        certificate_type: "completion",
-        published: course.published ?? true,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      })
-      .select()
-      .single();
+    const insertPayload = {
+      title: course.title,
+      description: course.description,
+      category: course.category,
+      level: course.level,
+      duration: course.duration,
+      instructor_id: course.instructorId,
+      thumbnail: course.thumbnail || null,
+      course_document: course.courseDocument || null,
+      is_tesda_accredited: course.isTESDAAccredited,
+      skills: course.skills,
+      industry_tags: course.industryTags || [],
+      career_paths: course.careerPaths || [],
+      enrolled_count: 0,
+      rating: 0,
+      certificate_type: "completion",
+      published: course.published ?? true,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+
+    const { data, error } = await executeCourseWriteWithFallback(
+      (payload) => supabase
+        .from("courses")
+        .insert(payload)
+        .select()
+        .single(),
+      insertPayload,
+    );
 
     if (error) {
       handleSupabaseError(error);
@@ -132,24 +364,8 @@ export const courseService = {
     }
 
     return {
-      id: data.id,
-      title: data.title,
-      description: data.description,
-      category: data.category,
-      level: data.level,
-      duration: data.duration,
+      ...mapCourseRecord(data),
       instructor: course.instructor,
-      instructorId: data.instructor_id,
-      thumbnail: resolveCourseMaterialUrl(data.thumbnail),
-      courseDocument: resolveCourseMaterialUrl(data.course_document),
-      isTESDAAccredited: data.is_tesda_accredited,
-      skills: data.skills,
-      industryTags: data.industry_tags || [],
-      careerPaths: data.career_paths || [],
-      enrolledCount: data.enrolled_count,
-      rating: data.rating,
-      createdAt: data.created_at,
-      published: data.published ?? true,
     };
   },
 
@@ -175,12 +391,15 @@ export const courseService = {
     if (updates.careerPaths !== undefined) updateData.career_paths = updates.careerPaths;
     if (updates.published !== undefined) updateData.published = updates.published;
 
-    const { data, error } = await supabase
-      .from("courses")
-      .update(updateData)
-      .eq("id", id)
-      .select()
-      .single();
+    const { data, error } = await executeCourseWriteWithFallback(
+      (payload) => supabase
+        .from("courses")
+        .update(payload)
+        .eq("id", id)
+        .select()
+        .single(),
+      updateData,
+    );
 
     if (error) {
       handleSupabaseError(error);
@@ -188,24 +407,8 @@ export const courseService = {
     }
 
     return {
-      id: data.id,
-      title: data.title,
-      description: data.description,
-      category: data.category,
-      level: data.level,
-      duration: data.duration,
+      ...mapCourseRecord(data),
       instructor: updates.instructor || "",
-      instructorId: data.instructor_id,
-      thumbnail: resolveCourseMaterialUrl(data.thumbnail),
-      courseDocument: resolveCourseMaterialUrl(data.course_document),
-      isTESDAAccredited: data.is_tesda_accredited,
-      skills: data.skills,
-      industryTags: data.industry_tags || [],
-      careerPaths: data.career_paths || [],
-      enrolledCount: data.enrolled_count,
-      rating: data.rating,
-      createdAt: data.created_at,
-      published: data.published ?? true,
     };
   },
 
@@ -851,6 +1054,44 @@ export const enrollmentService = {
       sourceSurface?: string;
     },
   ): Promise<Enrollment> => {
+    if (!supabase) {
+      throw createEnrollmentError(buildEnrollmentErrorFeedback("unknown"));
+    }
+
+    const { data: courseRow, error: courseError } = await supabase
+      .from("courses")
+      .select("id, title, published")
+      .eq("id", courseId)
+      .maybeSingle();
+
+    if (courseError) {
+      throw createEnrollmentError(getEnrollmentErrorFeedback(courseError));
+    }
+
+    if (!courseRow) {
+      throw createEnrollmentError(buildEnrollmentErrorFeedback("course_unavailable"));
+    }
+
+    if (courseRow.published === false) {
+      throw createEnrollmentError(buildEnrollmentErrorFeedback("course_unavailable", courseRow.title));
+    }
+
+    const { data: existingEnrollment, error: existingEnrollmentError } = await supabase
+      .from("enrollments")
+      .select("id, status")
+      .eq("user_id", userId)
+      .eq("course_id", courseId)
+      .neq("status", "dropped")
+      .maybeSingle();
+
+    if (existingEnrollmentError) {
+      throw createEnrollmentError(getEnrollmentErrorFeedback(existingEnrollmentError, courseRow.title));
+    }
+
+    if (existingEnrollment) {
+      throw createEnrollmentError(buildEnrollmentErrorFeedback("already_enrolled", courseRow.title));
+    }
+
     const { data, error } = await supabase
       .from("enrollments")
       .insert({
@@ -866,8 +1107,7 @@ export const enrollmentService = {
       .single();
 
     if (error) {
-      handleSupabaseError(error);
-      throw error;
+      throw createEnrollmentError(getEnrollmentErrorFeedback(error, courseRow.title));
     }
 
     // Update course enrolled count

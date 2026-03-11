@@ -8,6 +8,7 @@ import {
   Clock3,
   GraduationCap,
   Loader2,
+  MousePointerClick,
   RefreshCw,
   ShieldAlert,
   Target,
@@ -113,6 +114,33 @@ const TrainerDashboardPlaceholder = () => {
     completionRate: course.completionRate,
     averageAssessmentScore: course.averageAssessmentScore,
   })) || [];
+  const recommendationCourseData = analytics?.recommendationAnalytics.topRecommendedCourses.slice(0, 5).map((course) => ({
+    name: course.courseTitle.length > 18 ? `${course.courseTitle.slice(0, 18)}...` : course.courseTitle,
+    ctr: course.ctr,
+    acceptRate: course.acceptRate,
+  })) || [];
+  const atRiskSignalCards = analytics ? [
+    {
+      label: "Stalled progress",
+      value: analytics.atRiskSignals.stalledProgress,
+      description: "Low progress after two weeks.",
+    },
+    {
+      label: "Repeated short sessions",
+      value: analytics.atRiskSignals.repeatedShortSessions,
+      description: "Learners repeatedly leaving after brief sessions.",
+    },
+    {
+      label: "Inactive incomplete",
+      value: analytics.atRiskSignals.inactiveIncomplete,
+      description: "Started enrollments with no recent return.",
+    },
+    {
+      label: "Problematic exits",
+      value: analytics.atRiskSignals.problematicSessionStatus,
+      description: "Timed-out or abandoned sessions are repeating.",
+    },
+  ] : [];
 
   return (
     <DashboardLayout>
@@ -144,11 +172,7 @@ const TrainerDashboardPlaceholder = () => {
             </div>
           </div>
           {analytics ? (
-            <p className="text-sm text-muted-foreground">
-              {analytics.showingAllCoursesFallback
-                ? "Showing all manageable courses because no direct trainer ownership match was found for the current account."
-                : "Showing analytics for your owned course portfolio."}
-            </p>
+            <p className="text-sm text-muted-foreground">Showing analytics across all manageable courses.</p>
           ) : null}
         </div>
 
@@ -168,6 +192,72 @@ const TrainerDashboardPlaceholder = () => {
           </Card>
         ) : (
           <>
+            <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
+              <Card className="overflow-hidden border-primary/15 bg-[linear-gradient(135deg,rgba(15,118,110,0.08)_0%,rgba(29,78,216,0.08)_100%)]">
+                <CardContent className="p-6 sm:p-7">
+                  <div className="flex flex-col gap-6">
+                    <div className="space-y-2">
+                      <p className="text-xs font-semibold uppercase tracking-[0.22em] text-primary">Portfolio snapshot</p>
+                      <h2 className="text-2xl font-semibold tracking-tight text-foreground">A quick read on learner progress, recommendation traction, and intervention pressure.</h2>
+                      <p className="max-w-3xl text-sm leading-7 text-muted-foreground">
+                        Use this summary to decide whether to focus on learner follow-up, content refinement, or recommendation quality before drilling into the detailed charts below.
+                      </p>
+                    </div>
+                    <div className="grid gap-3 sm:grid-cols-3">
+                      <div className="rounded-2xl border border-border/70 bg-background/85 p-4">
+                        <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Managed courses</p>
+                        <p className="mt-2 text-3xl font-semibold tracking-tight">{analytics.totalCourses}</p>
+                        <p className="mt-1 text-xs text-muted-foreground">Visible in your analytics scope</p>
+                      </div>
+                      <div className="rounded-2xl border border-border/70 bg-background/85 p-4">
+                        <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Completion rate</p>
+                        <p className="mt-2 text-3xl font-semibold tracking-tight">{analytics.completionRate}%</p>
+                        <p className="mt-1 text-xs text-muted-foreground">Across all tracked enrollments</p>
+                      </div>
+                      <div className="rounded-2xl border border-border/70 bg-background/85 p-4">
+                        <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">At-risk now</p>
+                        <p className="mt-2 text-3xl font-semibold tracking-tight text-amber-700">{analytics.cohortSegments.atRisk}</p>
+                        <p className="mt-1 text-xs text-muted-foreground">Enrollments needing review</p>
+                      </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>Priority signals</CardTitle>
+                  <CardDescription>Start with the highest-leverage actions based on the latest trainer analytics.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="rounded-2xl border border-border/70 bg-muted/30 p-4">
+                    <p className="text-sm text-muted-foreground">Learner attention</p>
+                    <p className="mt-2 font-medium text-foreground">
+                      {analytics.cohortSegments.atRisk > 0
+                        ? `${analytics.cohortSegments.atRisk} enrollments are showing intervention signals from stalled progress, inactivity, or repeated short sessions.`
+                        : "No enrollments are currently crossing the intervention thresholds."}
+                    </p>
+                  </div>
+                  <div className="rounded-2xl border border-border/70 bg-muted/30 p-4">
+                    <p className="text-sm text-muted-foreground">Recommendation health</p>
+                    <p className="mt-2 font-medium text-foreground">
+                      {analytics.recommendationAnalytics.totalImpressions > 0
+                        ? `${analytics.recommendationAnalytics.averageCtr}% CTR and ${analytics.recommendationAnalytics.averageAcceptRate}% accept rate across your surfaced recommendations.`
+                        : "Recommendation performance will appear here once learners begin interacting with suggested courses."}
+                    </p>
+                  </div>
+                  <div className="rounded-2xl border border-border/70 bg-muted/30 p-4">
+                    <p className="text-sm text-muted-foreground">Content review</p>
+                    <p className="mt-2 font-medium text-foreground">
+                      {attentionModules.length > 0
+                        ? `${attentionModules.filter((module) => module.attentionLevel !== "healthy").length} modules currently need closer review for low scores, high failure, or slow completion.`
+                        : "Module content alerts will appear here once enough learner activity is available."}
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
               <Card>
                 <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-3">
@@ -283,6 +373,60 @@ const TrainerDashboardPlaceholder = () => {
               </Card>
             </div>
 
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <Card>
+                <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-3">
+                  <div>
+                    <CardTitle className="text-sm font-medium text-muted-foreground">Recommendation impressions</CardTitle>
+                    <div className="mt-2 text-3xl font-semibold tracking-tight">{analytics.recommendationAnalytics.totalImpressions}</div>
+                  </div>
+                  <BarChart3 className="h-5 w-5 text-primary" />
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-muted-foreground">Delivered recommendation impressions across your course portfolio.</p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-3">
+                  <div>
+                    <CardTitle className="text-sm font-medium text-muted-foreground">Recommendation CTR</CardTitle>
+                    <div className="mt-2 text-3xl font-semibold tracking-tight">{analytics.recommendationAnalytics.averageCtr}%</div>
+                  </div>
+                  <MousePointerClick className="h-5 w-5 text-primary" />
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-muted-foreground">Click-through rate from recommendation impression to learner click.</p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-3">
+                  <div>
+                    <CardTitle className="text-sm font-medium text-muted-foreground">Acceptance rate</CardTitle>
+                    <div className="mt-2 text-3xl font-semibold tracking-tight">{analytics.recommendationAnalytics.averageAcceptRate}%</div>
+                  </div>
+                  <TrendingUp className="h-5 w-5 text-primary" />
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-muted-foreground">Share of clicks that turned into recommendation accepts.</p>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-3">
+                  <div>
+                    <CardTitle className="text-sm font-medium text-muted-foreground">Recommended completion rate</CardTitle>
+                    <div className="mt-2 text-3xl font-semibold tracking-tight">{analytics.recommendationAnalytics.recommendedEnrollmentCompletionRate}%</div>
+                  </div>
+                  <Award className="h-5 w-5 text-primary" />
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-muted-foreground">Completion rate for enrollments that originated from recommendations.</p>
+                </CardContent>
+              </Card>
+            </div>
+
             <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
               <Card>
                 <CardHeader>
@@ -380,7 +524,7 @@ const TrainerDashboardPlaceholder = () => {
               <Card>
                 <CardHeader>
                   <CardTitle>Cohort-level insights</CardTitle>
-                  <CardDescription>Quick summary cards for learner workload and intervention priority.</CardDescription>
+                  <CardDescription>Quick summary cards for learner workload and intervention priority, including session-based risk patterns.</CardDescription>
                 </CardHeader>
                 <CardContent className="grid gap-3 sm:grid-cols-2">
                   <div className="rounded-2xl border border-border/70 bg-muted/30 p-4">
@@ -402,6 +546,103 @@ const TrainerDashboardPlaceholder = () => {
                 </CardContent>
               </Card>
             </div>
+
+            <div className="grid gap-4 xl:grid-cols-[1fr_1fr]">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Recommendation performance</CardTitle>
+                  <CardDescription>Top recommended courses by click-through and acceptance quality.</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {recommendationCourseData.length > 0 ? (
+                    <div className="h-80 w-full">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={recommendationCourseData}>
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                          <XAxis dataKey="name" tickLine={false} axisLine={false} />
+                          <YAxis tickLine={false} axisLine={false} domain={[0, 100]} />
+                          <Tooltip />
+                          <Legend />
+                          <Bar dataKey="ctr" name="CTR" fill={chartPalette.accent} radius={[6, 6, 0, 0]} />
+                          <Bar dataKey="acceptRate" name="Accept rate" fill={chartPalette.primary} radius={[6, 6, 0, 0]} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  ) : (
+                    <p className="text-sm text-muted-foreground">Recommendation activity will appear once learners begin interacting with surfaced course suggestions.</p>
+                  )}
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardHeader>
+                  <CardTitle>At-risk signal mix</CardTitle>
+                  <CardDescription>Why enrollments are being flagged for intervention.</CardDescription>
+                </CardHeader>
+                <CardContent className="grid gap-3 sm:grid-cols-2">
+                  {atRiskSignalCards.map((signal) => (
+                    <div key={signal.label} className="rounded-2xl border border-border/70 p-4">
+                      <p className="text-sm text-muted-foreground">{signal.label}</p>
+                      <p className="mt-2 text-3xl font-semibold tracking-tight">{signal.value}</p>
+                      <p className="mt-2 text-xs text-muted-foreground">{signal.description}</p>
+                    </div>
+                  ))}
+                </CardContent>
+              </Card>
+            </div>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Quick actions</CardTitle>
+                <CardDescription>Jump from analytics into course and learner operations without losing context.</CardDescription>
+              </CardHeader>
+              <CardContent className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
+                <div className="space-y-3">
+                  <Button asChild className="w-full justify-start">
+                    <Link to="/trainer/courses">
+                      <BookOpen className="mr-2 h-4 w-4" />
+                      Manage courses
+                    </Link>
+                  </Button>
+                  <Button asChild variant="outline" className="w-full justify-start">
+                    <Link to="/trainer/learners">
+                      <Users className="mr-2 h-4 w-4" />
+                      View learners
+                    </Link>
+                  </Button>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-2xl border border-primary/20 bg-primary/5 p-4">
+                    <div className="flex items-start gap-3">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                        <Brain className="h-5 w-5" />
+                      </div>
+                      <div>
+                        <p className="font-medium">Analytics focus</p>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          Use module insights to identify lessons that need clearer instruction, shorter segments, or assessment redesign.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
+                    <div className="flex items-start gap-3">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-amber-100 text-amber-700">
+                        <ShieldAlert className="h-5 w-5" />
+                      </div>
+                      <div>
+                        <p className="font-medium text-amber-900">Intervention priority</p>
+                        <p className="mt-1 text-sm text-amber-800">
+                          {analytics.cohortSegments.atRisk > 0
+                            ? `${analytics.cohortSegments.atRisk} enrollments are currently flagged for follow-up.`
+                            : "No enrollments are currently flagged by the active risk thresholds."}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
 
             <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
               <Card>
@@ -442,6 +683,20 @@ const TrainerDashboardPlaceholder = () => {
                                 ? "Watch"
                                 : "Healthy"}
                           </Badge>
+                        </div>
+                        <div className="mt-4 flex flex-wrap gap-2">
+                          <Button asChild size="sm" variant="outline">
+                            <Link to={`/trainer/courses?courseId=${module.courseId}`}>
+                              <BookOpen className="mr-2 h-4 w-4" />
+                              Open course
+                            </Link>
+                          </Button>
+                          <Button asChild size="sm" variant="outline">
+                            <Link to={`/trainer/learners?courseId=${module.courseId}&attention=1`}>
+                              <ShieldAlert className="mr-2 h-4 w-4" />
+                              Review learners
+                            </Link>
+                          </Button>
                         </div>
                       </div>
                     ))
@@ -486,6 +741,20 @@ const TrainerDashboardPlaceholder = () => {
                               <p className="mt-1 text-lg font-semibold">{formatLearningHours(course.averageLearningHours)}</p>
                             </div>
                           </div>
+                          <div className="mt-4 flex flex-wrap gap-2">
+                            <Button asChild size="sm" variant="outline">
+                              <Link to={`/trainer/courses?courseId=${course.courseId}`}>
+                                <BookOpen className="mr-2 h-4 w-4" />
+                                Open course
+                              </Link>
+                            </Button>
+                            <Button asChild size="sm" variant="outline">
+                              <Link to={`/trainer/learners?courseId=${course.courseId}`}>
+                                <Users className="mr-2 h-4 w-4" />
+                                View learners
+                              </Link>
+                            </Button>
+                          </div>
                         </div>
                       ))
                     ) : (
@@ -496,50 +765,41 @@ const TrainerDashboardPlaceholder = () => {
 
                 <Card>
                   <CardHeader>
-                    <CardTitle>Quick actions</CardTitle>
-                    <CardDescription>Jump from analytics into course and learner operations.</CardDescription>
+                    <CardTitle>Recommendation winners</CardTitle>
+                    <CardDescription>Recommended courses generating the strongest learner response.</CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-3">
-                    <Button asChild className="w-full justify-start">
-                      <Link to="/trainer/courses">
-                        <BookOpen className="mr-2 h-4 w-4" />
-                        Manage courses
-                      </Link>
-                    </Button>
-                    <Button asChild variant="outline" className="w-full justify-start">
-                      <Link to="/trainer/learners">
-                        <Users className="mr-2 h-4 w-4" />
-                        View learners
-                      </Link>
-                    </Button>
-                    <div className="rounded-2xl border border-primary/20 bg-primary/5 p-4">
-                      <div className="flex items-start gap-3">
-                        <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-                          <Brain className="h-5 w-5" />
+                    {analytics.recommendationAnalytics.mostAcceptedCourses.length > 0 ? (
+                      analytics.recommendationAnalytics.mostAcceptedCourses.map((course) => (
+                        <div key={course.courseId} className="rounded-2xl border border-border/70 p-4">
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="font-semibold">{course.courseTitle}</p>
+                              <p className="text-sm text-muted-foreground">
+                                {course.accepts} accepts • {course.enrollments} enrollments • {course.completions} completions
+                              </p>
+                            </div>
+                            <Badge variant="outline">{course.acceptRate}% accept rate</Badge>
+                          </div>
+                          <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                            <div>
+                              <p className="text-xs text-muted-foreground">CTR</p>
+                              <p className="mt-1 text-lg font-semibold">{course.ctr}%</p>
+                            </div>
+                            <div>
+                              <p className="text-xs text-muted-foreground">Enroll conversion</p>
+                              <p className="mt-1 text-lg font-semibold">{course.enrollmentConversionRate}%</p>
+                            </div>
+                            <div>
+                              <p className="text-xs text-muted-foreground">Completion</p>
+                              <p className="mt-1 text-lg font-semibold">{course.completionRate}%</p>
+                            </div>
+                          </div>
                         </div>
-                        <div>
-                          <p className="font-medium">Analytics focus</p>
-                          <p className="mt-1 text-sm text-muted-foreground">
-                            Use the module insights above to identify lessons that need clearer instruction, shorter content segments, or assessment redesign.
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                    <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4">
-                      <div className="flex items-start gap-3">
-                        <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-amber-100 text-amber-700">
-                          <ShieldAlert className="h-5 w-5" />
-                        </div>
-                        <div>
-                          <p className="font-medium text-amber-900">Intervention priority</p>
-                          <p className="mt-1 text-sm text-amber-800">
-                            {analytics.cohortSegments.atRisk > 0
-                              ? `${analytics.cohortSegments.atRisk} enrollments are currently flagged as at risk based on low progress after two weeks.`
-                              : "No enrollments are currently flagged as at risk under the current threshold."}
-                          </p>
-                        </div>
-                      </div>
-                    </div>
+                      ))
+                    ) : (
+                      <p className="text-sm text-muted-foreground">Accepted recommendation results will appear once learners begin enrolling from suggested courses.</p>
+                    )}
                   </CardContent>
                 </Card>
               </div>

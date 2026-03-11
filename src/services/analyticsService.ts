@@ -12,6 +12,7 @@ export interface PersistedLearnerRecommendation {
   sourceSurface: string;
   rank: number;
   score: number;
+  acceptanceProbability?: number;
   reasons: string[];
   generatedAt: string;
   modelVersion: string;
@@ -150,6 +151,13 @@ export const analyticsService = {
       source_surface: sourceSurface,
       rank: index + 1,
       score: recommendation.score,
+      acceptance_probability: recommendation.acceptanceProbability || 0,
+      acceptance_band:
+        (recommendation.acceptanceProbability || 0) >= 70
+          ? "high"
+          : (recommendation.acceptanceProbability || 0) >= 40
+            ? "medium"
+            : "low",
       reasons: recommendation.reasons,
       source_mix: recommendation.sourceMix || {
         contentBased: true,
@@ -166,7 +174,7 @@ export const analyticsService = {
     const { data, error } = await supabase
       .from("learner_recommendations")
       .upsert(rows, { onConflict: "user_id,course_id,source_surface" })
-      .select("id, user_id, course_id, source_surface, rank, score, reasons, generated_at, model_version");
+      .select("id, user_id, course_id, source_surface, rank, score, acceptance_probability, reasons, generated_at, model_version");
 
     if (error) {
       handleSupabaseError(error);
@@ -181,6 +189,7 @@ export const analyticsService = {
         sourceSurface: row.source_surface,
         rank: row.rank,
         score: Number(row.score || 0),
+        acceptanceProbability: Number(row.acceptance_probability || 0),
         reasons: Array.isArray(row.reasons) ? row.reasons : [],
         generatedAt: row.generated_at,
         modelVersion: row.model_version,

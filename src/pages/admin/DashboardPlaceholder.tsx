@@ -376,6 +376,16 @@ const AdminDashboardPlaceholder = () => {
     ? latestTrend.activeLearners - previousTrend.activeLearners
     : 0;
   const selectedLearner = learnerOptions.find((learner) => learner.id === selectedLearnerId) || null;
+  const courseRiskChartData = analytics?.riskCourseInsights.map((course) => ({
+    name: course.courseTitle.length > 18 ? `${course.courseTitle.slice(0, 18)}...` : course.courseTitle,
+    riskScore: course.riskScore,
+    acceptanceRate: course.recommendationAcceptanceRate,
+  })) || [];
+  const recommendationPerformanceData = analytics?.recommendationAnalytics.topRecommendedCourses.map((course) => ({
+    name: course.courseTitle.length > 18 ? `${course.courseTitle.slice(0, 18)}...` : course.courseTitle,
+    acceptRate: course.acceptRate,
+    acceptanceProbability: course.acceptanceProbability,
+  })) || [];
 
   return (
     <DashboardLayout>
@@ -393,7 +403,7 @@ const AdminDashboardPlaceholder = () => {
             <div className="space-y-2">
               <h1 className="text-3xl font-semibold tracking-tight">Admin dashboard</h1>
               <p className="max-w-3xl text-sm leading-7 text-muted-foreground sm:text-base">
-                Review organization-wide enrollments, completion outcomes, certificate issuance, trainee performance, and learning engagement from one dashboard.
+                Review organization-wide enrollments, completion outcomes, certificate issuance, trainee performance, learning engagement, and predictive oversight from one dashboard.
               </p>
             </div>
             <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 text-primary">
@@ -673,6 +683,192 @@ const AdminDashboardPlaceholder = () => {
                 ))
               ) : (
                 <p className="text-sm text-muted-foreground">No course analytics are available yet.</p>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="grid gap-4 xl:grid-cols-2">
+          <Card className="border-border/80">
+            <CardHeader>
+              <CardTitle>Predictive oversight</CardTitle>
+              <CardDescription>Stored course-risk and learner-disengagement scores refreshed from current platform activity.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="rounded-2xl border border-border/70 bg-muted/30 p-4">
+                  <p className="text-sm text-muted-foreground">High-risk courses</p>
+                  <p className="mt-2 text-3xl font-semibold tracking-tight">{analytics.predictiveOverview.highRiskCourses}</p>
+                </div>
+                <div className="rounded-2xl border border-border/70 bg-muted/30 p-4">
+                  <p className="text-sm text-muted-foreground">High-risk learners</p>
+                  <p className="mt-2 text-3xl font-semibold tracking-tight">{analytics.predictiveOverview.highRiskLearners}</p>
+                </div>
+                <div className="rounded-2xl border border-border/70 bg-muted/30 p-4">
+                  <p className="text-sm text-muted-foreground">Avg course risk score</p>
+                  <p className="mt-2 text-3xl font-semibold tracking-tight">{analytics.predictiveOverview.averageCourseRiskScore}</p>
+                </div>
+                <div className="rounded-2xl border border-border/70 bg-muted/30 p-4">
+                  <p className="text-sm text-muted-foreground">Avg disengagement score</p>
+                  <p className="mt-2 text-3xl font-semibold tracking-tight">{analytics.predictiveOverview.averageDisengagementScore}</p>
+                </div>
+              </div>
+              {courseRiskChartData.length > 0 ? (
+                <div className="h-72 w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={courseRiskChartData}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                      <XAxis dataKey="name" tickLine={false} axisLine={false} />
+                      <YAxis tickLine={false} axisLine={false} domain={[0, 100]} />
+                      <Tooltip />
+                      <Legend />
+                      <Bar dataKey="riskScore" name="Risk score" fill={chartPalette.rose} radius={[6, 6, 0, 0]} />
+                      <Bar dataKey="acceptanceRate" name="Rec accept rate" fill={chartPalette.accent} radius={[6, 6, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">Predictive course-risk scores will appear after analytics rollups populate the stored snapshots.</p>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card className="border-border/80">
+            <CardHeader>
+              <CardTitle>Recommendation performance</CardTitle>
+              <CardDescription>Acceptance probability, recommendation response, and downstream outcomes across the platform.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="rounded-2xl border border-border/70 bg-muted/30 p-4">
+                  <p className="text-sm text-muted-foreground">Impressions</p>
+                  <p className="mt-2 text-3xl font-semibold tracking-tight">{analytics.recommendationAnalytics.totalImpressions}</p>
+                </div>
+                <div className="rounded-2xl border border-border/70 bg-muted/30 p-4">
+                  <p className="text-sm text-muted-foreground">Accept rate</p>
+                  <p className="mt-2 text-3xl font-semibold tracking-tight">{analytics.recommendationAnalytics.averageAcceptRate}%</p>
+                </div>
+                <div className="rounded-2xl border border-border/70 bg-muted/30 p-4">
+                  <p className="text-sm text-muted-foreground">Avg acceptance probability</p>
+                  <p className="mt-2 text-3xl font-semibold tracking-tight">{analytics.recommendationAnalytics.averageAcceptanceProbability}%</p>
+                </div>
+                <div className="rounded-2xl border border-border/70 bg-muted/30 p-4">
+                  <p className="text-sm text-muted-foreground">Recommended completion rate</p>
+                  <p className="mt-2 text-3xl font-semibold tracking-tight">{analytics.recommendationAnalytics.recommendedEnrollmentCompletionRate}%</p>
+                </div>
+              </div>
+              {recommendationPerformanceData.length > 0 ? (
+                <div className="h-72 w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={recommendationPerformanceData}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                      <XAxis dataKey="name" tickLine={false} axisLine={false} />
+                      <YAxis tickLine={false} axisLine={false} domain={[0, 100]} />
+                      <Tooltip />
+                      <Legend />
+                      <Line type="monotone" dataKey="acceptRate" name="Accept rate" stroke={chartPalette.primary} strokeWidth={3} dot={{ r: 4 }} />
+                      <Line type="monotone" dataKey="acceptanceProbability" name="Predicted acceptance" stroke={chartPalette.warm} strokeWidth={3} dot={{ r: 4 }} />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">Recommendation-performance charts will appear after learner recommendation rows accumulate interaction data.</p>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+
+        <div className="grid gap-4 xl:grid-cols-[1fr_1fr]">
+          <Card className="border-border/80">
+            <CardHeader>
+              <CardTitle>Highest course risk</CardTitle>
+              <CardDescription>Stored course-risk snapshots ordered by urgency.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {analytics.riskCourseInsights.length > 0 ? (
+                analytics.riskCourseInsights.map((course) => (
+                  <div key={course.courseId} className="rounded-2xl border border-border/70 p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="font-semibold">{course.courseTitle}</p>
+                        <p className="text-sm text-muted-foreground">
+                          {course.activeEnrollments} active enrollments • {course.completionRate}% completion
+                        </p>
+                      </div>
+                      <Badge
+                        variant="outline"
+                        className={course.riskLevel === "high" ? "border-red-200 text-red-700" : course.riskLevel === "medium" ? "border-amber-200 text-amber-700" : "border-emerald-200 text-emerald-700"}
+                      >
+                        {course.riskLevel} risk
+                      </Badge>
+                    </div>
+                    <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                      <div>
+                        <p className="text-xs text-muted-foreground">Risk score</p>
+                        <p className="mt-1 text-lg font-semibold">{course.riskScore}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">Rec accept rate</p>
+                        <p className="mt-1 text-lg font-semibold">{course.recommendationAcceptanceRate}%</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">Course link</p>
+                        <Link to={`/admin/courses`} className="mt-1 inline-flex text-sm font-medium text-primary">
+                          Open library
+                        </Link>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <p className="text-sm text-muted-foreground">No stored course-risk insights are available yet.</p>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card className="border-border/80">
+            <CardHeader>
+              <CardTitle>Learner disengagement watchlist</CardTitle>
+              <CardDescription>Stored disengagement scores highlight learners with inactivity and short-session risk signals.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {analytics.disengagementInsights.length > 0 ? (
+                analytics.disengagementInsights.map((learner) => (
+                  <div key={learner.userId} className="rounded-2xl border border-border/70 p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="font-semibold">{learner.userName || learner.userEmail || learner.userId}</p>
+                        <p className="text-sm text-muted-foreground">{learner.userEmail || "Learner record from predictive snapshot"}</p>
+                      </div>
+                      <Badge
+                        variant="outline"
+                        className={learner.riskLevel === "high" ? "border-red-200 text-red-700" : learner.riskLevel === "medium" ? "border-amber-200 text-amber-700" : "border-emerald-200 text-emerald-700"}
+                      >
+                        {learner.riskLevel} risk
+                      </Badge>
+                    </div>
+                    <div className="mt-4 grid gap-3 sm:grid-cols-4">
+                      <div>
+                        <p className="text-xs text-muted-foreground">Score</p>
+                        <p className="mt-1 text-lg font-semibold">{learner.disengagementScore}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">Inactive days</p>
+                        <p className="mt-1 text-lg font-semibold">{learner.inactiveDays}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">Incomplete enrollments</p>
+                        <p className="mt-1 text-lg font-semibold">{learner.incompleteEnrollments}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">Short sessions</p>
+                        <p className="mt-1 text-lg font-semibold">{learner.repeatedShortSessionCount}</p>
+                      </div>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <p className="text-sm text-muted-foreground">No disengagement watchlist entries are available yet.</p>
               )}
             </CardContent>
           </Card>

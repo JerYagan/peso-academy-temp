@@ -54,6 +54,10 @@ export interface User {
   industryInterests?: string[];
   preferredCategories?: string[];
   onboardingSkillLevel?: "exploring" | "beginner" | "intermediate" | "advanced";
+  onboardingConfidenceLevel?: "needs_guidance" | "some_exposure" | "ready_for_projects";
+  onboardingWeeklyCommitment?: "under_2" | "2_to_4" | "5_plus";
+  onboardingDigitalComfort?: "needs_support" | "comfortable" | "advanced_tools";
+  onboardingCompletedAt?: string;
   skills?: string[];
   createdAt: string;
 }

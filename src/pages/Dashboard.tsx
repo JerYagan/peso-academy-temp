@@ -1,10 +1,12 @@
 import { useAuth } from "@/contexts/AuthContext";
 import DashboardLayout from "@/components/DashboardLayout";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { BookOpen, Users, Award, TrendingUp, ArrowRight, Shield, FileText, FileSpreadsheet, Loader2, CheckCircle2, ArrowUpRight, ArrowDownRight, Brain, Clock3, Target, BarChart3, Sparkles, Eye } from "lucide-react";
-import { Link, Navigate } from "react-router-dom";
-import { enrollmentService, certificateService, courseService } from "@/services/supabaseDatabaseService";
+import { Skeleton } from "@/components/ui/skeleton";
+import { BookOpen, Users, Award, TrendingUp, ArrowRight, Shield, FileText, FileSpreadsheet, Loader2, CheckCircle2, ArrowUpRight, ArrowDownRight, Brain, Clock3, Target, BarChart3, Sparkles, Eye, AlertCircle, ImageIcon } from "lucide-react";
+import { Link, Navigate, useLocation } from "react-router-dom";
+import { enrollmentService, certificateService, courseService, getEnrollmentErrorFeedback } from "@/services/supabaseDatabaseService";
 import { dataService } from "@/services/mockData"; // TODO: Replace with Supabase services for admin/training officer dashboards
 import { useEffect, useMemo, useState } from "react";
 import { Course, Enrollment } from "@/types";
@@ -12,7 +14,6 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { User } from "@/types/auth";
 import { formatDistanceToNow, startOfMonth, endOfMonth, isWithinInterval } from "date-fns";
-import { resolveTrainerOwnership } from "@/lib/trainerOwnership";
 import { buildLearnerCourseRecommendations, reportingService, type CollaborativeRecommendationSignal, type LearnerCourseRecommendation, type LearnerPerformanceSummary, type LearnerPerformanceTopicResult } from "@/services/reportingService";
 import { analyticsService, type PersistedLearnerRecommendation } from "@/services/analyticsService";
 import { moduleSessionService, type EnrichedModuleSession, type ModuleSessionAggregate } from "@/services/moduleSessionService";
@@ -25,9 +26,19 @@ interface TraineeDashboardProps {
     completedCourses: number;
     certificates: number;
   };
+  onboardingSummary?: {
+    generatedRecommendationCount: number;
+    onboardingSkillLevel: User["onboardingSkillLevel"] | null;
+    onboardingConfidenceLevel: User["onboardingConfidenceLevel"] | null;
+    onboardingWeeklyCommitment: User["onboardingWeeklyCommitment"] | null;
+    onboardingDigitalComfort: User["onboardingDigitalComfort"] | null;
+    industryInterestCount: number;
+    preferredCategoryCount: number;
+    hasExistingSkills: boolean;
+  } | null;
 }
 
-const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
+const TraineeDashboard = ({ user, stats, onboardingSummary }: TraineeDashboardProps) => {
   const [allCourses, setAllCourses] = useState<Course[]>([]);
   const [completedCourses, setCompletedCourses] = useState<Array<Course & { enrollment: Enrollment }>>([]);
   const [myCourses, setMyCourses] = useState<Array<Course & { enrollment: Enrollment }>>([]);
@@ -40,6 +51,12 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
   const [loadingCourses, setLoadingCourses] = useState(true);
   const [loadingPerformance, setLoadingPerformance] = useState(true);
   const [loadingSessionHistory, setLoadingSessionHistory] = useState(true);
+  const [enrollingRecommendationCourseId, setEnrollingRecommendationCourseId] = useState<string | null>(null);
+  const [recommendationRecovery, setRecommendationRecovery] = useState<{
+    courseId: string;
+    courseTitle: string;
+    feedback: ReturnType<typeof getEnrollmentErrorFeedback>;
+  } | null>(null);
 
   useEffect(() => {
     void loadDashboardData();
@@ -171,6 +188,38 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
     }
   };
 
+  const handleRecommendationEnroll = async (
+    course: Course,
+    recommendation?: PersistedLearnerRecommendation,
+  ) => {
+    setEnrollingRecommendationCourseId(course.id);
+    setRecommendationRecovery(null);
+
+    try {
+      await enrollmentService.enrollInCourse(
+        user.id,
+        course.id,
+        analyticsService.getOriginatingRecommendationOptions(recommendation, "dashboard_recommendations"),
+      );
+      toast.success("Successfully enrolled in course!");
+      await loadDashboardData();
+    } catch (error) {
+      console.error("Failed to enroll from dashboard recommendation:", error);
+      const feedback = getEnrollmentErrorFeedback(error, course.title);
+      if (feedback.code === "already_enrolled") {
+        await loadDashboardData();
+      }
+      setRecommendationRecovery({
+        courseId: course.id,
+        courseTitle: course.title,
+        feedback,
+      });
+      toast.error(feedback.toastMessage);
+    } finally {
+      setEnrollingRecommendationCourseId(null);
+    }
+  };
+
   const recommendedCourses = useMemo<LearnerCourseRecommendation[]>(() => {
     return buildLearnerCourseRecommendations(
       user,
@@ -210,6 +259,10 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
             industryInterestCount: user.industryInterests?.length || 0,
             preferredCategoryCount: user.preferredCategories?.length || 0,
             onboardingSkillLevel: user.onboardingSkillLevel || null,
+            onboardingConfidenceLevel: user.onboardingConfidenceLevel || null,
+            onboardingWeeklyCommitment: user.onboardingWeeklyCommitment || null,
+            onboardingDigitalComfort: user.onboardingDigitalComfort || null,
+            onboardingCompletedAt: user.onboardingCompletedAt || null,
             hasProfileSkills: Boolean(user.skills && user.skills.length > 0),
             recentSessionCount: sessionAggregates.reduce((sum, aggregate) => sum + aggregate.sessionCount, 0),
             repeatedIncompleteModules: sessionAggregates.filter((aggregate) => aggregate.lastSessionStatus !== "completed" && aggregate.sessionCount >= 2).length,
@@ -288,7 +341,7 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
   const recommendationDescription = (() => {
     if (!hasLearningHistory) {
       return hasOnboardingSignals
-        ? "These starter picks use the interests, preferred categories, skill level, and existing skills you shared during signup."
+        ? "These starter picks use the interests, preferred categories, starting level, existing skills, and onboarding readiness answers you shared before entering the dashboard."
         : "These starter picks use beginner-friendly defaults, curated entry pathways, and popular trainee choices so you can begin immediately.";
     }
 
@@ -359,9 +412,104 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
     ];
   }, [performanceSummary, stats.completedCourses, stats.enrolledCourses]);
 
+  const profileSignalCoverage = Math.round(
+    ([
+      Boolean(user.onboardingSkillLevel),
+      Boolean(user.industryInterests && user.industryInterests.length > 0),
+      Boolean(user.preferredCategories && user.preferredCategories.length > 0),
+      Boolean(user.skills && user.skills.length > 0),
+    ].filter(Boolean).length / 4) * 100,
+  );
+  const primaryCourse = myCourses[0] || null;
+  const primaryAction = lastAccessedModule
+    ? {
+        title: "Resume your latest module",
+        description: `${lastAccessedModule.moduleTitle || "Latest module"} in ${lastAccessedModule.courseTitle || "your course"} was last opened ${formatActivityTime(lastAccessedModule.lastSeenAt)}.`,
+        href: `/courses/${lastAccessedModule.courseId}`,
+        label: "Resume learning",
+        state: {
+          entrySource: "dashboard_primary_resume",
+          moduleId: lastAccessedModule.moduleId,
+        },
+      }
+    : primaryCourse
+      ? {
+          title: "Continue your active course",
+          description: `${primaryCourse.title} is ${primaryCourse.enrollment.progress}% complete and ready for your next lesson.`,
+          href: `/courses/${primaryCourse.id}`,
+          label: "Continue course",
+          state: {
+            entrySource: "dashboard_primary_course",
+          },
+        }
+      : {
+          title: "Start your first course",
+          description:
+            "You do not have an active course yet. Browse training paths and begin with a course that matches your goals.",
+          href: "/courses",
+          label: "Browse courses",
+          state: undefined,
+        };
+
+  const nextStepCards = [
+    {
+      title: profileSignalCoverage < 100 ? "Complete your learner profile" : "Profile is recommendation-ready",
+      description:
+        profileSignalCoverage < 100
+          ? "Add interests, preferred categories, stage, and skills so recommendations stay aligned with your goals."
+          : "Your profile has the core signals needed for stronger recommendation and predictive insights.",
+      href: "/profile",
+      label: profileSignalCoverage < 100 ? "Update profile" : "Review profile",
+    },
+    {
+      title: stats.enrolledCourses > 0 ? "Review progress details" : "See how progress will appear",
+      description:
+        stats.enrolledCourses > 0
+          ? "Open the progress dashboard for course-by-course history, recent sessions, and completion detail."
+          : "Your progress dashboard becomes more useful after you enroll and begin module activity.",
+      href: "/progress",
+      label: stats.enrolledCourses > 0 ? "View progress" : "Open progress dashboard",
+    },
+    {
+      title: completedCourses.length > 0 ? "Claim your completed work" : "Explore another course",
+      description:
+        completedCourses.length > 0
+          ? "Review your certificates and completed training records whenever you need proof of completion."
+          : "Browse the course library to find another starting point or a follow-on course.",
+      href: completedCourses.length > 0 ? "/certificates" : "/courses",
+      label: completedCourses.length > 0 ? "View certificates" : "Browse courses",
+    },
+  ];
+
   const renderRecommendedCourses = () => {
     if (loadingCourses || loadingPerformance) {
-      return null;
+      return (
+        <section className="space-y-4 rounded-[1.5rem] border border-border bg-[linear-gradient(135deg,rgba(15,118,110,0.06)_0%,rgba(29,78,216,0.06)_100%)] p-5 sm:p-6">
+          <div className="space-y-3">
+            <Skeleton className="h-4 w-40" />
+            <Skeleton className="h-8 w-80 max-w-full" />
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-4 w-5/6" />
+          </div>
+          <div className="grid gap-4 lg:grid-cols-3">
+            {Array.from({ length: 3 }).map((_, index) => (
+              <Card key={index} className="overflow-hidden border-border/80 bg-background/95">
+                <Skeleton className="aspect-[16/10] w-full rounded-none" />
+                <CardHeader className="space-y-3">
+                  <Skeleton className="h-6 w-2/3" />
+                  <Skeleton className="h-4 w-full" />
+                  <Skeleton className="h-4 w-5/6" />
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <Skeleton className="h-4 w-1/2" />
+                  <Skeleton className="h-4 w-2/3" />
+                  <Skeleton className="h-10 w-full" />
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+        </section>
+      );
     }
 
     if (!hasRecommendationContext) {
@@ -403,21 +551,65 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
           </Badge>
         </div>
 
+        {recommendationRecovery ? (
+          <Alert variant={recommendationRecovery.feedback.code === "unknown" ? "destructive" : "default"}>
+            <AlertCircle className="h-4 w-4" />
+            <AlertTitle>{recommendationRecovery.feedback.title}</AlertTitle>
+            <AlertDescription>
+              <div className="space-y-3">
+                <p>{recommendationRecovery.feedback.description}</p>
+                <div className="flex flex-wrap gap-2">
+                  {recommendationRecovery.feedback.canRetry ? (
+                    <Button
+                      size="sm"
+                      onClick={() => {
+                        const card = recommendationCards.find((item) => item.course.id === recommendationRecovery.courseId);
+                        if (card) {
+                          void handleRecommendationEnroll(card.course, card.persisted);
+                        }
+                      }}
+                    >
+                      Retry enrollment
+                    </Button>
+                  ) : null}
+                  {recommendationRecovery.feedback.suggestedActions.includes("profile") ? (
+                    <Button asChild size="sm" variant="outline">
+                      <Link to="/profile">Update profile</Link>
+                    </Button>
+                  ) : null}
+                  <Button size="sm" variant="ghost" onClick={() => setRecommendationRecovery(null)}>
+                    Dismiss
+                  </Button>
+                </div>
+              </div>
+            </AlertDescription>
+          </Alert>
+        ) : null}
+
         <div className="grid gap-4 lg:grid-cols-3">
           {recommendationCards.map(({ course, reasons, persisted }) => (
             <Card key={course.id} className="overflow-hidden border-border/80 bg-background/95 shadow-[0_18px_40px_-30px_rgba(15,23,42,0.4)]">
-              <CardHeader className="space-y-3">
-                <div className="flex items-center justify-between gap-2">
+              <div className="relative aspect-[16/10] overflow-hidden border-b border-border bg-muted">
+                {course.thumbnail ? (
+                  <img src={course.thumbnail} alt={course.title} className="h-full w-full object-cover" />
+                ) : (
+                  <div className="flex h-full items-center justify-center bg-[linear-gradient(135deg,#eef2ff_0%,#dbeafe_45%,#ecfeff_100%)]">
+                    <ImageIcon className="h-10 w-10 text-slate-500" />
+                  </div>
+                )}
+                <div className="absolute left-4 top-4 flex items-center gap-2">
                   <Badge className="rounded-full bg-primary px-3 py-1 text-[11px] font-semibold text-primary-foreground hover:bg-primary">
                     {course.level}
                   </Badge>
-                  {course.isTESDAAccredited && (
-                    <Badge variant="outline" className="rounded-full px-3 py-1 text-[11px] font-semibold">
+                  {course.isTESDAAccredited ? (
+                    <Badge variant="outline" className="rounded-full bg-background/90 px-3 py-1 text-[11px] font-semibold backdrop-blur">
                       <Award className="mr-1 h-3 w-3" />
                       TESDA
                     </Badge>
-                  )}
+                  ) : null}
                 </div>
+              </div>
+              <CardHeader className="space-y-3">
                 <div>
                   <CardTitle className="line-clamp-2 text-xl">{course.title}</CardTitle>
                   <CardDescription className="mt-2 line-clamp-3">{course.description}</CardDescription>
@@ -448,17 +640,19 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
                 </div>
 
                 <div className="flex gap-3">
-                  <Button className="flex-1" asChild>
-                    <Link
-                      to="/courses"
-                      onClick={() => {
-                        if (persisted) {
-                          void analyticsService.logRecommendationClick(user.id, persisted, "dashboard_recommendations");
-                        }
-                      }}
-                    >
-                      Enroll from Browse
-                    </Link>
+                  <Button
+                    className="flex-1"
+                    onClick={() => void handleRecommendationEnroll(course, persisted)}
+                    disabled={enrollingRecommendationCourseId === course.id}
+                  >
+                    {enrollingRecommendationCourseId === course.id ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Enrolling...
+                      </>
+                    ) : (
+                      "Enroll Now"
+                    )}
                   </Button>
                   <Button variant="outline" asChild>
                     <Link
@@ -797,59 +991,110 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
   return (
     <DashboardLayout>
       <div className="space-y-8">
-        <div>
-          <h1 className="text-3xl font-bold">Welcome back, {user.name}!</h1>
-          <p className="text-muted-foreground mt-2">Continue your learning journey</p>
+        {onboardingSummary ? (
+          <Alert>
+            <Sparkles className="h-4 w-4" />
+            <AlertTitle>Your first recommendations are ready</AlertTitle>
+            <AlertDescription>
+              <div className="space-y-3">
+                <p>
+                  We generated {onboardingSummary.generatedRecommendationCount} starter recommendation{onboardingSummary.generatedRecommendationCount === 1 ? "" : "s"} using your onboarding profile
+                  {onboardingSummary.onboardingConfidenceLevel || onboardingSummary.onboardingWeeklyCommitment || onboardingSummary.onboardingDigitalComfort
+                    ? ", initial readiness answers,"
+                    : " and"} and your selected starting level.
+                </p>
+                <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+                  {onboardingSummary.industryInterestCount > 0 ? <Badge variant="outline">{onboardingSummary.industryInterestCount} interests</Badge> : null}
+                  {onboardingSummary.preferredCategoryCount > 0 ? <Badge variant="outline">{onboardingSummary.preferredCategoryCount} preferred categories</Badge> : null}
+                  {onboardingSummary.onboardingSkillLevel ? <Badge variant="outline">{onboardingSummary.onboardingSkillLevel} starting level</Badge> : null}
+                  {onboardingSummary.hasExistingSkills ? <Badge variant="outline">Existing skills included</Badge> : null}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button asChild size="sm">
+                    <Link to="/courses">Review starter courses</Link>
+                  </Button>
+                  <Button asChild size="sm" variant="outline">
+                    <Link to="/profile">Review onboarding profile</Link>
+                  </Button>
+                </div>
+              </div>
+            </AlertDescription>
+          </Alert>
+        ) : null}
+
+        <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
+          <Card className="overflow-hidden border-primary/15 bg-gradient-to-br from-primary/10 via-card to-card">
+            <CardContent className="p-6 sm:p-7">
+              <div className="flex flex-col gap-6">
+                <div className="space-y-3">
+                  <Badge className="w-fit rounded-full bg-primary/10 px-3 py-1 text-primary hover:bg-primary/10">
+                    Trainee workspace
+                  </Badge>
+                  <div>
+                    <h1 className="text-3xl font-bold tracking-tight">Welcome back, {user.name}!</h1>
+                    <p className="mt-2 max-w-2xl text-sm leading-7 text-muted-foreground sm:text-base">
+                      Keep moving with one clear next step: resume learning, sharpen your profile signals, or review your progress in detail.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <div className="rounded-2xl border border-border/60 bg-background/70 p-4">
+                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Enrolled</p>
+                    <p className="mt-2 text-3xl font-semibold">{stats.enrolledCourses}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">Active courses in your dashboard</p>
+                  </div>
+                  <div className="rounded-2xl border border-border/60 bg-background/70 p-4">
+                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Completed</p>
+                    <p className="mt-2 text-3xl font-semibold">{stats.completedCourses}</p>
+                    <p className="mt-1 text-xs text-muted-foreground">Finished courses on record</p>
+                  </div>
+                  <div className="rounded-2xl border border-border/60 bg-background/70 p-4">
+                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Profile signals</p>
+                    <p className="mt-2 text-3xl font-semibold">{profileSignalCoverage}%</p>
+                    <p className="mt-1 text-xs text-muted-foreground">Recommendation inputs completed</p>
+                  </div>
+                </div>
+
+                <div className="rounded-3xl border border-primary/15 bg-background/80 p-5">
+                  <p className="text-xs font-medium uppercase tracking-[0.18em] text-primary">Primary next step</p>
+                  <h2 className="mt-3 text-2xl font-semibold tracking-[-0.03em]">{primaryAction.title}</h2>
+                  <p className="mt-2 max-w-2xl text-sm leading-7 text-muted-foreground">{primaryAction.description}</p>
+                  <div className="mt-5 flex flex-wrap gap-2">
+                    <Button asChild>
+                      <Link to={primaryAction.href} state={primaryAction.state}>
+                        {primaryAction.label}
+                      </Link>
+                    </Button>
+                    <Button asChild variant="outline">
+                      <Link to="/progress">View progress</Link>
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Next-step shortcuts</CardTitle>
+              <CardDescription>Keep your next action distinct so learning, browsing, and profile updates do not compete.</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {nextStepCards.map((item) => (
+                <div key={item.title} className="rounded-2xl border border-border/70 p-4">
+                  <p className="font-medium">{item.title}</p>
+                  <p className="mt-2 text-sm leading-6 text-muted-foreground">{item.description}</p>
+                  <Button asChild variant="outline" size="sm" className="mt-4">
+                    <Link to={item.href}>{item.label}</Link>
+                  </Button>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
         </div>
 
-        {/* Stats */}
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Enrolled Courses</CardTitle>
-              <BookOpen className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{stats.enrolledCourses}</div>
-              <p className="text-xs text-muted-foreground">Active enrollments</p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Completed</CardTitle>
-              <Award className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{stats.completedCourses}</div>
-              <p className="text-xs text-muted-foreground">Courses finished</p>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Certificates</CardTitle>
-              <Award className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">{stats.certificates}</div>
-              <p className="text-xs text-muted-foreground">Certifications earned</p>
-            </CardContent>
-          </Card>
-
-          {/* Job Matches card hidden - Future Phase */}
-          {/* <Card>
-            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-              <CardTitle className="text-sm font-medium">Job Matches</CardTitle>
-              <Briefcase className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold">-</div>
-              <p className="text-xs text-muted-foreground">Available positions</p>
-            </CardContent>
-          </Card> */}
-        </div>
-
+        <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
         <Card>
           <CardHeader className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
             <div>
@@ -932,56 +1177,70 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
           </CardContent>
         </Card>
 
+        <Card>
+          <CardHeader>
+            <CardTitle>Current dashboard focus</CardTitle>
+            <CardDescription>Use one destination at a time depending on whether you need to resume, explore, or review.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="rounded-2xl border border-border/70 bg-muted/30 p-4">
+              <p className="text-sm text-muted-foreground">Resume learning</p>
+              <p className="mt-2 font-medium">
+                {lastAccessedModule
+                  ? `${lastAccessedModule.moduleTitle || "Latest module"} is ready to continue.`
+                  : primaryCourse
+                    ? `${primaryCourse.title} is your current in-progress course.`
+                    : "No active module yet. Start with the course catalog."}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-border/70 bg-muted/30 p-4">
+              <p className="text-sm text-muted-foreground">Recommendation strength</p>
+              <p className="mt-2 font-medium">
+                {profileSignalCoverage >= 75
+                  ? "Your dashboard has enough profile context to keep recommendations specific."
+                  : "Complete more profile signals to make recommendations more specific and actionable."}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-border/70 bg-muted/30 p-4">
+              <p className="text-sm text-muted-foreground">Progress review</p>
+              <p className="mt-2 font-medium">
+                {stats.enrolledCourses > 0
+                  ? "Use the progress dashboard when you want course-by-course detail, not when you are trying to resume quickly."
+                  : "Progress detail becomes useful after you enroll and start learning activity."}
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+        </div>
+
   {renderRecommendedCourses()}
 
-        {renderPerformanceSummary()}
-
-        {/* Completed Courses - on Dashboard per user request */}
-        {completedCourses.length > 0 && (
-          <div className="space-y-4">
-            <h2 className="text-xl font-semibold flex items-center gap-2">
-              <CheckCircle2 className="h-5 w-5 text-green-600" />
-              Completed Courses
-            </h2>
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {completedCourses.map((course) => (
-                <Card key={course.id} className="flex flex-col border-green-200 dark:border-green-900/30">
-                  <CardHeader>
-                    <Badge variant="outline" className="w-fit text-green-600 border-green-300">
-                      Completed
-                    </Badge>
-                    <CardTitle className="line-clamp-2">{course.title}</CardTitle>
-                    <CardDescription className="line-clamp-2">{course.description}</CardDescription>
-                  </CardHeader>
-                  <CardContent className="mt-auto">
-                    <Button asChild variant="default" className="w-full gap-2">
-                      <Link to="/certificates">
-                        <Award className="h-4 w-4" />
-                        View Certificate
-                      </Link>
-                    </Button>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* My Courses (in progress) */}
         <div>
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-2xl font-bold">My Courses</h2>
+          <div className="mb-4 flex items-center justify-between">
+            <div>
+              <h2 className="text-2xl font-bold">My Courses</h2>
+              <p className="mt-1 text-sm text-muted-foreground">Continue active courses first before shifting into detailed analytics or completed-history review.</p>
+            </div>
             <Button asChild variant="outline">
               <Link to="/courses">View All</Link>
             </Button>
           </div>
           {loadingCourses ? (
-            <Card>
-              <CardContent className="flex flex-col items-center justify-center py-10 text-center">
-                <Loader2 className="w-7 h-7 text-muted-foreground animate-spin mb-3" />
-                <p className="text-muted-foreground">Loading courses...</p>
-              </CardContent>
-            </Card>
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {Array.from({ length: 3 }).map((_, index) => (
+                <Card key={index}>
+                  <CardHeader>
+                    <Skeleton className="h-6 w-2/3" />
+                    <Skeleton className="h-4 w-1/2" />
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <Skeleton className="h-4 w-full" />
+                    <Skeleton className="h-2 w-full" />
+                    <Skeleton className="h-10 w-full" />
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
           ) : (
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
               {myCourses.length > 0 ? (
@@ -1033,13 +1292,13 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
                 })
               ) : (
                 <Card className="col-span-full">
-                  <CardContent className="flex flex-col items-center justify-center py-8">
+                  <CardContent className="flex flex-col items-center justify-center py-8 text-center">
                     <BookOpen className="w-12 h-12 text-muted-foreground mb-4" />
                     {completedCourses.length > 0 || stats.enrolledCourses > 0 ? (
                       <>
-                        <p className="text-muted-foreground mb-2 text-center">You have no active in-progress courses right now.</p>
-                        <p className="text-sm text-muted-foreground mb-4 text-center">
-                          You can review certificates or enroll in another course to continue learning.
+                        <p className="text-muted-foreground mb-2">You have no active in-progress courses right now.</p>
+                        <p className="text-sm text-muted-foreground mb-4 max-w-xl">
+                          Review your certificates or enroll in another course if you want a new next step on the dashboard.
                         </p>
                         <div className="flex flex-wrap items-center justify-center gap-2">
                           <Button asChild variant="outline">
@@ -1052,7 +1311,10 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
                       </>
                     ) : (
                       <>
-                        <p className="text-muted-foreground mb-4">You haven't enrolled in any courses yet</p>
+                        <p className="text-muted-foreground mb-2">You have not enrolled in any courses yet.</p>
+                        <p className="text-sm text-muted-foreground mb-4 max-w-xl">
+                          Start with the course catalog, then come back here to resume modules and review progress.
+                        </p>
                         <Button asChild>
                           <Link to="/courses">Browse Courses</Link>
                         </Button>
@@ -1064,6 +1326,40 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
             </div>
           )}
         </div>
+
+        {renderPerformanceSummary()}
+
+        {/* Completed Courses - on Dashboard per user request */}
+        {completedCourses.length > 0 && (
+          <div className="space-y-4">
+            <h2 className="text-xl font-semibold flex items-center gap-2">
+              <CheckCircle2 className="h-5 w-5 text-green-600" />
+              Completed Courses
+            </h2>
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {completedCourses.map((course) => (
+                <Card key={course.id} className="flex flex-col border-green-200 dark:border-green-900/30">
+                  <CardHeader>
+                    <Badge variant="outline" className="w-fit text-green-600 border-green-300">
+                      Completed
+                    </Badge>
+                    <CardTitle className="line-clamp-2">{course.title}</CardTitle>
+                    <CardDescription className="line-clamp-2">{course.description}</CardDescription>
+                  </CardHeader>
+                  <CardContent className="mt-auto">
+                    <Button asChild variant="default" className="w-full gap-2">
+                      <Link to="/certificates">
+                        <Award className="h-4 w-4" />
+                        View Certificate
+                      </Link>
+                    </Button>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          </div>
+        )}
+
       </div>
     </DashboardLayout>
   );
@@ -1078,7 +1374,6 @@ const TrainingOfficerDashboard = ({ user }: TrainingOfficerDashboardProps) => {
   const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
   const [certificatesIssued, setCertificatesIssued] = useState<{ courseId: string; issuedAt: string }[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showingAllCoursesFallback, setShowingAllCoursesFallback] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -1086,20 +1381,17 @@ const TrainingOfficerDashboard = ({ user }: TrainingOfficerDashboardProps) => {
       if (!user?.id) return;
       setLoading(true);
       try {
-        const ownership = await resolveTrainerOwnership(user);
         const [allCourses, allEnrollments, allCerts] = await Promise.all([
           courseService.getCourses(),
           enrollmentService.getEnrollments(),
           certificateService.getCertificates(),
         ]);
         if (cancelled) return;
-        const ownedCourses = allCourses.filter((course) => ownership.ownerIds.includes(course.instructorId));
-        const myCourses = ownedCourses.length > 0 ? ownedCourses : allCourses;
+        const myCourses = allCourses;
         const myCourseIds = new Set(myCourses.map((c) => c.id));
         const myEnrollments = allEnrollments.filter((e) => myCourseIds.has(e.courseId));
         setCourses(myCourses);
         setEnrollments(myEnrollments);
-        setShowingAllCoursesFallback(ownedCourses.length === 0 && allCourses.length > 0);
         setCertificatesIssued(
           allCerts.filter((c) => myCourseIds.has(c.courseId)).map((c) => ({ courseId: c.courseId, issuedAt: c.issuedAt }))
         );
@@ -1134,11 +1426,7 @@ const TrainingOfficerDashboard = ({ user }: TrainingOfficerDashboardProps) => {
       <div className="space-y-8">
         <div>
           <h1 className="text-3xl font-bold">Training Officer Dashboard</h1>
-          <p className="text-muted-foreground mt-2">
-            {showingAllCoursesFallback
-              ? "Showing all manageable course data because no direct trainer ownership match was found."
-              : "Manage your courses and learners"}
-          </p>
+          <p className="text-muted-foreground mt-2">Manage all courses and learners</p>
         </div>
 
         {loading ? (
@@ -1155,7 +1443,7 @@ const TrainingOfficerDashboard = ({ user }: TrainingOfficerDashboardProps) => {
                 </CardHeader>
                 <CardContent>
                   <div className="text-2xl font-bold">{courses.length}</div>
-                  <p className="text-xs text-muted-foreground">Courses you teach</p>
+                  <p className="text-xs text-muted-foreground">Courses you manage</p>
                 </CardContent>
               </Card>
               <Card>
@@ -1264,6 +1552,7 @@ const TrainingOfficerDashboard = ({ user }: TrainingOfficerDashboardProps) => {
 
 const Dashboard = () => {
   const { user } = useAuth();
+  const location = useLocation();
   const [stats, setStats] = useState({
     enrolledCourses: 0,
     completedCourses: 0,
@@ -1299,9 +1588,14 @@ const Dashboard = () => {
     return <Navigate to={canonicalDashboardRoute} replace />;
   }
 
+  const onboardingSummary = (() => {
+    const candidate = (location.state as { onboardingSummary?: TraineeDashboardProps["onboardingSummary"] } | null)?.onboardingSummary;
+    return candidate || null;
+  })();
+
   // Trainee Dashboard (replaces old "jobseeker" role)
   if (user.role === "trainee") {
-    return <TraineeDashboard user={user} stats={stats} />;
+    return <TraineeDashboard user={user} stats={stats} onboardingSummary={onboardingSummary} />;
   }
 
   // Admin Dashboard

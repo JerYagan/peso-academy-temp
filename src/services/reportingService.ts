@@ -4,7 +4,6 @@ import type { User } from "@/types/auth";
 import type { Course, Enrollment } from "@/types";
 import { CURATED_STARTER_CATEGORIES } from "@/lib/onboarding";
 import type { ModuleSessionAggregate } from "@/services/moduleSessionService";
-import { resolveTrainerOwnership } from "@/lib/trainerOwnership";
 
 if (!supabase) {
   console.warn("Supabase client not initialized. Please set up environment variables.");
@@ -104,6 +103,67 @@ export interface AdminDashboardCourseInsight {
   averageProgress: number;
 }
 
+export interface AdminCourseRiskInsight {
+  courseId: string;
+  courseTitle: string;
+  activeEnrollments: number;
+  completionRate: number;
+  recommendationAcceptanceRate: number;
+  riskScore: number;
+  riskLevel: "low" | "medium" | "high";
+}
+
+export interface AdminLearnerDisengagementInsight {
+  userId: string;
+  userName: string | null;
+  userEmail: string | null;
+  incompleteEnrollments: number;
+  repeatedShortSessionCount: number;
+  inactiveDays: number;
+  disengagementScore: number;
+  riskLevel: "low" | "medium" | "high";
+}
+
+export interface AdminRecommendationCourseInsight {
+  courseId: string;
+  courseTitle: string;
+  recommendationsDelivered: number;
+  impressions: number;
+  clicks: number;
+  accepts: number;
+  enrollments: number;
+  completions: number;
+  acceptanceProbability: number;
+  ctr: number;
+  acceptRate: number;
+  completionRate: number;
+}
+
+export interface AdminRecommendationAnalytics {
+  totalRecommendationsDelivered: number;
+  totalImpressions: number;
+  totalClicks: number;
+  totalAccepts: number;
+  totalRecommendationEnrollments: number;
+  totalRecommendationCompletions: number;
+  averageCtr: number;
+  averageAcceptRate: number;
+  averageAcceptanceProbability: number;
+  recommendedEnrollmentCompletionRate: number;
+  topRecommendedCourses: AdminRecommendationCourseInsight[];
+  mostAcceptedCourses: AdminRecommendationCourseInsight[];
+}
+
+export interface AdminPredictiveOverview {
+  highRiskCourses: number;
+  mediumRiskCourses: number;
+  highRiskLearners: number;
+  mediumRiskLearners: number;
+  averageCourseRiskScore: number;
+  averageDisengagementScore: number;
+  averageAcceptanceProbability: number;
+}
+
 export interface AdminDashboardAnalytics {
   totalUsers: number;
   totalCourses: number;
@@ -117,6 +177,10 @@ export interface AdminDashboardAnalytics {
   totalLearningHours: number;
   monthlyTrends: AdminDashboardTrendPoint[];
   topCourses: AdminDashboardCourseInsight[];
+  predictiveOverview: AdminPredictiveOverview;
+  riskCourseInsights: AdminCourseRiskInsight[];
+  disengagementInsights: AdminLearnerDisengagementInsight[];
+  recommendationAnalytics: AdminRecommendationAnalytics;
 }
 
 export interface TrainerDashboardTrendPoint {
@@ -158,6 +222,35 @@ export interface TrainerDashboardModuleInsight {
   insight: string;
 }
 
+export interface TrainerRecommendationCourseInsight {
+  courseId: string;
+  courseTitle: string;
+  recommendationsDelivered: number;
+  impressions: number;
+  clicks: number;
+  accepts: number;
+  enrollments: number;
+  completions: number;
+  ctr: number;
+  acceptRate: number;
+  enrollmentConversionRate: number;
+  completionRate: number;
+}
+
+export interface TrainerRecommendationAnalytics {
+  totalRecommendationsDelivered: number;
+  totalImpressions: number;
+  totalClicks: number;
+  totalAccepts: number;
+  totalRecommendationEnrollments: number;
+  totalRecommendationCompletions: number;
+  averageCtr: number;
+  averageAcceptRate: number;
+  recommendedEnrollmentCompletionRate: number;
+  topRecommendedCourses: TrainerRecommendationCourseInsight[];
+  mostAcceptedCourses: TrainerRecommendationCourseInsight[];
+}
+
 export interface TrainerDashboardAnalytics {
   showingAllCoursesFallback: boolean;
   totalCourses: number;
@@ -176,9 +269,16 @@ export interface TrainerDashboardAnalytics {
     completed: number;
     atRisk: number;
   };
+  atRiskSignals: {
+    stalledProgress: number;
+    repeatedShortSessions: number;
+    inactiveIncomplete: number;
+    problematicSessionStatus: number;
+  };
   monthlyTrends: TrainerDashboardTrendPoint[];
   courseInsights: TrainerDashboardCourseInsight[];
   moduleInsights: TrainerDashboardModuleInsight[];
+  recommendationAnalytics: TrainerRecommendationAnalytics;
 }
 
 export interface LearnerPerformanceAssessmentRecord {
@@ -224,10 +324,12 @@ export interface LearnerPerformanceSummary {
   recentAssessments: LearnerPerformanceAssessmentRecord[];
   recentModules: LearnerPerformanceModuleRecord[];
 }
+const SHORT_SESSION_SECONDS = 5 * 60;
 
 export interface LearnerCourseRecommendation {
   course: Course;
   score: number;
+  acceptanceProbability?: number;
   reasons: string[];
   sourceMix?: {
     contentBased: boolean;
@@ -335,6 +437,8 @@ const createEmptyLearnerPerformanceSummary = (): LearnerPerformanceSummary => ({
 
 const normalizeSet = (values: string[] | undefined) =>
   new Set((values || []).map((value) => value.toLowerCase().trim()).filter(Boolean));
+
+const clampNumber = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
 const isStarterFriendlyCourse = (course: Course) => {
   const normalizedCategory = course.category.toLowerCase();
@@ -826,6 +930,15 @@ export const buildLearnerCourseRecommendations = (
     preferredCategories.size > 0 ||
     industryInterests.length > 0 ||
     Boolean(user.onboardingSkillLevel);
+  const prefersGuidedStart = user.onboardingConfidenceLevel === "needs_guidance";
+  const hasSomeExposure = user.onboardingConfidenceLevel === "some_exposure";
+  const isProgressionReadyFromOnboarding = user.onboardingConfidenceLevel === "ready_for_projects";
+  const prefersShorterWeeklyCommitment = user.onboardingWeeklyCommitment === "under_2";
+  const canHandleSteadyCommitment = user.onboardingWeeklyCommitment === "2_to_4";
+  const canHandleHeavierCommitment = user.onboardingWeeklyCommitment === "5_plus";
+  const needsDigitalSupport = user.onboardingDigitalComfort === "needs_support";
+  const comfortableWithDigitalTools = user.onboardingDigitalComfort === "comfortable";
+  const advancedDigitalComfort = user.onboardingDigitalComfort === "advanced_tools";
   const behaviorSignals = buildBehaviorSignals(courses, sessionAggregates);
 
   const levelRank: Record<Course["level"], number> = {
@@ -987,6 +1100,50 @@ export const buildLearnerCourseRecommendations = (
           reasons.push("Good starter fit based on your onboarding profile");
         }
 
+        if (prefersGuidedStart && course.level === "Beginner") {
+          score += 14;
+          reasons.push("Matches the guided start you selected during onboarding");
+        }
+
+        if (hasSomeExposure && levelRank[course.level] <= 2) {
+          score += 8;
+          reasons.push("Fits the moderate starting pace from your onboarding assessment");
+        }
+
+        if (isProgressionReadyFromOnboarding && levelRank[course.level] >= 2) {
+          score += 14;
+          reasons.push("Matches the progression-ready confidence you shared during onboarding");
+        }
+
+        if (prefersShorterWeeklyCommitment && course.duration <= 10) {
+          score += 10;
+          reasons.push("Fits the lighter weekly schedule you chose during onboarding");
+        }
+
+        if (canHandleSteadyCommitment && course.duration > 8 && course.duration <= 20) {
+          score += 6;
+          reasons.push("Matches the steady weekly pace from your onboarding plan");
+        }
+
+        if (canHandleHeavierCommitment && course.duration >= 12) {
+          score += 8;
+          reasons.push("Fits the heavier learning commitment you said you can handle");
+        }
+
+        if (needsDigitalSupport && course.level === "Beginner") {
+          score += 10;
+          reasons.push("Beginner-friendly for the digital support level you selected");
+        }
+
+        if (comfortableWithDigitalTools && course.level !== "Advanced") {
+          score += 4;
+        }
+
+        if (advancedDigitalComfort && levelRank[course.level] >= 2) {
+          score += 8;
+          reasons.push("Aligned with the stronger digital comfort you reported at onboarding");
+        }
+
         if (course.isTESDAAccredited) {
           score += 6;
           reasons.push("Recognized training path to start with");
@@ -997,7 +1154,7 @@ export const buildLearnerCourseRecommendations = (
         const learningMomentum = modulesCompleted >= 3 || totalLearningMinutes >= 180;
         const performingStrongly = averageAssessmentScore >= 85 && overallModuleCompletionRate >= 60;
         const needsFoundationalSupport =
-          (performanceSummary.scoredAssessments > 0 && averageAssessmentScore > 0 && averageAssessmentScore < 70) ||
+          (performanceSummary.scoredAssessments > 0 && averageAssessmentScore < 70) ||
           overallModuleCompletionRate < 40;
 
         if (performingStrongly && levelRank[course.level] >= 2) {
@@ -1054,9 +1211,24 @@ export const buildLearnerCourseRecommendations = (
         }
       }
 
+      const acceptanceProbability = Math.round(
+        clampNumber(
+          12 +
+            Math.min(score, 140) * 0.38 +
+            (preferredCategories.has(normalizedCategory) ? 8 : 0) +
+            Math.min(skillOverlap * 4, 12) +
+            (collaborativeSignal ? 9 : 0) +
+            (behaviorSignals.recentActiveCategories.includes(normalizedCategory) ? 6 : 0) +
+            (!hasHistoricalSignals && course.level === "Beginner" ? 5 : 0),
+          5,
+          95,
+        ),
+      );
+
       return {
         course,
         score,
+        acceptanceProbability,
         reasons: Array.from(new Set(reasons)).slice(0, 3),
         sourceMix: {
           contentBased: true,
@@ -1430,6 +1602,20 @@ export const reportingService = {
     if (!supabase) return null;
 
     try {
+      const refreshResults = await Promise.allSettled([
+        supabase.rpc("refresh_phase1_analytics_rollups", { p_user_id: null }),
+        supabase.rpc("refresh_phase6_predictive_scores"),
+      ]);
+
+      refreshResults.forEach((result, index) => {
+        if (result.status === "fulfilled" && result.value.error) {
+          console.warn(index === 0 ? "Failed to refresh phase1 analytics rollups:" : "Failed to refresh phase6 predictive scores:", result.value.error);
+        }
+        if (result.status === "rejected") {
+          console.warn(index === 0 ? "Failed to refresh phase1 analytics rollups:" : "Failed to refresh phase6 predictive scores:", result.reason);
+        }
+      });
+
       const now = new Date();
       const trendStart = startOfMonth(subMonths(now, 5));
       const trendMonths = Array.from({ length: 6 }, (_, index) => {
@@ -1774,6 +1960,213 @@ export const reportingService = {
         })
         .slice(0, 5);
 
+      const [courseRiskResult, learnerDisengagementResult, recommendationRowsResult] = await Promise.all([
+        supabase
+          .from("course_risk_scores")
+          .select("course_id, snapshot_date, active_enrollments, completion_rate, recommendation_acceptance_rate, risk_score, risk_level")
+          .order("snapshot_date", { ascending: false }),
+        supabase
+          .from("learner_disengagement_scores")
+          .select("user_id, snapshot_date, incomplete_enrollments, repeated_short_session_count, inactive_days, disengagement_score, risk_level")
+          .order("snapshot_date", { ascending: false }),
+        supabase
+          .from("learner_recommendations")
+          .select("course_id, impression_count, click_count, accept_count, enrollment_count, completion_count, acceptance_probability"),
+      ]);
+
+      const courseRiskRows = courseRiskResult.error ? [] : (courseRiskResult.data || []);
+      const learnerDisengagementRows = learnerDisengagementResult.error ? [] : (learnerDisengagementResult.data || []);
+      const recommendationRows = recommendationRowsResult.error ? [] : (recommendationRowsResult.data || []);
+
+      if (courseRiskResult.error) {
+        console.warn("Failed to load course risk scores for admin analytics:", courseRiskResult.error);
+      }
+
+      if (learnerDisengagementResult.error) {
+        console.warn("Failed to load learner disengagement scores for admin analytics:", learnerDisengagementResult.error);
+      }
+
+      if (recommendationRowsResult.error) {
+        console.warn("Failed to load recommendation acceptance analytics for admin dashboard:", recommendationRowsResult.error);
+      }
+
+      const latestCourseRiskByCourseId = new Map<string, (typeof courseRiskRows)[number]>();
+      for (const row of courseRiskRows) {
+        if (!latestCourseRiskByCourseId.has(row.course_id)) {
+          latestCourseRiskByCourseId.set(row.course_id, row);
+        }
+      }
+
+      const riskCourseInsights = Array.from(latestCourseRiskByCourseId.values())
+        .map((row) => ({
+          courseId: row.course_id,
+          courseTitle: courseTitleMap.get(row.course_id) || "Unknown Course",
+          activeEnrollments: Number(row.active_enrollments || 0),
+          completionRate: Number(row.completion_rate || 0),
+          recommendationAcceptanceRate: Number(row.recommendation_acceptance_rate || 0),
+          riskScore: Number(row.risk_score || 0),
+          riskLevel: (row.risk_level || "low") as "low" | "medium" | "high",
+        }))
+        .sort((left, right) => {
+          const severityRank = { high: 2, medium: 1, low: 0 };
+          if (severityRank[right.riskLevel] !== severityRank[left.riskLevel]) {
+            return severityRank[right.riskLevel] - severityRank[left.riskLevel];
+          }
+          return right.riskScore - left.riskScore;
+        })
+        .slice(0, 5);
+
+      const latestDisengagementByUserId = new Map<string, (typeof learnerDisengagementRows)[number]>();
+      for (const row of learnerDisengagementRows) {
+        if (!latestDisengagementByUserId.has(row.user_id)) {
+          latestDisengagementByUserId.set(row.user_id, row);
+        }
+      }
+
+      const riskyLearners = Array.from(latestDisengagementByUserId.values())
+        .sort((left, right) => Number(right.disengagement_score || 0) - Number(left.disengagement_score || 0))
+        .slice(0, 6);
+      const riskyLearnerIds = riskyLearners.map((row) => row.user_id);
+      const learnerDirectory = new Map<string, { name: string | null; email: string | null }>();
+
+      if (riskyLearnerIds.length > 0) {
+        const { data: learnerRows, error: learnerRowsError } = await supabase
+          .from("users")
+          .select("id, name, email")
+          .in("id", riskyLearnerIds);
+
+        if (learnerRowsError) {
+          console.warn("Failed to hydrate disengagement learner names for admin dashboard:", learnerRowsError);
+        } else {
+          (learnerRows || []).forEach((learner) => {
+            learnerDirectory.set(learner.id, {
+              name: learner.name || null,
+              email: learner.email || null,
+            });
+          });
+        }
+      }
+
+      const disengagementInsights = riskyLearners.map((row) => ({
+        userId: row.user_id,
+        userName: learnerDirectory.get(row.user_id)?.name || null,
+        userEmail: learnerDirectory.get(row.user_id)?.email || null,
+        incompleteEnrollments: Number(row.incomplete_enrollments || 0),
+        repeatedShortSessionCount: Number(row.repeated_short_session_count || 0),
+        inactiveDays: Number(row.inactive_days || 0),
+        disengagementScore: Number(row.disengagement_score || 0),
+        riskLevel: (row.risk_level || "low") as "low" | "medium" | "high",
+      }));
+
+      const recommendationCourseMap = new Map<string, AdminRecommendationCourseInsight & { acceptanceProbabilitySum: number; acceptanceProbabilityCount: number }>();
+      for (const row of recommendationRows) {
+        const existing = recommendationCourseMap.get(row.course_id) || {
+          courseId: row.course_id,
+          courseTitle: courseTitleMap.get(row.course_id) || "Unknown Course",
+          recommendationsDelivered: 0,
+          impressions: 0,
+          clicks: 0,
+          accepts: 0,
+          enrollments: 0,
+          completions: 0,
+          acceptanceProbability: 0,
+          ctr: 0,
+          acceptRate: 0,
+          completionRate: 0,
+          acceptanceProbabilitySum: 0,
+          acceptanceProbabilityCount: 0,
+        };
+
+        existing.recommendationsDelivered += 1;
+        existing.impressions += Number(row.impression_count || 0);
+        existing.clicks += Number(row.click_count || 0);
+        existing.accepts += Number(row.accept_count || 0);
+        existing.enrollments += Number(row.enrollment_count || 0);
+        existing.completions += Number(row.completion_count || 0);
+        existing.acceptanceProbabilitySum += Number(row.acceptance_probability || 0);
+        existing.acceptanceProbabilityCount += 1;
+        recommendationCourseMap.set(row.course_id, existing);
+      }
+
+      const recommendationCourseInsights = Array.from(recommendationCourseMap.values()).map((course) => ({
+        courseId: course.courseId,
+        courseTitle: course.courseTitle,
+        recommendationsDelivered: course.recommendationsDelivered,
+        impressions: course.impressions,
+        clicks: course.clicks,
+        accepts: course.accepts,
+        enrollments: course.enrollments,
+        completions: course.completions,
+        acceptanceProbability:
+          course.acceptanceProbabilityCount > 0
+            ? Number((course.acceptanceProbabilitySum / course.acceptanceProbabilityCount).toFixed(1))
+            : 0,
+        ctr: course.impressions > 0 ? Number(((course.clicks / course.impressions) * 100).toFixed(1)) : 0,
+        acceptRate: course.clicks > 0 ? Number(((course.accepts / course.clicks) * 100).toFixed(1)) : 0,
+        completionRate: course.enrollments > 0 ? Number(((course.completions / course.enrollments) * 100).toFixed(1)) : 0,
+      }));
+
+      const totalRecommendationsDelivered = recommendationCourseInsights.reduce((sum, course) => sum + course.recommendationsDelivered, 0);
+      const totalRecommendationImpressions = recommendationCourseInsights.reduce((sum, course) => sum + course.impressions, 0);
+      const totalRecommendationClicks = recommendationCourseInsights.reduce((sum, course) => sum + course.clicks, 0);
+      const totalRecommendationAccepts = recommendationCourseInsights.reduce((sum, course) => sum + course.accepts, 0);
+      const totalRecommendationEnrollments = recommendationCourseInsights.reduce((sum, course) => sum + course.enrollments, 0);
+      const totalRecommendationCompletions = recommendationCourseInsights.reduce((sum, course) => sum + course.completions, 0);
+      const averageAcceptanceProbability = recommendationCourseInsights.length > 0
+        ? Number((recommendationCourseInsights.reduce((sum, course) => sum + course.acceptanceProbability, 0) / recommendationCourseInsights.length).toFixed(1))
+        : 0;
+
+      const predictiveOverview = {
+        highRiskCourses: Array.from(latestCourseRiskByCourseId.values()).filter((row) => row.risk_level === "high").length,
+        mediumRiskCourses: Array.from(latestCourseRiskByCourseId.values()).filter((row) => row.risk_level === "medium").length,
+        highRiskLearners: Array.from(latestDisengagementByUserId.values()).filter((row) => row.risk_level === "high").length,
+        mediumRiskLearners: Array.from(latestDisengagementByUserId.values()).filter((row) => row.risk_level === "medium").length,
+        averageCourseRiskScore:
+          latestCourseRiskByCourseId.size > 0
+            ? Number((Array.from(latestCourseRiskByCourseId.values()).reduce((sum, row) => sum + Number(row.risk_score || 0), 0) / latestCourseRiskByCourseId.size).toFixed(1))
+            : 0,
+        averageDisengagementScore:
+          latestDisengagementByUserId.size > 0
+            ? Number((Array.from(latestDisengagementByUserId.values()).reduce((sum, row) => sum + Number(row.disengagement_score || 0), 0) / latestDisengagementByUserId.size).toFixed(1))
+            : 0,
+        averageAcceptanceProbability,
+      };
+
+      const recommendationAnalytics = {
+        totalRecommendationsDelivered,
+        totalImpressions: totalRecommendationImpressions,
+        totalClicks: totalRecommendationClicks,
+        totalAccepts: totalRecommendationAccepts,
+        totalRecommendationEnrollments,
+        totalRecommendationCompletions,
+        averageCtr: totalRecommendationImpressions > 0 ? Number(((totalRecommendationClicks / totalRecommendationImpressions) * 100).toFixed(1)) : 0,
+        averageAcceptRate: totalRecommendationClicks > 0 ? Number(((totalRecommendationAccepts / totalRecommendationClicks) * 100).toFixed(1)) : 0,
+        averageAcceptanceProbability,
+        recommendedEnrollmentCompletionRate:
+          totalRecommendationEnrollments > 0
+            ? Number(((totalRecommendationCompletions / totalRecommendationEnrollments) * 100).toFixed(1))
+            : 0,
+        topRecommendedCourses: [...recommendationCourseInsights]
+          .sort((left, right) => {
+            if (right.recommendationsDelivered !== left.recommendationsDelivered) {
+              return right.recommendationsDelivered - left.recommendationsDelivered;
+            }
+            return right.impressions - left.impressions;
+          })
+          .slice(0, 5),
+        mostAcceptedCourses: [...recommendationCourseInsights]
+          .sort((left, right) => {
+            if (right.accepts !== left.accepts) {
+              return right.accepts - left.accepts;
+            }
+            if (right.enrollments !== left.enrollments) {
+              return right.enrollments - left.enrollments;
+            }
+            return right.acceptanceProbability - left.acceptanceProbability;
+          })
+          .slice(0, 5),
+      };
+
       return {
         totalUsers: usersResult.count || 0,
         totalCourses: courses.length,
@@ -1793,6 +2186,10 @@ export const reportingService = {
         totalLearningHours: Math.round((totalLearningMinutesAllTime / 60) * 10) / 10,
         monthlyTrends,
         topCourses,
+        predictiveOverview,
+        riskCourseInsights,
+        disengagementInsights,
+        recommendationAnalytics,
       };
     } catch (error) {
       console.error("Error getting admin dashboard analytics:", error);
@@ -1801,13 +2198,12 @@ export const reportingService = {
   },
 
   /**
-   * Get trainer-scoped analytics for owned courses and learners.
+   * Get trainer-scoped analytics across all manageable courses and learners.
    */
   getTrainerDashboardAnalytics: async (user: User | null): Promise<TrainerDashboardAnalytics | null> => {
     if (!supabase || !user) return null;
 
     try {
-      const ownership = await resolveTrainerOwnership(user);
       const { data: courseRows, error: coursesError } = await supabase
         .from("courses")
         .select("id, title, category, level, instructor_id")
@@ -1818,9 +2214,8 @@ export const reportingService = {
         return null;
       }
 
-      const ownedCourses = (courseRows || []).filter((course) => ownership.ownerIds.includes(course.instructor_id || ""));
-      const visibleCourses = ownedCourses.length > 0 ? ownedCourses : (courseRows || []);
-      const showingAllCoursesFallback = ownedCourses.length === 0 && (courseRows || []).length > 0;
+      const visibleCourses = courseRows || [];
+      const showingAllCoursesFallback = false;
       const courseIds = visibleCourses.map((course) => course.id);
 
       if (courseIds.length === 0) {
@@ -1842,9 +2237,28 @@ export const reportingService = {
             completed: 0,
             atRisk: 0,
           },
+          atRiskSignals: {
+            stalledProgress: 0,
+            repeatedShortSessions: 0,
+            inactiveIncomplete: 0,
+            problematicSessionStatus: 0,
+          },
           monthlyTrends: [],
           courseInsights: [],
           moduleInsights: [],
+          recommendationAnalytics: {
+            totalRecommendationsDelivered: 0,
+            totalImpressions: 0,
+            totalClicks: 0,
+            totalAccepts: 0,
+            totalRecommendationEnrollments: 0,
+            totalRecommendationCompletions: 0,
+            averageCtr: 0,
+            averageAcceptRate: 0,
+            recommendedEnrollmentCompletionRate: 0,
+            topRecommendedCourses: [],
+            mostAcceptedCourses: [],
+          },
         };
       }
 
@@ -1902,7 +2316,7 @@ export const reportingService = {
       const enrollmentIds = enrollments.map((enrollment) => enrollment.id);
       const learnerIds = Array.from(new Set(enrollments.map((enrollment) => enrollment.user_id)));
 
-      const [certificatesResult, modulesResult, moduleCompletionsResult, moduleSessionsResult, assessmentAttemptsResult] = await Promise.all([
+      const [certificatesResult, modulesResult, moduleCompletionsResult, moduleSessionsResult, assessmentAttemptsResult, recommendationRowsResult] = await Promise.all([
         supabase
           .from("certificates")
           .select("id, course_id, issued_at")
@@ -1921,7 +2335,7 @@ export const reportingService = {
         enrollmentIds.length > 0
           ? supabase
               .from("module_sessions")
-              .select("enrollment_id, module_id, duration_seconds, started_at")
+              .select("enrollment_id, module_id, duration_seconds, started_at, last_seen_at, session_status")
               .in("enrollment_id", enrollmentIds)
           : Promise.resolve({ data: [], error: null }),
         enrollmentIds.length > 0
@@ -1931,6 +2345,10 @@ export const reportingService = {
               .in("enrollment_id", enrollmentIds)
               .not("submitted_at", "is", null)
           : Promise.resolve({ data: [], error: null }),
+        supabase
+          .from("learner_recommendations")
+          .select("id, course_id, source_surface, impression_count, click_count, accept_count, enrollment_count, completion_count")
+          .in("course_id", courseIds),
       ]);
 
       if (certificatesResult.error) {
@@ -1958,6 +2376,11 @@ export const reportingService = {
         return null;
       }
 
+      if (recommendationRowsResult.error) {
+        handleSupabaseError(recommendationRowsResult.error);
+        return null;
+      }
+
       const assessmentAttempts = assessmentAttemptsResult.data || [];
       const assessmentIds = Array.from(new Set(assessmentAttempts.map((attempt) => attempt.assessment_id).filter(Boolean)));
       let assessmentRows: Array<{ id: string; module_id: string | null }> = [];
@@ -1980,6 +2403,7 @@ export const reportingService = {
       const modules = modulesResult.data || [];
       const moduleCompletions = moduleCompletionsResult.data || [];
       const moduleSessions = moduleSessionsResult.data || [];
+      const recommendationRows = recommendationRowsResult.data || [];
       const assessmentMap = new Map(assessmentRows.map((assessment) => [assessment.id, assessment]));
       const enrollmentMap = new Map(enrollments.map((enrollment) => [enrollment.id, enrollment]));
       const courseMap = new Map(visibleCourses.map((course) => [course.id, course]));
@@ -2013,6 +2437,41 @@ export const reportingService = {
         completed: 0,
         atRisk: 0,
       };
+      const atRiskSignals = {
+        stalledProgress: 0,
+        repeatedShortSessions: 0,
+        inactiveIncomplete: 0,
+        problematicSessionStatus: 0,
+      };
+      const enrollmentSessionStats = new Map<string, {
+        totalSessions: number;
+        shortSessions: number;
+        problematicStatuses: number;
+        lastSeenAt: string | null;
+      }>();
+
+      for (const session of moduleSessions) {
+        const sessionMinutes = Number(session.duration_seconds || 0) / 60;
+        const current = enrollmentSessionStats.get(session.enrollment_id) || {
+          totalSessions: 0,
+          shortSessions: 0,
+          problematicStatuses: 0,
+          lastSeenAt: null,
+        };
+        current.totalSessions += 1;
+        if (sessionMinutes > 0 && sessionMinutes <= SHORT_SESSION_SECONDS / 60) {
+          current.shortSessions += 1;
+        }
+        const sessionStatus = (session as { session_status?: string | null }).session_status || null;
+        if (sessionStatus === "abandoned" || sessionStatus === "timed_out") {
+          current.problematicStatuses += 1;
+        }
+        const lastSeenAt = (session as { last_seen_at?: string | null }).last_seen_at || session.started_at || null;
+        if (!current.lastSeenAt || (lastSeenAt && lastSeenAt > current.lastSeenAt)) {
+          current.lastSeenAt = lastSeenAt;
+        }
+        enrollmentSessionStats.set(session.enrollment_id, current);
+      }
 
       for (const enrollment of enrollments) {
         const progress = Number(enrollment.progress || 0);
@@ -2041,8 +2500,26 @@ export const reportingService = {
         }
 
         const enrolledDate = new Date(enrollment.enrolled_at);
-        if (!Number.isNaN(enrolledDate.getTime()) && differenceInDays(now, enrolledDate) >= 14 && progress < 30 && enrollment.status !== "completed") {
+        const sessionStats = enrollmentSessionStats.get(enrollment.id);
+        const lastSeenDate = sessionStats?.lastSeenAt ? new Date(sessionStats.lastSeenAt) : null;
+        const repeatedShortSessionPattern = (sessionStats?.shortSessions || 0) >= 2;
+        const problematicSessionPattern = (sessionStats?.problematicStatuses || 0) >= 2;
+        const inactiveIncomplete =
+          progress > 0 &&
+          progress < 100 &&
+          Boolean(lastSeenDate && !Number.isNaN(lastSeenDate.getTime()) && differenceInDays(now, lastSeenDate) >= 10);
+        const stalledProgress =
+          !Number.isNaN(enrolledDate.getTime()) &&
+          differenceInDays(now, enrolledDate) >= 14 &&
+          progress < 30 &&
+          enrollment.status !== "completed";
+
+        if (enrollment.status !== "completed" && (stalledProgress || repeatedShortSessionPattern || inactiveIncomplete || problematicSessionPattern)) {
           cohortSegments.atRisk += 1;
+          if (stalledProgress) atRiskSignals.stalledProgress += 1;
+          if (repeatedShortSessionPattern) atRiskSignals.repeatedShortSessions += 1;
+          if (inactiveIncomplete) atRiskSignals.inactiveIncomplete += 1;
+          if (problematicSessionPattern) atRiskSignals.problematicSessionStatus += 1;
         }
 
         const enrolledMonthKey = getMonthKey(enrollment.enrolled_at);
@@ -2132,8 +2609,10 @@ export const reportingService = {
           continue;
         }
 
-        const score = Number(attempt.score || 0);
-        if (score > 0) {
+        const score = attempt.score === null || attempt.score === undefined ? null : Number(attempt.score);
+        const hasNumericScore = score !== null && !Number.isNaN(score);
+
+        if (hasNumericScore) {
           const courseStatsRow = courseStats.get(enrollment.course_id);
           if (courseStatsRow) {
             courseStatsRow.scoreSum += score;
@@ -2165,11 +2644,11 @@ export const reportingService = {
 
         moduleStatsRow.learnerIds.add(enrollment.user_id);
         moduleStatsRow.totalAttempts += 1;
-        if (score > 0) {
+        if (hasNumericScore) {
           moduleStatsRow.scoreSum += score;
           moduleStatsRow.scoreCount += 1;
         }
-        if (attempt.passed === false || (score > 0 && score < 75)) {
+        if (attempt.passed === false || (hasNumericScore && score < 75)) {
           moduleStatsRow.failedAttempts += 1;
         }
         moduleStats.set(assessment.module_id, moduleStatsRow);
@@ -2232,7 +2711,7 @@ export const reportingService = {
             : 0;
 
           const issueFlags = [
-            averageAssessmentScore > 0 && averageAssessmentScore < 70,
+            stats.scoreCount > 0 && averageAssessmentScore < 70,
             failureRate >= 35,
             averageLearningMinutes >= 45,
             completionRate > 0 && completionRate < 45,
@@ -2241,7 +2720,7 @@ export const reportingService = {
           const attentionLevel = issueCount >= 2 ? "critical" : issueCount === 1 ? "watch" : "healthy";
 
           let insight = "Healthy completion and assessment patterns";
-          if (averageAssessmentScore > 0 && averageAssessmentScore < 70) {
+          if (stats.scoreCount > 0 && averageAssessmentScore < 70) {
             insight = "Low assessment scores suggest this module needs reinforcement or content review";
           } else if (failureRate >= 35) {
             insight = "High failure rate suggests quiz difficulty or instruction clarity needs review";
@@ -2283,10 +2762,51 @@ export const reportingService = {
         (enrollment) => enrollment.status === "completed" || Number(enrollment.progress || 0) >= 100,
       ).length;
       const scoredAttempts = assessmentAttempts
-        .map((attempt) => Number(attempt.score || 0))
-        .filter((score) => score > 0);
+        .map((attempt) => (attempt.score === null || attempt.score === undefined ? null : Number(attempt.score)))
+        .filter((score): score is number => score !== null && !Number.isNaN(score));
       const totalLearningHours = Array.from(courseStats.values()).reduce((sum, stats) => sum + stats.sessionMinutes, 0) / 60;
       const averageLearningHoursPerCourse = visibleCourses.length > 0 ? Number((totalLearningHours / visibleCourses.length).toFixed(1)) : 0;
+      const recommendationCourseStats = new Map<string, TrainerRecommendationCourseInsight>();
+
+      for (const recommendation of recommendationRows) {
+        const existing = recommendationCourseStats.get(recommendation.course_id) || {
+          courseId: recommendation.course_id,
+          courseTitle: courseMap.get(recommendation.course_id)?.title || "Untitled course",
+          recommendationsDelivered: 0,
+          impressions: 0,
+          clicks: 0,
+          accepts: 0,
+          enrollments: 0,
+          completions: 0,
+          ctr: 0,
+          acceptRate: 0,
+          enrollmentConversionRate: 0,
+          completionRate: 0,
+        };
+
+        existing.recommendationsDelivered += 1;
+        existing.impressions += Number(recommendation.impression_count || 0);
+        existing.clicks += Number(recommendation.click_count || 0);
+        existing.accepts += Number(recommendation.accept_count || 0);
+        existing.enrollments += Number(recommendation.enrollment_count || 0);
+        existing.completions += Number(recommendation.completion_count || 0);
+        recommendationCourseStats.set(recommendation.course_id, existing);
+      }
+
+      const recommendationCourseInsights = Array.from(recommendationCourseStats.values()).map((course) => ({
+        ...course,
+        ctr: course.impressions > 0 ? Number(((course.clicks / course.impressions) * 100).toFixed(1)) : 0,
+        acceptRate: course.clicks > 0 ? Number(((course.accepts / course.clicks) * 100).toFixed(1)) : 0,
+        enrollmentConversionRate: course.clicks > 0 ? Number(((course.enrollments / course.clicks) * 100).toFixed(1)) : 0,
+        completionRate: course.enrollments > 0 ? Number(((course.completions / course.enrollments) * 100).toFixed(1)) : 0,
+      }));
+
+      const totalRecommendationImpressions = recommendationCourseInsights.reduce((sum, course) => sum + course.impressions, 0);
+      const totalRecommendationClicks = recommendationCourseInsights.reduce((sum, course) => sum + course.clicks, 0);
+      const totalRecommendationAccepts = recommendationCourseInsights.reduce((sum, course) => sum + course.accepts, 0);
+      const totalRecommendationEnrollments = recommendationCourseInsights.reduce((sum, course) => sum + course.enrollments, 0);
+      const totalRecommendationCompletions = recommendationCourseInsights.reduce((sum, course) => sum + course.completions, 0);
+      const totalRecommendationsDelivered = recommendationCourseInsights.reduce((sum, course) => sum + course.recommendationsDelivered, 0);
 
       return {
         showingAllCoursesFallback,
@@ -2307,6 +2827,7 @@ export const reportingService = {
             ? Math.round(courseInsights.reduce((sum, course) => sum + course.completionRate, 0) / courseInsights.length)
             : 0,
         cohortSegments,
+        atRiskSignals,
         monthlyTrends: Array.from(trendMap.values()).map((point) => ({
           month: point.month,
           label: point.label,
@@ -2318,6 +2839,39 @@ export const reportingService = {
         })),
         courseInsights: courseInsights.slice(0, 6),
         moduleInsights,
+        recommendationAnalytics: {
+          totalRecommendationsDelivered,
+          totalImpressions: totalRecommendationImpressions,
+          totalClicks: totalRecommendationClicks,
+          totalAccepts: totalRecommendationAccepts,
+          totalRecommendationEnrollments,
+          totalRecommendationCompletions,
+          averageCtr: totalRecommendationImpressions > 0 ? Number(((totalRecommendationClicks / totalRecommendationImpressions) * 100).toFixed(1)) : 0,
+          averageAcceptRate: totalRecommendationClicks > 0 ? Number(((totalRecommendationAccepts / totalRecommendationClicks) * 100).toFixed(1)) : 0,
+          recommendedEnrollmentCompletionRate:
+            totalRecommendationEnrollments > 0
+              ? Number(((totalRecommendationCompletions / totalRecommendationEnrollments) * 100).toFixed(1))
+              : 0,
+          topRecommendedCourses: [...recommendationCourseInsights]
+            .sort((left, right) => {
+              if (right.recommendationsDelivered !== left.recommendationsDelivered) {
+                return right.recommendationsDelivered - left.recommendationsDelivered;
+              }
+              return right.impressions - left.impressions;
+            })
+            .slice(0, 5),
+          mostAcceptedCourses: [...recommendationCourseInsights]
+            .sort((left, right) => {
+              if (right.accepts !== left.accepts) {
+                return right.accepts - left.accepts;
+              }
+              if (right.enrollments !== left.enrollments) {
+                return right.enrollments - left.enrollments;
+              }
+              return right.ctr - left.ctr;
+            })
+            .slice(0, 5),
+        },
       };
     } catch (error) {
       console.error("Error getting trainer dashboard analytics:", error);

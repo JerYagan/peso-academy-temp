@@ -127,6 +127,13 @@ Based on the requirements extracted from `PESO ACADEMY USER DASHBOARDS-1.pdf`, t
   - Dashboard and browse recommendation cards now sync ranked recommendation rows into storage, hydrate UI cards from persisted records, and log impression and click events per surface.
 
 ## Phase 5: Training Officer Analytics
+- [x] Implement recommendation system performance analytics for Training Officers
+  - Trainer analytics now aggregate recommendation impressions, click-through rate, accept rate, enrollments from recommendations, completion rate of recommendation-driven enrollments, most frequently recommended courses, and most accepted recommendation outcomes.
+  - This is built on the existing recommendation outcome tracking already stored in `learner_recommendations` and recommendation-attributed enrollments.
+
+- [x] Add recommendation performance monitoring widgets
+  - The trainer dashboard now includes recommendation KPI cards, course-level recommendation performance charts, and recommendation winner summaries.
+  - Dashboard drill-down links now route trainers from course and module insights into focused course and learner review flows.
 
 - [x] Implement training performance analytics for Training Officers
   - Trainer dashboard now surfaces average assessment scores, average completion rate, average learning time per course, monthly training trends, and module-level performance diagnostics using live owned-course data.
@@ -146,13 +153,18 @@ Based on the requirements extracted from `PESO ACADEMY USER DASHBOARDS-1.pdf`, t
 - [x] Add module problem detection for low score, high failure, and long completion time patterns
   - Module analytics now flag watch and critical modules based on score, failure, completion, and learning-time thresholds.
 
-- [ ] Implement recommendation system performance analytics for Training Officers
-  - PDF requires metrics such as enrollments from recommendations, completion rate of recommended courses, most frequently recommended courses, and most accepted recommendations.
-  - No recommendation outcome tracking is implemented.
-
-- [ ] Add recommendation performance monitoring widgets
 
 ## Phase 6: Admin Analytics and Predictive Oversight
+- [x] Implement organization-wide training analytics in the Admin dashboard
+  - The admin dashboard now combines overall enrollments, completion rates, certification issuance, trainee performance trends, system-wide engagement, course-risk monitoring, learner disengagement watchlists, and recommendation-performance reporting in the dashboard itself.
+  - It now consumes stored predictive signals instead of stopping at descriptive analytics only.
+
+- [x] Add dashboard visualizations for learner, trainer, and admin analytics views where current coverage is still partial
+  - The remaining partial admin coverage is now closed with predictive oversight charts, recommendation-performance visualizations, stored course-risk views, learner disengagement watchlists, and the existing learner-level hybrid recommendation evidence inspector.
+
+- [x] Add predictive score storage and consumption for course risk, disengagement, and recommendation acceptance probability
+  - Added persisted learner disengagement scoring, threaded recommendation acceptance probability into stored recommendation rows, and consumed stored course-risk, disengagement, and acceptance-probability signals in the admin dashboard.
+  - Added a new Supabase migration to extend predictive storage and refresh routines for these scores.
 
 - [x] Expand the admin dashboard from quick links/basic counts into an analytics dashboard aligned with the PDF
 
@@ -164,86 +176,79 @@ Based on the requirements extracted from `PESO ACADEMY USER DASHBOARDS-1.pdf`, t
 
 - [x] Surface system-wide engagement indicators directly on the dashboard
 
-- [ ] Implement organization-wide training analytics in the Admin dashboard
-  - PDF requires overall enrollments, completion rates, certification issuance, trainee performance trends, and system-wide engagement in the dashboard itself.
-  - Current admin dashboard route is stronger than before, but predictive storage, risk scoring, and recommendation-performance reporting are still incomplete.
-
-- [ ] Add dashboard visualizations for learner, trainer, and admin analytics views where current coverage is still partial
-  - Admin dashboard now includes a learner-level hybrid recommendation evidence inspector that exposes collaborative candidates, similar learners, and shared-course support for debugging the recommender.
-
-- [ ] Add predictive score storage and consumption for course risk, disengagement, and recommendation acceptance probability
 
 ## Phase 7: Trainee UX Cleanup and Enrollment Reliability
 
-- [ ] Remove the trainee recommendation block from the main course browse page
-  - The trainee dashboard can remain the primary recommendation surface.
-  - Remove duplicated recommendation cards from the course page to reduce clutter and conflicting calls to action.
-  - Keep standard browse, preview, and enrollment actions intact after recommendation removal.
+- [x] Remove the trainee recommendation block from the main course browse page
+  - The duplicated trainee recommendation block has been removed from the main browse page so the dashboard remains the primary recommendation surface.
+  - Standard browse, preview, and enrollment actions remain intact on the course catalog.
+  - Dashboard recommendation cards now include course thumbnails or visual fallbacks so they are visually aligned with the browse cards.
 
-- [ ] Fix the `Failed to enroll in this course` trainee flow
-  - Audit the enrollment action path for recommendation-attributed and normal enrollments.
-  - Surface the real failure reason in the UI instead of a generic failure state.
-  - Verify the enrollment flow against active RLS policies, duplicate enrollment handling, and originating recommendation metadata.
-  - Current status: enrollment already has a loading state and a generic trainee error toast, but it does not expose the actual failure reason or a structured recovery path.
+- [x] Fix the `Failed to enroll in this course` trainee flow
+  - The enrollment action path now performs explicit course availability and duplicate-enrollment checks before insert, and it classifies access-restricted, unavailable, duplicate, and unknown failures into user-facing recovery guidance.
+  - Trainee enrollment now surfaces the real failure reason instead of only a generic toast, while preserving recommendation attribution metadata for dashboard recommendation enrollments.
 
-- [ ] Add trainee-facing retry and recovery states for failed enrollment
-  - Show actionable feedback when the course is already enrolled, unavailable, or blocked by access issues.
-  - Prevent silent failures that leave the trainee stuck on the same page.
+- [x] Add trainee-facing retry and recovery states for failed enrollment
+  - Added actionable retry and recovery alerts in the trainee browse page, trainee dashboard recommendation section, and course-detail enrollment view.
+  - Recovery states now guide the trainee toward retry, browsing other courses, or updating profile details instead of leaving them with a silent generic failure.
 
 ## Phase 8: Trainee Dashboard and Learning Experience Reorganization
 
-- [ ] Reorganize the trainee UI to reduce visual cramping
+- [x] Reorganize the trainee UI to reduce visual cramping
   - Review the dashboard information density and spacing, especially above-the-fold sections.
   - Clarify the content hierarchy between learner stats, last accessed module, performance summary, and course actions.
   - Reduce duplicate or competing cards that make the trainee home screen feel overloaded.
-  - Current status: partially improved already through `Last Accessed Module`, `Recent Learning Sessions`, and session-backed performance summary sections, but the trainee home screen still feels crowded and visually uneven.
+  - Implemented: reworked the trainee dashboard around a primary next-step hero, compact learner signal summary, and supporting shortcut cards so active learning, progress review, and profile refinement no longer compete in the same visual tier.
 
-- [~] Improve loading and empty states across the trainee dashboard
+- [x] Improve loading and empty states across the trainee dashboard
   - Replace long blank loading regions with clearer skeleton or empty-state messaging.
   - Make the no-enrollment and no-history states easier to understand for first-time trainees.
-  - Current status: partial. The dashboard and progress pages already show loading spinners and empty states for courses and session history, but the loading experience still leaves large blank regions and can feel unfinished.
+  - Implemented: replaced blocking spinner-heavy states with skeleton placeholders on the dashboard, browse page, progress page, and learner profile training snapshot; expanded empty states now point trainees toward browsing, resuming, or updating their profile.
 
-- [~] Standardize trainee navigation and next-step prompts
+- [x] Standardize trainee navigation and next-step prompts
   - Ensure the dashboard, browse page, profile, and progress pages guide learners toward the next meaningful action.
   - Keep resume learning, start learning, and complete profile actions distinct and easy to scan.
-  - Current status: partial. Resume and continue-learning actions already exist through session tracking and enrollment-aware navigation, but the overall next-step hierarchy is not yet unified.
+  - Implemented: added aligned next-step prompt panels across the dashboard, browse page, profile, and progress pages so resume learning, browse courses, review progress, and complete profile actions use consistent language and clearer routing intent.
 
 ## Phase 9: Registration and Cold-Start Onboarding Flow Redesign
 
-- [ ] Replace the current one-screen registration plus initial assessment layout with a progress flow
+- [x] Replace the current one-screen registration plus initial assessment layout with a progress flow
   - Split account creation, learner profile details, onboarding interests, and initial assessment inputs into separate steps.
   - Preserve submitted state between steps so the trainee does not lose progress while onboarding.
-  - Current status: not implemented. Signup is still a single long page.
+  - Implemented: rewrote signup into a four-step flow covering account setup, learner profile details, recommendation profiling, and a separate readiness-check step for cold-start onboarding.
 
-- [ ] Add a multi-step progress indicator for registration and initial assessment
+- [x] Add a multi-step progress indicator for registration and initial assessment
   - Show the trainee where they are in the onboarding flow.
   - Make it clear which fields are required for account creation and which fields improve cold-start recommendations.
+  - Implemented: added a step-by-step progress bar, per-step cards, and explicit required versus optional/cold-start labels so trainees can see what is mandatory and what improves recommendations.
 
-- [ ] Separate account setup from recommendation profiling inputs
+- [x] Separate account setup from recommendation profiling inputs
   - Keep the minimum registration step lightweight.
   - Move skill level, interests, preferred categories, and initial assessment questions into dedicated onboarding steps.
-  - Current status: not implemented. Onboarding profile inputs are still embedded directly in signup.
+  - Implemented: kept the first step to name, email, and password only, then moved learner profile fields, interest/category signals, and the initial readiness questions into later onboarding steps.
 
-- [ ] Persist onboarding progress safely across steps
+- [x] Persist onboarding progress safely across steps
   - Support back and next navigation without losing entered data.
   - Validate each step independently so the learner can recover from partial input errors.
+  - Implemented: added draft persistence in local storage, back/next step navigation, and step-level validation for account setup and date validation so partial onboarding can be resumed safely.
 
 ## Phase 10: Cold-Start Recommendation Integration After Onboarding
 
-- [~] Use the completed registration and initial assessment flow as the authoritative cold-start recommendation input
+- [x] Use the completed registration and initial assessment flow as the authoritative cold-start recommendation input
   - Feed onboarding choices and initial assessment responses into the existing cold-start recommendation layer.
   - Ensure the first recommendation refresh happens after onboarding completion instead of forcing everything into the signup page.
-  - Current status: partial. Cold-start recommendations already use onboarding choices captured at signup, but there is no separate initial assessment flow yet.
+  - Implemented: onboarding completion now persists the readiness answers in auth metadata, triggers the first cold-start recommendation refresh with an explicit `onboarding_completion` context, and uses those readiness signals in the hybrid cold-start scorer alongside interests, preferred categories, starting level, and existing skills.
 
+- [x] Verify that the redesigned onboarding flow improves first-session trainee usability
+  - Confirm trainees can finish registration, complete the initial assessment, and land in a meaningful dashboard state without confusion.
+  - Confirm the onboarding flow supports future maintenance better than the current combined page.
+  - Implemented: after onboarding finishes, new trainees land in the dashboard with a first-session onboarding summary and starter-recommendation handoff instead of an uncontextualized dashboard load; the flow remains split by responsibility and was smoke-tested through a successful production build.
+  
 - [x] Add trainee messaging that explains why initial recommendations were generated
   - Show whether recommendations came from interests, preferred categories, starting level, or initial assessment answers.
   - Keep recommendation explanations concise and trainee-friendly.
   - Implemented already through recommendation headlines, descriptions, badges, and per-course reason chips on the trainee dashboard and browse page.
 
-- [ ] Verify that the redesigned onboarding flow improves first-session trainee usability
-  - Confirm trainees can finish registration, complete the initial assessment, and land in a meaningful dashboard state without confusion.
-  - Confirm the onboarding flow supports future maintenance better than the current combined page.
-  - Blocked until the redesigned onboarding flow exists.
 
 ## Focused Build Order For The Remaining Trainee Work
 
@@ -390,7 +395,7 @@ These do not belong in the missing checklist, but they help bound the gap analys
   - Trainee-facing notation already exists through `Total Learning Time`, `Last Accessed Module`, `Recent Learning Sessions`, and `Time Spent by Module` views.
 
 - [x] Add a recommendatory feature in the system that indicates future opportunities for learners.
-  - Implemented through personalized course recommendations on the trainee dashboard and browse page.
+  - Implemented through personalized course recommendations on the trainee dashboard as the primary learner recommendation surface.
   - Recommendations already use onboarding preferences, tracked learning behavior, module history, and assessment outcomes to suggest next courses.
 
 - [ ] Include a ranking system for the best learners in each program or course.
@@ -411,7 +416,7 @@ These do not belong in the missing checklist, but they help bound the gap analys
 
 - [x] How do you recommend personalized training?
   - Implemented through a hybrid personalized recommendation flow.
-  - Current inputs include onboarding skill level, preferred categories, industry interests, existing skills, average assessment score, strongest and weakest topics, learning time, module completion, session behavior, and similar-learner collaborative signals.
+  - Current inputs include onboarding skill level, onboarding readiness answers, preferred categories, industry interests, existing skills, average assessment score, strongest and weakest topics, learning time, module completion, session behavior, and similar-learner collaborative signals.
 
 - [ ] How can you recommend a trainee based only on the assessment results?
   - Partially supported, not standalone.
@@ -421,8 +426,98 @@ These do not belong in the missing checklist, but they help bound the gap analys
   - Implemented through the public certificate verification flow.
   - Users can verify certificate authenticity by verification code and download the validated certificate from the public verification page.
 
+## Implementation Steps For Remaining Unchecked Items
+
+This section translates the still-open checklist items into buildable implementation steps. The unchecked lines under `Recommended Execution Order` remain sequencing markers, not separate feature work.
+
+### 1. Phase 0: Role Model Normalization
+
+- Goal: reduce the live role model to the three PDF roles only: `trainee`, `training_officer`, and `admin`.
+- Step 1: inventory every extra runtime role and alias across route guards, auth hydration, role normalization, database role pages, and permission helpers.
+- Step 2: decide whether non-PDF roles will be migrated, hidden, or hard-mapped into one of the three supported roles.
+- Step 3: update role normalization and dashboard routing so unsupported roles no longer appear as first-class destinations.
+- Step 4: simplify admin role-management UI to show only the three supported roles and remove extra-role editing paths.
+- Step 5: run a migration and cleanup pass for existing user rows whose roles still fall outside the final three-role model.
+- Verification: no user-facing route, role picker, or permissions summary should present roles outside `trainee`, `training_officer`, and `admin`.
+
+### 2. Phase 0: Recommendation Engine Label Audit
+
+- Goal: reconcile historical checklist wording that still references a pre-hybrid or browse-page recommendation state.
+- Step 1: audit user-facing labels in dashboard, profile, trainer analytics, admin analytics, and markdown docs for stale references to `blended heuristic` or browse-page trainee recommendations.
+- Step 2: keep only historically accurate wording in backlog sections that describe pre-Phase-3 state; update everything else to describe the current persisted hybrid pipeline.
+- Step 3: align checklist text with the current product decision that the trainee dashboard is the primary recommendation surface.
+- Verification: docs and UI copy should describe the recommender consistently and should not contradict the current implementation.
+
+### 3. Phase 0: Topic and Skill Taxonomy Finalization
+
+- Goal: stabilize the tagging model so topic-level performance, module analytics, and recommendation explanations stay consistent.
+- Step 1: define the canonical taxonomy for course categories, skill tags, topic tags, and assessment-topic associations.
+- Step 2: document allowed values and ownership rules for trainers/admins who create or edit content.
+- Step 3: add validation to course, module, and assessment editing flows so tags come from the approved taxonomy instead of free-form drift.
+- Step 4: backfill or normalize existing content rows so historical courses and assessments conform to the final taxonomy.
+- Step 5: refresh reporting logic and recommendation explanations where they currently depend on loosely matched strings.
+- Verification: topic and skill analytics should no longer depend on inconsistent free-text matches.
+
+### 4. Learner Ranking Per Course or Program
+
+- Goal: add a leaderboard or ranking feature for top learners by course or program.
+- Step 1: define the ranking formula, including how completion, assessment score, learning time, certificate completion, and recency contribute.
+- Step 2: decide scope boundaries for fairness, such as whether rankings are per course, per program, or both, and whether incomplete learners are included.
+- Step 3: add a reporting-service aggregate that computes ranked learner standings from enrollments, assessment summaries, module progress, and completion outcomes.
+- Step 4: expose the ranking in trainer and/or admin views first, then decide whether a trainee-facing leaderboard is appropriate.
+- Step 5: add tie-breaking and privacy rules so rankings do not leak sensitive learner data.
+- Verification: a trainer or admin should be able to open a course/program and see a stable ranked learner list with explained scoring factors.
+
+### 5. Production Content Completeness For All Modules
+
+- Goal: close the platform-versus-content gap for the requirement that all modules be implemented in the actual system.
+- Step 1: produce a content-completeness audit by course showing missing modules, missing materials, missing assessments, and draft versus published states.
+- Step 2: define the minimum publish-ready checklist for each module: content body, media, assessment or activity, tags, and trainer ownership.
+- Step 3: add admin or trainer reporting that highlights incomplete production content directly from the database.
+- Step 4: block or warn on publishing courses that do not meet the minimum module completeness threshold.
+- Verification: every production course can be measured against a consistent completeness report rather than inferred from code support alone.
+
+### 6. Assigned Trainer Indicator In The Trainee Experience
+
+- Goal: show learners who is responsible for a specific training in a consistent trainee-facing way.
+- Step 1: decide the canonical source of trainer display data, including whether to use `instructor`, `instructorId`, or a hydrated user profile lookup.
+- Step 2: add a trainer-summary view model to the course detail and trainee dashboard course cards so instructor identity is consistently available.
+- Step 3: surface the assigned trainer or training officer in course detail, active course cards, and any relevant enrollment views.
+- Step 4: provide a graceful fallback when ownership exists technically but a public trainer display name is missing.
+- Verification: a trainee opening a course should clearly see the assigned trainer/training officer without relying on internal ownership assumptions.
+
+### 7. Staff Performance Assessment Scorecard
+
+- Goal: assess staff or trainer performance using managed-course outcomes rather than only learner analytics.
+- Step 1: define the scorecard dimensions, such as learner completion rate, average assessment performance, learner engagement, at-risk rate, recommendation conversions, and content-quality signals.
+- Step 2: decide whether the scorecard is trainer-only, training-officer-only, or shared across all staff types in the PDF scope.
+- Step 3: build reporting-service aggregates that roll learner and course outcomes up to the responsible staff member.
+- Step 4: add an admin-facing staff performance dashboard or a dedicated section in the existing admin analytics dashboard.
+- Step 5: separate informational metrics from evaluative metrics so the scorecard is explainable and not just a raw KPI dump.
+- Verification: admins should be able to compare staff members by a documented scorecard backed by managed-course outcome data.
+
+### 8. Assessment-Only Recommendation Mode
+
+- Goal: support a recommendation path driven only by assessment results when that is the desired use case.
+- Step 1: define what counts as `assessment-only` input and explicitly exclude onboarding, collaborative, and session-behavior signals for that mode.
+- Step 2: add a separate recommendation builder or scoring branch in the reporting service that uses only assessment-derived signals such as score bands, strongest topic, weakest topic, and failed competencies.
+- Step 3: decide where this mode is exposed: as a dedicated learner view, a trainer-triggered recommendation helper, or an admin advisory tool.
+- Step 4: persist and label these outputs distinctly so the UI can explain that the recommendation came only from assessment evidence.
+- Step 5: add messaging and analytics events to compare assessment-only recommendations against the main hybrid flow.
+- Verification: the system should be able to generate a recommendation list whose explanation references only assessment evidence.
+
+## Practical Delivery Sequence For The Remaining Work
+
+- Start with Phase 0 role normalization and taxonomy finalization, because both affect permissions, analytics interpretation, and any future leaderboard or staff-scorecard logic.
+- Then implement the assigned-trainer indicator and production-content completeness reporting, because both are relatively contained and improve current trainee and admin clarity.
+- After that, build leaderboard and staff scorecard analytics, because both depend on stable roles and stable taxonomy.
+- Leave assessment-only recommendation mode for last, because it is additive and should be built after the main hybrid pipeline and explanatory taxonomy are stable.
+
 ## Summary Of The New Bottom-Line Status
 
 - Fully implemented now: module time tracking, personalized recommendations, future-opportunity recommendations, and public certificate verification.
 - Partially implemented: trainer indication, assessment-only recommendation logic, and the platform-side module system.
 - Still missing: learner ranking or leaderboard features, plus broader predictive scoring beyond the recommendation engine itself.
+
+# Issues:
+- [ ] how about this, there's a separation between the courses of a trainer made by themselves and made by the other trainers.

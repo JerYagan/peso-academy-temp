@@ -15,23 +15,36 @@ import {
 import { BookOpen, Plus, Users, Edit, Trash2, Settings, Eye, EyeOff, Award, Clock3, Laptop2, BriefcaseBusiness, MessageSquareHeart, GraduationCap } from "lucide-react";
 import { courseService, enrollmentService } from "@/services/supabaseDatabaseService";
 import { CourseCreateEditDialog } from "@/components/course/CourseCreateEditDialog";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Course, Enrollment } from "@/types";
 import { toast } from "sonner";
-import { resolveTrainerOwnership } from "@/lib/trainerOwnership";
 
 const TrainerCourses = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [courses, setCourses] = useState<Course[]>([]);
   const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showingAllCoursesFallback, setShowingAllCoursesFallback] = useState(false);
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [editCourse, setEditCourse] = useState<Course | null>(null);
   const [deleteCourseId, setDeleteCourseId] = useState<string | null>(null);
+  const highlightedCourseId = searchParams.get("courseId");
+
+  const sortedCourses = useMemo(() => {
+    if (!highlightedCourseId) {
+      return courses;
+    }
+
+    return [...courses].sort((left, right) => {
+      if (left.id === highlightedCourseId) return -1;
+      if (right.id === highlightedCourseId) return 1;
+      return left.title.localeCompare(right.title);
+    });
+  }, [courses, highlightedCourseId]);
+  const highlightedCourse = highlightedCourseId ? courses.find((course) => course.id === highlightedCourseId) || null : null;
 
   useEffect(() => {
     if (user) {
@@ -44,12 +57,7 @@ const TrainerCourses = () => {
     setLoading(true);
     try {
       const allCourses = await courseService.getCourses();
-      const ownership = await resolveTrainerOwnership(user);
-      const myCourses = allCourses.filter((course) => ownership.ownerIds.includes(course.instructorId));
-      const visibleCourses = myCourses.length > 0 ? myCourses : allCourses;
-
-      setCourses(visibleCourses);
-      setShowingAllCoursesFallback(myCourses.length === 0 && allCourses.length > 0);
+      setCourses(allCourses);
     } catch (error) {
       console.error("Error loading courses:", error);
       toast.error("Failed to load courses");
@@ -140,18 +148,37 @@ const TrainerCourses = () => {
       <div className="space-y-8">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold">My Courses</h1>
-            <p className="text-muted-foreground mt-2">
-              {showingAllCoursesFallback
-                ? "Showing all manageable courses because no direct trainer ownership match was found."
-                : "Manage your training courses"}
-            </p>
+            <h1 className="text-3xl font-bold">Courses</h1>
+            <p className="text-muted-foreground mt-2">Manage all training courses</p>
           </div>
           <Button onClick={() => setCreateDialogOpen(true)}>
             <Plus className="w-4 h-4 mr-2" />
             Create Course
           </Button>
         </div>
+
+        {highlightedCourse ? (
+          <Card className="border-primary/30 bg-primary/5">
+            <CardContent className="flex flex-col gap-3 p-5 md:flex-row md:items-center md:justify-between">
+              <div>
+                <p className="text-sm font-medium text-primary">Focused from analytics</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Highlighting {highlightedCourse.title} so you can review modules, publishing state, and course settings directly from the dashboard.
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  const nextParams = new URLSearchParams(searchParams);
+                  nextParams.delete("courseId");
+                  setSearchParams(nextParams);
+                }}
+              >
+                Clear focus
+              </Button>
+            </CardContent>
+          </Card>
+        ) : null}
 
         {loading ? (
           <Card>
@@ -169,15 +196,20 @@ const TrainerCourses = () => {
                 </div>
               </div>
               <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
-                {courses.map((course) => {
+                {sortedCourses.map((course) => {
                   const enrollmentCount = getEnrollmentCount(course.id);
                   const visual = getCourseVisual(course);
                   const VisualIcon = visual.icon;
+                  const isHighlighted = course.id === highlightedCourseId;
 
                   return (
                     <article
                       key={course.id}
-                      className="overflow-hidden rounded-[1.6rem] border border-border bg-card shadow-[0_18px_50px_-30px_rgba(30,41,59,0.35)]"
+                      className={
+                        isHighlighted
+                          ? "overflow-hidden rounded-[1.6rem] border border-primary bg-primary/5 shadow-[0_18px_50px_-30px_rgba(15,118,110,0.45)]"
+                          : "overflow-hidden rounded-[1.6rem] border border-border bg-card shadow-[0_18px_50px_-30px_rgba(30,41,59,0.35)]"
+                      }
                     >
                       <div className="relative aspect-[16/10] overflow-hidden border-b border-border bg-muted">
                         {course.thumbnail ? (
@@ -194,6 +226,11 @@ const TrainerCourses = () => {
                           </div>
                         )}
                         <div className="absolute left-4 top-4 flex flex-wrap gap-2">
+                          {isHighlighted ? (
+                            <Badge className="rounded-full bg-primary px-3 py-1 text-[11px] font-semibold text-primary-foreground">
+                              Dashboard focus
+                            </Badge>
+                          ) : null}
                           <Badge variant="outline" className="rounded-full bg-background/90 px-3 py-1 text-[11px] font-semibold backdrop-blur">
                             {course.level}
                           </Badge>
