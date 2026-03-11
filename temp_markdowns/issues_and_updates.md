@@ -14,8 +14,7 @@ User credentials:
 ### Admin
 
 ### Course/Module Creation
-- [ ] Address failed to create module.
-- [ ] In Category selection in course creation, add others option
+- [ ] modules are being added but it says fails to add module. This is a blocker for trainers and admins to create courses and modules.
 
 ### Registration
 - [ ] Registered account goes to Auth but not in the users table. This causes issues for admin when trying to manage users and for trainers when trying to assign courses to users.

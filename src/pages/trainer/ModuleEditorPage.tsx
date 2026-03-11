@@ -318,6 +318,8 @@ const ModuleEditorPage = () => {
 
     setSaving(true);
     try {
+      let assessmentSyncWarning: string | null = null;
+
       const payload = {
         course_id: courseId,
         title: formData.title.trim(),
@@ -336,36 +338,52 @@ const ModuleEditorPage = () => {
       if (editingModule) {
         const updatedModule = await moduleService.updateModule(editingModule.id, payload);
         if (derivedAssessmentSummary.readyForAssessment) {
-          const syncedAssessment = await assessmentService.syncDerivedAssessmentFromQuizBlocks(
-            updatedModule.id,
-            payload.title,
-            contentBlocks,
-            {
-              ...assessmentFormData,
-              skillTags: assessmentFormData.skillTags.length > 0 ? assessmentFormData.skillTags : formData.skillTags,
-              topicTags: assessmentFormData.topicTags.length > 0 ? assessmentFormData.topicTags : formData.topicTags,
-            },
-          );
-          setCurrentAssessment(syncedAssessment);
+          try {
+            const syncedAssessment = await assessmentService.syncDerivedAssessmentFromQuizBlocks(
+              updatedModule.id,
+              payload.title,
+              contentBlocks,
+              {
+                ...assessmentFormData,
+                skillTags: assessmentFormData.skillTags.length > 0 ? assessmentFormData.skillTags : formData.skillTags,
+                topicTags: assessmentFormData.topicTags.length > 0 ? assessmentFormData.topicTags : formData.topicTags,
+              },
+            );
+            setCurrentAssessment(syncedAssessment);
+          } catch (error) {
+            console.error("Assessment sync failed after module update:", error);
+            assessmentSyncWarning = "Module saved, but the derived assessment could not be synced. Open the assessment tab to retry.";
+          }
         }
         setEditingModule(updatedModule);
         setModules((current) => current.map((module) => (module.id === updatedModule.id ? updatedModule : module)));
         toast.success(status === "finalized" ? "Module finalized" : "Module saved as draft");
+        if (assessmentSyncWarning) {
+          toast.warning(assessmentSyncWarning);
+        }
       } else {
         const createdModule = await moduleService.createModule(payload as Omit<Module, "id" | "created_at">);
         if (derivedAssessmentSummary.readyForAssessment) {
-          await assessmentService.syncDerivedAssessmentFromQuizBlocks(
-            createdModule.id,
-            payload.title,
-            contentBlocks,
-            {
-              ...assessmentFormData,
-              skillTags: assessmentFormData.skillTags.length > 0 ? assessmentFormData.skillTags : formData.skillTags,
-              topicTags: assessmentFormData.topicTags.length > 0 ? assessmentFormData.topicTags : formData.topicTags,
-            },
-          );
+          try {
+            await assessmentService.syncDerivedAssessmentFromQuizBlocks(
+              createdModule.id,
+              payload.title,
+              contentBlocks,
+              {
+                ...assessmentFormData,
+                skillTags: assessmentFormData.skillTags.length > 0 ? assessmentFormData.skillTags : formData.skillTags,
+                topicTags: assessmentFormData.topicTags.length > 0 ? assessmentFormData.topicTags : formData.topicTags,
+              },
+            );
+          } catch (error) {
+            console.error("Assessment sync failed after module creation:", error);
+            assessmentSyncWarning = "Module created, but the derived assessment could not be synced yet. Open the assessment tab to retry.";
+          }
         }
         toast.success(status === "finalized" ? "Module created and finalized" : "Module saved as draft");
+        if (assessmentSyncWarning) {
+          toast.warning(assessmentSyncWarning);
+        }
         navigate(`${basePath}/${courseId}/modules/${createdModule.id}/edit`, { replace: true });
         return;
       }

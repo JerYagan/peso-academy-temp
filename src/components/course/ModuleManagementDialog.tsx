@@ -395,6 +395,8 @@ export const ModuleManagementDialog = ({
 
     setLoading(true);
     try {
+      let assessmentSyncWarning: string | null = null;
+
       // Determine content based on mode
       let finalContent = formData.content;
       if (useContentBlocks && contentBlocks.length > 0) {
@@ -413,16 +415,21 @@ export const ModuleManagementDialog = ({
           topicTags: formData.topicTags,
         });
         if (derivedAssessmentSummary.readyForAssessment) {
-          await assessmentService.syncDerivedAssessmentFromQuizBlocks(
-            editingModule.id,
-            formData.title,
-            contentBlocks,
-            {
-              ...assessmentFormData,
-              skillTags: assessmentFormData.skillTags.length > 0 ? assessmentFormData.skillTags : formData.skillTags,
-              topicTags: assessmentFormData.topicTags.length > 0 ? assessmentFormData.topicTags : formData.topicTags,
-            },
-          );
+          try {
+            await assessmentService.syncDerivedAssessmentFromQuizBlocks(
+              editingModule.id,
+              formData.title,
+              contentBlocks,
+              {
+                ...assessmentFormData,
+                skillTags: assessmentFormData.skillTags.length > 0 ? assessmentFormData.skillTags : formData.skillTags,
+                topicTags: assessmentFormData.topicTags.length > 0 ? assessmentFormData.topicTags : formData.topicTags,
+              },
+            );
+          } catch (error) {
+            console.error("Assessment sync failed after module update:", error);
+            assessmentSyncWarning = "Module updated, but the derived assessment could not be synced. Open the module assessment tab to retry.";
+          }
         }
         toast.success("Module updated successfully");
       } else {
@@ -438,22 +445,30 @@ export const ModuleManagementDialog = ({
           order: nextModuleOrder,
         });
         if (derivedAssessmentSummary.readyForAssessment) {
-          await assessmentService.syncDerivedAssessmentFromQuizBlocks(
-            createdModule.id,
-            formData.title,
-            contentBlocks,
-            {
-              ...assessmentFormData,
-              skillTags: assessmentFormData.skillTags.length > 0 ? assessmentFormData.skillTags : formData.skillTags,
-              topicTags: assessmentFormData.topicTags.length > 0 ? assessmentFormData.topicTags : formData.topicTags,
-            },
-          );
+          try {
+            await assessmentService.syncDerivedAssessmentFromQuizBlocks(
+              createdModule.id,
+              formData.title,
+              contentBlocks,
+              {
+                ...assessmentFormData,
+                skillTags: assessmentFormData.skillTags.length > 0 ? assessmentFormData.skillTags : formData.skillTags,
+                topicTags: assessmentFormData.topicTags.length > 0 ? assessmentFormData.topicTags : formData.topicTags,
+              },
+            );
+          } catch (error) {
+            console.error("Assessment sync failed after module creation:", error);
+            assessmentSyncWarning = "Module created, but the derived assessment could not be synced yet. Open the module assessment tab to retry.";
+          }
         }
         toast.success("Module created successfully");
       }
       resetForm();
       loadModules();
       onSuccess?.();
+      if (assessmentSyncWarning) {
+        toast.warning(assessmentSyncWarning);
+      }
       // Don't close dialog - allow users to continue managing modules
     } catch (error) {
       console.error("Error saving module:", error);
