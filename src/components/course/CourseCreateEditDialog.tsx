@@ -508,6 +508,11 @@ export const CourseCreateEditDialog = ({
                   ))}
                 </SelectContent>
               </Select>
+              {formData.category === "Others" ? (
+                <p className="text-xs text-muted-foreground">
+                  Choose the closest approved skill and topic tags below so reporting and recommendations still classify the course correctly.
+                </p>
+              ) : null}
             </div>
 
             <div className="space-y-2">

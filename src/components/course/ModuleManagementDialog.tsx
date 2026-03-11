@@ -232,6 +232,13 @@ export const ModuleManagementDialog = ({
   const allowedSkillOptions = getAllowedSkillTagsForCategory(course.category);
   const allowedTopicOptions = getAllowedTopicTagsForCategory(course.category);
   const derivedAssessmentSummary = useMemo(() => getQuizAssessmentSummary(contentBlocks), [contentBlocks]);
+  const nextModuleOrder = useMemo(() => {
+    if (modules.length === 0) {
+      return 1;
+    }
+
+    return Math.max(...modules.map((module) => module.order || 0)) + 1;
+  }, [modules]);
 
   const sensors = useSensors(
     useSensor(PointerSensor),
@@ -363,7 +370,7 @@ export const ModuleManagementDialog = ({
         prerequisites: module.prerequisites,
         skillTags: module.skillTags || [],
         topicTags: module.topicTags || [],
-        order: modules.length + 1,
+        order: nextModuleOrder,
       });
       toast.success("Module duplicated successfully");
       loadModules();
@@ -428,7 +435,7 @@ export const ModuleManagementDialog = ({
           prerequisites: formData.prerequisites,
           skillTags: formData.skillTags,
           topicTags: formData.topicTags,
-          order: modules.length + 1,
+          order: nextModuleOrder,
         });
         if (derivedAssessmentSummary.readyForAssessment) {
           await assessmentService.syncDerivedAssessmentFromQuizBlocks(

@@ -8,6 +8,7 @@ export const TAXONOMY_COURSE_CATEGORIES = [
   "Hospitality & Tourism",
   "Construction & Trades",
   "Creative & Design",
+  "Others",
 ] as const;
 
 export const TAXONOMY_SKILL_TAGS = [
@@ -104,6 +105,8 @@ const CATEGORY_ALIASES: Record<string, TaxonomyCourseCategory> = {
   "creative and design": "Creative & Design",
   "construction and trades": "Construction & Trades",
   "hospitality and tourism": "Hospitality & Tourism",
+  other: "Others",
+  others: "Others",
 };
 
 const SKILL_ALIASES: Record<string, TaxonomySkillTag> = {
@@ -155,6 +158,7 @@ const CATEGORY_SKILL_MAP: Record<TaxonomyCourseCategory, readonly TaxonomySkillT
   "Hospitality & Tourism": ["Customer Service", "Professional Communication", "Hospitality Service", "Problem Solving"],
   "Construction & Trades": ["Construction Safety", "Problem Solving", "Project Coordination"],
   "Creative & Design": ["Graphic Design", "Professional Communication", "Marketing"],
+  Others: [...TAXONOMY_SKILL_TAGS],
 };
 
 const CATEGORY_TOPIC_MAP: Record<TaxonomyCourseCategory, readonly TaxonomyTopicTag[]> = {
@@ -167,6 +171,7 @@ const CATEGORY_TOPIC_MAP: Record<TaxonomyCourseCategory, readonly TaxonomyTopicT
   "Hospitality & Tourism": ["Hospitality Service", "Customer Relations", "Professional Communication"],
   "Construction & Trades": ["Construction Safety", "Project Management"],
   "Creative & Design": ["Creative Design", "Marketing Strategy"],
+  Others: [...TAXONOMY_TOPIC_TAGS],
 };
 
 const SKILL_TO_TOPICS: Partial<Record<TaxonomySkillTag, readonly TaxonomyTopicTag[]>> = {
@@ -229,6 +234,7 @@ export const canonicalizeCourseCategory = (value: string | null | undefined): Ta
   if (normalized.includes("hospitality") || normalized.includes("tourism")) return "Hospitality & Tourism";
   if (normalized.includes("construction") || normalized.includes("safety")) return "Construction & Trades";
   if (normalized.includes("creative") || normalized.includes("design")) return "Creative & Design";
+  if (normalized === "other" || normalized === "others") return "Others";
   return null;
 };
 
