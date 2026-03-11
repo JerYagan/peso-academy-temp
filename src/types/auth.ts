@@ -51,6 +51,9 @@ export interface User {
   cityMunicipality?: string;
   province?: string;
   postalCode?: string;
+  industryInterests?: string[];
+  preferredCategories?: string[];
+  onboardingSkillLevel?: "exploring" | "beginner" | "intermediate" | "advanced";
   skills?: string[];
   createdAt: string;
 }

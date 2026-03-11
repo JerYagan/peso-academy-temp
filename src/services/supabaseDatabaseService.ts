@@ -48,6 +48,8 @@ export const courseService = {
         courseDocument: resolveCourseMaterialUrl(course.course_document),
         isTESDAAccredited: course.is_tesda_accredited,
         skills: course.skills,
+        industryTags: course.industry_tags || [],
+        careerPaths: course.career_paths || [],
         enrolledCount: course.enrolled_count,
         rating: course.rating,
         createdAt: course.created_at,
@@ -86,6 +88,8 @@ export const courseService = {
       courseDocument: resolveCourseMaterialUrl(data.course_document),
       isTESDAAccredited: data.is_tesda_accredited,
       skills: data.skills,
+      industryTags: data.industry_tags || [],
+      careerPaths: data.career_paths || [],
       enrolledCount: data.enrolled_count,
       rating: data.rating,
       createdAt: data.created_at,
@@ -110,6 +114,8 @@ export const courseService = {
         course_document: course.courseDocument || null,
         is_tesda_accredited: course.isTESDAAccredited,
         skills: course.skills,
+        industry_tags: course.industryTags || [],
+        career_paths: course.careerPaths || [],
         enrolled_count: 0,
         rating: 0,
         certificate_type: "completion",
@@ -138,6 +144,8 @@ export const courseService = {
       courseDocument: resolveCourseMaterialUrl(data.course_document),
       isTESDAAccredited: data.is_tesda_accredited,
       skills: data.skills,
+      industryTags: data.industry_tags || [],
+      careerPaths: data.career_paths || [],
       enrolledCount: data.enrolled_count,
       rating: data.rating,
       createdAt: data.created_at,
@@ -163,6 +171,8 @@ export const courseService = {
     if (updates.courseDocument !== undefined) updateData.course_document = updates.courseDocument;
     if (updates.isTESDAAccredited !== undefined) updateData.is_tesda_accredited = updates.isTESDAAccredited;
     if (updates.skills !== undefined) updateData.skills = updates.skills;
+    if (updates.industryTags !== undefined) updateData.industry_tags = updates.industryTags;
+    if (updates.careerPaths !== undefined) updateData.career_paths = updates.careerPaths;
     if (updates.published !== undefined) updateData.published = updates.published;
 
     const { data, error } = await supabase
@@ -190,6 +200,8 @@ export const courseService = {
       courseDocument: resolveCourseMaterialUrl(data.course_document),
       isTESDAAccredited: data.is_tesda_accredited,
       skills: data.skills,
+      industryTags: data.industry_tags || [],
+      careerPaths: data.career_paths || [],
       enrolledCount: data.enrolled_count,
       rating: data.rating,
       createdAt: data.created_at,
@@ -1535,6 +1547,9 @@ export const userService = {
         cityMunicipality: user.city_municipality || undefined,
         province: user.province || undefined,
         postalCode: user.postal_code || undefined,
+        industryInterests: user.industry_interests || undefined,
+        preferredCategories: user.preferred_categories || undefined,
+        onboardingSkillLevel: user.onboarding_skill_level || undefined,
         skills: user.skills || undefined,
         createdAt: user.created_at,
       })) || []
@@ -1586,6 +1601,9 @@ export const userService = {
       cityMunicipality: data.city_municipality || undefined,
       province: data.province || undefined,
       postalCode: data.postal_code || undefined,
+      industryInterests: data.industry_interests || undefined,
+      preferredCategories: data.preferred_categories || undefined,
+      onboardingSkillLevel: data.onboarding_skill_level || undefined,
       skills: data.skills || undefined,
       createdAt: data.created_at,
     };
@@ -1617,6 +1635,9 @@ export const userService = {
     if (updates.cityMunicipality !== undefined) updateData.city_municipality = updates.cityMunicipality || null;
     if (updates.province !== undefined) updateData.province = updates.province || null;
     if (updates.postalCode !== undefined) updateData.postal_code = updates.postalCode || null;
+    if (updates.industryInterests !== undefined) updateData.industry_interests = updates.industryInterests;
+    if (updates.preferredCategories !== undefined) updateData.preferred_categories = updates.preferredCategories;
+    if (updates.onboardingSkillLevel !== undefined) updateData.onboarding_skill_level = updates.onboardingSkillLevel || null;
     if (updates.avatar !== undefined) updateData.avatar = updates.avatar;
     if (updates.skills !== undefined) updateData.skills = updates.skills;
     if (updates.role !== undefined) updateData.role = updates.role;
@@ -1665,6 +1686,9 @@ export const userService = {
       cityMunicipality: data.city_municipality || undefined,
       province: data.province || undefined,
       postalCode: data.postal_code || undefined,
+      industryInterests: data.industry_interests || undefined,
+      preferredCategories: data.preferred_categories || undefined,
+      onboardingSkillLevel: data.onboarding_skill_level || undefined,
       skills: data.skills || undefined,
       createdAt: data.created_at,
     };

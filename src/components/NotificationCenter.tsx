@@ -138,7 +138,9 @@ const NotificationCenter = () => {
 
     // Navigate based on notification type
     if (notification.metadata?.courseId) {
-      navigate(`/courses/${notification.metadata.courseId}`);
+      navigate(`/courses/${notification.metadata.courseId}`, {
+        state: { entrySource: "notification_center" },
+      });
       setOpen(false);
     } else if (notification.metadata?.submissionId) {
       navigate(`/validator/submissions/${notification.metadata.submissionId}`);

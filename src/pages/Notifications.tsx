@@ -120,7 +120,9 @@ const Notifications = () => {
 
     // Navigate based on notification type
     if (notification.metadata?.courseId) {
-      navigate(`/courses/${notification.metadata.courseId}`);
+      navigate(`/courses/${notification.metadata.courseId}`, {
+        state: { entrySource: "notification_open" },
+      });
     } else if (notification.metadata?.submissionId) {
       navigate(`/validator/submissions/${notification.metadata.submissionId}`);
     } else if (notification.metadata?.certificateId) {

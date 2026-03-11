@@ -34,7 +34,8 @@ import { analyticsService, type PersistedLearnerRecommendation } from "@/service
 import { courseService, enrollmentService, moduleService } from "@/services/supabaseDatabaseService";
 import { Course, Enrollment } from "@/types";
 import { toast } from "sonner";
-import { buildLearnerCourseRecommendations, type LearnerCourseRecommendation } from "@/services/reportingService";
+import { buildLearnerCourseRecommendations, reportingService, type CollaborativeRecommendationSignal, type LearnerCourseRecommendation, type LearnerPerformanceSummary } from "@/services/reportingService";
+import { moduleSessionService, type ModuleSessionAggregate } from "@/services/moduleSessionService";
 
 type CourseTab = "all" | "technical" | "business" | "personal";
 
@@ -120,15 +121,22 @@ const Courses = () => {
   const [previewRecommendation, setPreviewRecommendation] = useState<PersistedLearnerRecommendation | null>(null);
   const [previewModuleCount, setPreviewModuleCount] = useState(0);
   const [persistedRecommendations, setPersistedRecommendations] = useState<PersistedLearnerRecommendation[]>([]);
+  const [performanceSummary, setPerformanceSummary] = useState<LearnerPerformanceSummary | null>(null);
+  const [sessionAggregates, setSessionAggregates] = useState<ModuleSessionAggregate[]>([]);
+  const [collaborativeSignals, setCollaborativeSignals] = useState<Record<string, CollaborativeRecommendationSignal>>({});
 
   useEffect(() => {
     loadCourses();
     loadEnrollments();
+    void loadRecommendationSignals();
   }, [user]);
 
   useEffect(() => {
     if (!user) return;
-    const onFocus = () => loadEnrollments();
+    const onFocus = () => {
+      void loadEnrollments();
+      void loadRecommendationSignals();
+    };
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
   }, [user]);
@@ -172,6 +180,27 @@ const Courses = () => {
       setEnrollments(list);
     } catch (error) {
       console.error("Error loading enrollments:", error);
+    }
+  };
+
+  const loadRecommendationSignals = async () => {
+    if (!user || user.role !== "trainee") {
+      setPerformanceSummary(null);
+      setSessionAggregates([]);
+      return;
+    }
+
+    try {
+      const [summary, aggregates, collaborative] = await Promise.all([
+        reportingService.getLearnerPerformanceSummary(user.id),
+        moduleSessionService.getSessionAggregatesByModule(user.id),
+        reportingService.getCollaborativeRecommendationSignals(user.id),
+      ]);
+      setPerformanceSummary(summary);
+      setSessionAggregates(aggregates);
+      setCollaborativeSignals(collaborative);
+    } catch (error) {
+      console.error("Error loading recommendation signals:", error);
     }
   };
 
@@ -231,8 +260,24 @@ const Courses = () => {
   );
 
   const recommendedCourses = useMemo<LearnerCourseRecommendation[]>(() => {
-    return buildLearnerCourseRecommendations(user, courses, enrollments, null, 3);
-  }, [courses, enrollments, user]);
+    return buildLearnerCourseRecommendations(
+      user,
+      courses,
+      enrollments,
+      performanceSummary,
+      3,
+      sessionAggregates,
+      collaborativeSignals,
+    );
+  }, [collaborativeSignals, courses, enrollments, performanceSummary, sessionAggregates, user]);
+
+  const hasOnboardingSignals = Boolean(
+    user &&
+      ((user.industryInterests && user.industryInterests.length > 0) ||
+        (user.preferredCategories && user.preferredCategories.length > 0) ||
+        user.onboardingSkillLevel ||
+        (user.skills && user.skills.length > 0)),
+  );
 
   const recommendationCards = useMemo(
     () => analyticsService.hydrateRecommendationCards(recommendedCourses, persistedRecommendations),
@@ -255,6 +300,15 @@ const Courses = () => {
           "browse_recommendations",
           {
             totalEnrollments: enrollments.length,
+            industryInterestCount: user.industryInterests?.length || 0,
+            preferredCategoryCount: user.preferredCategories?.length || 0,
+            onboardingSkillLevel: user.onboardingSkillLevel || null,
+            hasProfileSkills: Boolean(user.skills && user.skills.length > 0),
+            hasPerformanceSummary: Boolean(performanceSummary),
+            recentSessionCount: sessionAggregates.reduce((sum, aggregate) => sum + aggregate.sessionCount, 0),
+            repeatedIncompleteModules: sessionAggregates.filter((aggregate) => aggregate.lastSessionStatus !== "completed" && aggregate.sessionCount >= 2).length,
+            collaborativeCandidateCount: Object.keys(collaborativeSignals).length,
+            hybridRecommendationEngine: true,
           },
         );
 
@@ -274,7 +328,7 @@ const Courses = () => {
     return () => {
       cancelled = true;
     };
-  }, [enrollments.length, recommendedCourses, user]);
+  }, [collaborativeSignals, enrollments.length, performanceSummary, recommendedCourses, sessionAggregates, user]);
 
   const renderCourseCard = (course: Course) => {
     const enrollment = enrollmentByCourseId[course.id];
@@ -348,7 +402,9 @@ const Courses = () => {
           <div className="mt-auto pt-5">
             {isEnrolled ? (
               <Button asChild className="h-12 w-full rounded-xl text-base font-semibold">
-                <Link to={`/courses/${course.id}`}>Continue Learning</Link>
+                <Link to={`/courses/${course.id}`} state={{ entrySource: "courses_continue_learning" }}>
+                  Continue Learning
+                </Link>
               </Button>
             ) : (
               <Button
@@ -448,7 +504,11 @@ const Courses = () => {
               </Button>
               {enrollmentByCourseId[previewCourse.id] ? (
                 <Button asChild className="w-full sm:w-auto">
-                  <Link to={`/courses/${previewCourse.id}`} onClick={() => setPreviewCourse(null)}>
+                  <Link
+                    to={`/courses/${previewCourse.id}`}
+                    state={{ entrySource: previewRecommendation ? "browse_recommendations" : "courses_continue_learning" }}
+                    onClick={() => setPreviewCourse(null)}
+                  >
                     Continue Learning
                   </Link>
                 </Button>
@@ -518,14 +578,18 @@ const Courses = () => {
               <span className="text-sm font-semibold uppercase tracking-[0.18em]">Recommended for You</span>
             </div>
             <h2 className="mt-3 text-2xl font-semibold tracking-[-0.03em] text-foreground sm:text-3xl">
-              Courses picked from your profile, learning history, and popular trainee paths
+              {hasOnboardingSignals
+                ? "Starter courses picked from your onboarding profile"
+                : "Starter courses picked from beginner-friendly learner paths"}
             </h2>
             <p className="mt-3 max-w-3xl text-sm leading-7 text-muted-foreground sm:text-base">
-              These recommendations blend your saved skills, completed learning areas, and platform demand signals to help you find relevant next-step training faster.
+              {hasOnboardingSignals
+                ? "These recommendations use the interests, preferred categories, skill level, and skills you shared during signup so you can start with relevant training immediately."
+                : "These recommendations fall back to curated starter courses and popular beginner pathways so new trainees can begin learning right away."}
             </p>
           </div>
           <Badge variant="outline" className="w-fit rounded-full bg-background/80 px-3 py-1 text-xs font-semibold">
-            Personalized recommendation signals
+            {hasOnboardingSignals ? "Cold-start onboarding signals" : "Curated starter defaults"}
           </Badge>
         </div>
 

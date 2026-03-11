@@ -16,10 +16,13 @@ import {
   PieChart,
   Activity,
   CheckCircle2,
+  Loader2,
 } from "lucide-react";
 import { progressTrackingService, ProgressStats, CourseProgress } from "@/services/progressTrackingService";
 import { enrollmentService } from "@/services/supabaseDatabaseService";
 import { Link } from "react-router-dom";
+import { formatDistanceToNow } from "date-fns";
+import { moduleSessionService, type EnrichedModuleSession } from "@/services/moduleSessionService";
 import {
   LineChart,
   Line,
@@ -45,6 +48,8 @@ const ProgressDashboard = () => {
   const [selectedEnrollment, setSelectedEnrollment] = useState<string | null>(null);
   const [detailedStats, setDetailedStats] = useState<ProgressStats | null>(null);
   const [loading, setLoading] = useState(true);
+  const [recentSessions, setRecentSessions] = useState<EnrichedModuleSession[]>([]);
+  const [loadingSessionHistory, setLoadingSessionHistory] = useState(true);
 
   useEffect(() => {
     if (user) {
@@ -62,12 +67,16 @@ const ProgressDashboard = () => {
     if (!user) return;
 
     setLoading(true);
+    setLoadingSessionHistory(true);
     try {
-      const myEnrollments = await enrollmentService.getEnrollments(user.id);
+      const [myEnrollments, progress, sessionCards] = await Promise.all([
+        enrollmentService.getEnrollments(user.id),
+        progressTrackingService.getUserCourseProgress(user.id),
+        moduleSessionService.getUserRecentSessionCards(user.id, 6),
+      ]);
       setEnrollments(myEnrollments);
-
-      const progress = await progressTrackingService.getUserCourseProgress(user.id);
       setCourseProgress(progress);
+      setRecentSessions(sessionCards);
 
       if (myEnrollments.length > 0 && !selectedEnrollment) {
         setSelectedEnrollment(myEnrollments[0].id);
@@ -76,6 +85,7 @@ const ProgressDashboard = () => {
       console.error("Error loading progress:", error);
     } finally {
       setLoading(false);
+      setLoadingSessionHistory(false);
     }
   };
 
@@ -100,6 +110,59 @@ const ProgressDashboard = () => {
       day: "numeric",
       year: "numeric",
     });
+  };
+
+  const formatDateTime = (dateString: string | null) => {
+    if (!dateString) return "Never";
+
+    return new Date(dateString).toLocaleString("en-US", {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  };
+
+  const formatRelativeDateTime = (dateString: string | null) => {
+    if (!dateString) return "No recent activity";
+
+    const date = new Date(dateString);
+    if (Number.isNaN(date.getTime())) {
+      return "No recent activity";
+    }
+
+    return formatDistanceToNow(date, { addSuffix: true });
+  };
+
+  const formatSessionDuration = (seconds: number) => {
+    if (seconds <= 0) return "0m";
+
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+
+    if (hours === 0) {
+      return `${Math.max(1, minutes)}m`;
+    }
+
+    if (minutes === 0) {
+      return `${hours}h`;
+    }
+
+    return `${hours}h ${minutes}m`;
+  };
+
+  const formatSessionStatus = (status: EnrichedModuleSession["sessionStatus"]) => {
+    switch (status) {
+      case "completed":
+        return "Completed";
+      case "timed_out":
+        return "Timed out";
+      case "abandoned":
+        return "Left mid-session";
+      default:
+        return "In progress";
+    }
   };
 
   // Calculate overall statistics
@@ -220,6 +283,65 @@ const ProgressDashboard = () => {
           </TabsList>
 
           <TabsContent value="overview" className="space-y-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle>Recent Learning Sessions</CardTitle>
+                  <CardDescription>
+                    Your latest module visits, including the last opened time, tracked duration, and a direct resume action.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  {loadingSessionHistory ? (
+                    <div className="flex items-center justify-center py-8">
+                      <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                    </div>
+                  ) : recentSessions.length > 0 ? (
+                    recentSessions.map((session) => (
+                      <div key={session.id} className="rounded-lg border p-4">
+                        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                          <div className="space-y-2">
+                            <div>
+                              <p className="font-semibold leading-tight">{session.moduleTitle || "Untitled module"}</p>
+                              <p className="text-sm text-muted-foreground">{session.courseTitle || "Untitled course"}</p>
+                            </div>
+                            <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                              <span>Last opened {formatRelativeDateTime(session.lastSeenAt)}</span>
+                              <span>•</span>
+                              <span>{formatDateTime(session.lastSeenAt)}</span>
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              <Badge variant="secondary">{formatSessionDuration(session.durationSeconds)}</Badge>
+                              <Badge variant="outline">{formatSessionStatus(session.sessionStatus)}</Badge>
+                            </div>
+                          </div>
+
+                          <div className="flex flex-wrap gap-2">
+                            <Button asChild size="sm">
+                              <Link
+                                to={`/courses/${session.courseId}`}
+                                state={{
+                                  entrySource: "progress_dashboard_recent_sessions",
+                                  moduleId: session.moduleId,
+                                }}
+                              >
+                                Resume Module
+                              </Link>
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="flex flex-col items-center justify-center py-8 text-center">
+                      <Clock className="mb-3 h-10 w-10 text-muted-foreground opacity-60" />
+                      <p className="text-sm text-muted-foreground">
+                        Recent session history will appear here after you open modules from your enrolled courses.
+                      </p>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
             <div className="grid gap-4 md:grid-cols-2">
               {/* Progress Chart */}
               <Card>
@@ -351,7 +473,9 @@ const ProgressDashboard = () => {
                             </Button>
                           ) : (
                             <Button asChild variant="outline" size="sm">
-                              <Link to={`/courses/${course.courseId}`}>Continue Learning</Link>
+                              <Link to={`/courses/${course.courseId}`} state={{ entrySource: "progress_dashboard_continue_learning" }}>
+                                Continue Learning
+                              </Link>
                             </Button>
                           )}
                         </div>
@@ -393,7 +517,7 @@ const ProgressDashboard = () => {
                     </div>
                     <div className="space-y-1">
                       <p className="text-sm text-muted-foreground">Last Activity</p>
-                      <p className="text-2xl font-bold text-sm">
+                      <p className="text-sm font-bold">
                         {formatDate(detailedStats.lastActivityAt)}
                       </p>
                     </div>

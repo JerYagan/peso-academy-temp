@@ -34,6 +34,9 @@ export interface Database {
           city_municipality?: string | null
           province?: string | null
           postal_code?: string | null
+          industry_interests?: string[] | null
+          preferred_categories?: string[] | null
+          onboarding_skill_level?: string | null
           skills?: string[] | null
           created_at: string
           updated_at: string
@@ -56,6 +59,9 @@ export interface Database {
           city_municipality?: string | null
           province?: string | null
           postal_code?: string | null
+          industry_interests?: string[] | null
+          preferred_categories?: string[] | null
+          onboarding_skill_level?: string | null
           skills?: string[] | null
           created_at?: string
           updated_at?: string
@@ -78,6 +84,9 @@ export interface Database {
           city_municipality?: string | null
           province?: string | null
           postal_code?: string | null
+          industry_interests?: string[] | null
+          preferred_categories?: string[] | null
+          onboarding_skill_level?: string | null
           skills?: string[] | null
           created_at?: string
           updated_at?: string
@@ -95,6 +104,8 @@ export interface Database {
           thumbnail?: string | null
           is_tesda_accredited: boolean
           skills: string[]
+          industry_tags?: string[] | null
+          career_paths?: string[] | null
           enrolled_count: number
           rating: number
           certificate_type: 'completion' | 'participation'
@@ -112,6 +123,8 @@ export interface Database {
           thumbnail?: string | null
           is_tesda_accredited?: boolean
           skills: string[]
+          industry_tags?: string[] | null
+          career_paths?: string[] | null
           enrolled_count?: number
           rating?: number
           certificate_type?: 'completion' | 'participation'
@@ -129,6 +142,8 @@ export interface Database {
           thumbnail?: string | null
           is_tesda_accredited?: boolean
           skills?: string[]
+          industry_tags?: string[] | null
+          career_paths?: string[] | null
           enrolled_count?: number
           rating?: number
           certificate_type?: 'completion' | 'participation'
@@ -236,6 +251,62 @@ export interface Database {
           module_id?: string
           completed_at?: string | null
           time_spent?: number | null
+        }
+      }
+      module_sessions: {
+        Row: {
+          id: string
+          user_id: string
+          enrollment_id: string
+          course_id: string
+          module_id: string
+          session_date: string
+          started_at: string
+          last_seen_at: string
+          ended_at?: string | null
+          duration_seconds: number
+          session_status: 'active' | 'completed' | 'abandoned' | 'timed_out'
+          entry_source?: string | null
+          resume_position_seconds?: number | null
+          metadata?: Json | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          enrollment_id: string
+          course_id: string
+          module_id: string
+          session_date?: string
+          started_at?: string
+          last_seen_at?: string
+          ended_at?: string | null
+          duration_seconds?: number
+          session_status?: 'active' | 'completed' | 'abandoned' | 'timed_out'
+          entry_source?: string | null
+          resume_position_seconds?: number | null
+          metadata?: Json | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          enrollment_id?: string
+          course_id?: string
+          module_id?: string
+          session_date?: string
+          started_at?: string
+          last_seen_at?: string
+          ended_at?: string | null
+          duration_seconds?: number
+          session_status?: 'active' | 'completed' | 'abandoned' | 'timed_out'
+          entry_source?: string | null
+          resume_position_seconds?: number | null
+          metadata?: Json | null
+          created_at?: string
+          updated_at?: string
         }
       }
       submissions: {

@@ -14,11 +14,12 @@ interface VideoPlayerProps {
   title?: string;
   enrollmentId?: string;
   moduleId?: string;
+  onPlaybackPositionChange?: (seconds: number) => void;
 }
 
 const isHostedVideoFile = (value: string) => /\.(mp4|webm|ogg|mov|m4v)(\?|#|$)/i.test(value);
 
-const VideoPlayer = ({ url, title, enrollmentId, moduleId }: VideoPlayerProps) => {
+const VideoPlayer = ({ url, title, enrollmentId, moduleId, onPlaybackPositionChange }: VideoPlayerProps) => {
   const { user } = useAuth();
   const [isReady, setIsReady] = useState(false);
   const [progress, setProgress] = useState(0);
@@ -42,12 +43,13 @@ const VideoPlayer = ({ url, title, enrollmentId, moduleId }: VideoPlayerProps) =
         const parsed = JSON.parse(savedProgress);
         if (parsed.progress && parsed.duration) {
           setProgress(parsed.progress);
+          onPlaybackPositionChange?.(parsed.progress);
         }
       }
     } catch (error) {
       console.error("Error loading video progress:", error);
     }
-  }, [enrollmentId, moduleId, user, url]);
+  }, [enrollmentId, moduleId, onPlaybackPositionChange, user, url]);
 
   const saveVideoProgress = useCallback(async () => {
     if (!enrollmentId || !moduleId || !user || !duration) return;
@@ -136,6 +138,7 @@ const VideoPlayer = ({ url, title, enrollmentId, moduleId }: VideoPlayerProps) =
 
   const handleProgress = (state: { played: number; playedSeconds: number; loaded: number; loadedSeconds: number }) => {
     setProgress(state.playedSeconds);
+    onPlaybackPositionChange?.(state.playedSeconds);
   };
 
   const handleDuration = (duration: number) => {
@@ -146,6 +149,7 @@ const VideoPlayer = ({ url, title, enrollmentId, moduleId }: VideoPlayerProps) =
     if (playerRef.current) {
       playerRef.current.seekTo(seconds);
     }
+    onPlaybackPositionChange?.(seconds);
   };
 
   const handleNativeLoadedMetadata = (event: React.SyntheticEvent<HTMLVideoElement>) => {
@@ -156,11 +160,13 @@ const VideoPlayer = ({ url, title, enrollmentId, moduleId }: VideoPlayerProps) =
     }
     if (progress > 0) {
       event.currentTarget.currentTime = progress;
+      onPlaybackPositionChange?.(progress);
     }
   };
 
   const handleNativeTimeUpdate = (event: React.SyntheticEvent<HTMLVideoElement>) => {
     setProgress(event.currentTarget.currentTime);
+    onPlaybackPositionChange?.(event.currentTarget.currentTime);
   };
 
   // Check if URL is valid

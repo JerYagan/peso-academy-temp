@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useParams, useNavigate, Link, useSearchParams } from "react-router-dom";
+import { useParams, useNavigate, Link, useSearchParams, useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -51,6 +51,7 @@ import { supabase } from "@/lib/supabase";
 const CourseDetail = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams] = useSearchParams();
   const { user } = useAuth();
   const [course, setCourse] = useState<Course | null>(null);
@@ -66,12 +67,30 @@ const CourseDetail = () => {
   const previewKey = searchParams.get("previewKey");
   const isPreviewMode = Boolean(searchParams.get("preview") && previewKey);
   const previewEnrollmentId = `preview-enrollment-${id || "course"}`;
+  const locationState = location.state as { entrySource?: string; moduleId?: string } | null;
+
+  const moduleEntrySource = (() => {
+    if (typeof locationState?.entrySource === "string" && locationState.entrySource.trim()) {
+      return locationState.entrySource;
+    }
+
+    if (isPreviewMode) {
+      return "course_preview";
+    }
+
+    return "course_detail";
+  })();
+
+  const requestedModuleId =
+    typeof locationState?.moduleId === "string" && locationState.moduleId.trim()
+      ? locationState.moduleId
+      : null;
 
   useEffect(() => {
     if (id) {
       loadCourseData();
     }
-  }, [id, user, isPreviewMode, previewKey]);
+  }, [id, user, isPreviewMode, previewKey, requestedModuleId]);
 
   const loadCourseData = async () => {
     if (!id) return;
@@ -126,6 +145,10 @@ const CourseDetail = () => {
       const modulesData = modulesSourceCourseId ? await moduleService.getModulesByCourse(modulesSourceCourseId) : [];
       setModules(modulesData);
 
+      const initialModule = requestedModuleId
+        ? modulesData.find((module) => module.id === requestedModuleId) || modulesData[0] || null
+        : modulesData[0] || null;
+
       if (isPreviewMode) {
         setEnrollment({
           id: previewEnrollmentId,
@@ -135,7 +158,7 @@ const CourseDetail = () => {
           status: "enrolled",
           enrolledAt: new Date().toISOString(),
         });
-        setSelectedModule(modulesData.length > 0 ? modulesData[0] : null);
+        setSelectedModule(initialModule);
         setCompletedModuleIds([]);
         setLoading(false);
         return;
@@ -153,7 +176,7 @@ const CourseDetail = () => {
       
       if (!userEnrollment) {
         setEnrollment(null);
-        setSelectedModule(modulesData.length > 0 ? modulesData[0] : null);
+        setSelectedModule(initialModule);
         setLoading(false);
         return;
       }
@@ -171,9 +194,7 @@ const CourseDetail = () => {
           .eq("enrollment_id", userEnrollment.id);
       }
 
-      if (modulesData.length > 0) {
-        setSelectedModule(modulesData[0]);
-      }
+      setSelectedModule(initialModule);
     } catch (error) {
       console.error("Error loading course data:", error);
       toast.error("Failed to load course data");
@@ -579,6 +600,7 @@ const CourseDetail = () => {
                 enrollment={enrollment}
                 isCompleted={isModuleCompleted(selectedModule.id)}
                 isPreviewMode={isPreviewMode}
+                entrySource={moduleEntrySource}
                 onComplete={(timeSpentMinutes) => handleModuleComplete(selectedModule.id, timeSpentMinutes)}
               />
             ) : (

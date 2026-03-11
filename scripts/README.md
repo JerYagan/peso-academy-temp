@@ -61,6 +61,28 @@ npm run seed:analytics
 - `SUPABASE_URL` or `VITE_SUPABASE_URL`
 - `SUPABASE_SERVICE_ROLE_KEY`
 
+### `seed-course-content.ts`
+
+Creates reusable demo courses with modules, content blocks, inline quiz blocks, and module assessments.
+
+**Usage:**
+
+```bash
+npm run seed:courses
+```
+
+**What it does:**
+- Ensures at least one trainer/admin/SPD instructor exists, creating a fallback trainer if needed
+- Creates or updates demo courses by title
+- Creates or updates modules by course and title
+- Stores rich module content in `modules.content` as JSON content blocks
+- Seeds inline quiz blocks inside module content and module-level assessments in the assessment tables
+- Rewrites assessment questions for the seeded modules so reruns stay deterministic
+
+**Environment Variables Required:**
+- `SUPABASE_URL` or `VITE_SUPABASE_URL`
+- `SUPABASE_SERVICE_ROLE_KEY`
+
 ## Security Notes
 
 ⚠️ **Never commit your service role key to version control!**

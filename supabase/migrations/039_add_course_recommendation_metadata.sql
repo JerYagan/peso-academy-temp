@@ -1,0 +1,3 @@
+ALTER TABLE public.courses
+  ADD COLUMN IF NOT EXISTS industry_tags TEXT[] NOT NULL DEFAULT '{}'::TEXT[],
+  ADD COLUMN IF NOT EXISTS career_paths TEXT[] NOT NULL DEFAULT '{}'::TEXT[];

@@ -7,7 +7,7 @@ User credentials:
  -->
 
 ### System
-
+- [ ] Landing page: there are still some icons with white/transparent bg
 
 ### Admin & Trainer & Trainee
 
@@ -45,3 +45,7 @@ User credentials:
 
 ### Courses Module
 - [ ] Learners Enrolled shows 0 even though there are learners enrolled in the course
+
+<!-- 
+git clone -b peso https://github.com/CAP101G1/peso-academy.git
+ -->

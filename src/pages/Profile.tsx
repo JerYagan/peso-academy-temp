@@ -25,6 +25,7 @@ import {
   Phone,
   Save,
   ShieldCheck,
+  Sparkles,
   Target,
   TrendingUp,
   User,
@@ -36,6 +37,12 @@ import { toast } from "sonner";
 import { Certificate, Enrollment } from "@/types";
 import { User as AuthUser } from "@/types/auth";
 import { reportingService, type LearnerPerformanceSummary } from "@/services/reportingService";
+import {
+  ONBOARDING_CATEGORY_OPTIONS,
+  ONBOARDING_INDUSTRY_OPTIONS,
+  ONBOARDING_SKILL_LEVEL_OPTIONS,
+} from "@/lib/onboarding";
+import { recommendationSyncService } from "@/services/recommendationSyncService";
 
 const genderOptions: Array<{ value: NonNullable<AuthUser["gender"]>; label: string }> = [
   { value: "male", label: "Male" },
@@ -142,6 +149,17 @@ const formatLearningTime = (minutes: number) => {
   return `${Number.isInteger(hours) ? hours : hours.toFixed(1)}h`;
 };
 
+const parseListInput = (value: string) => {
+  return Array.from(
+    new Set(
+      value
+        .split(/[,\n]/)
+        .map((item) => item.trim())
+        .filter(Boolean),
+    ),
+  );
+};
+
 const Profile = () => {
   const { user, updateUser } = useAuth();
   const [isEditing, setIsEditing] = useState(false);
@@ -165,6 +183,10 @@ const Profile = () => {
     cityMunicipality: "",
     province: "",
     postalCode: "",
+    industryInterests: [] as string[],
+    preferredCategories: [] as string[],
+    onboardingSkillLevel: "" as AuthUser["onboardingSkillLevel"] | "",
+    skillsInput: "",
   });
   const [passwordForm, setPasswordForm] = useState({
     currentPassword: "",
@@ -220,6 +242,10 @@ const Profile = () => {
       cityMunicipality: user.cityMunicipality || "",
       province: user.province || "",
       postalCode: user.postalCode || "",
+      industryInterests: user.industryInterests || [],
+      preferredCategories: user.preferredCategories || [],
+      onboardingSkillLevel: user.onboardingSkillLevel || "",
+      skillsInput: (user.skills || []).join(", "),
     });
 
     void loadProfileData();
@@ -239,6 +265,28 @@ const Profile = () => {
         }
       }
 
+      const parsedSkills = parseListInput(formData.skillsInput);
+      const nextUserProfile: AuthUser = {
+        ...user,
+        name: formData.name,
+        phone: formData.phone || undefined,
+        address: formData.address || undefined,
+        dateOfBirth: formData.dateOfBirth || undefined,
+        gender: formData.gender || undefined,
+        civilStatus: formData.civilStatus || undefined,
+        employmentStatus: formData.employmentStatus || undefined,
+        occupation: formData.occupation || undefined,
+        educationLevel: formData.educationLevel || undefined,
+        barangay: formData.barangay || undefined,
+        cityMunicipality: formData.cityMunicipality || undefined,
+        province: formData.province || undefined,
+        postalCode: formData.postalCode || undefined,
+        industryInterests: formData.industryInterests,
+        preferredCategories: formData.preferredCategories,
+        onboardingSkillLevel: formData.onboardingSkillLevel || undefined,
+        skills: parsedSkills,
+      };
+
       await updateUser({
         name: formData.name,
         phone: formData.phone,
@@ -253,7 +301,22 @@ const Profile = () => {
         cityMunicipality: formData.cityMunicipality,
         province: formData.province,
         postalCode: formData.postalCode,
+        industryInterests: formData.industryInterests,
+        preferredCategories: formData.preferredCategories,
+        onboardingSkillLevel: formData.onboardingSkillLevel || undefined,
+        skills: parsedSkills,
       });
+
+      if (isLearner) {
+        try {
+          await recommendationSyncService.refreshProfileDrivenRecommendations(nextUserProfile);
+        } catch (recommendationError) {
+          console.error("Error refreshing learner recommendations after profile update:", recommendationError);
+          toast.warning("Profile saved, but recommendations will refresh the next time your dashboard loads.");
+        }
+
+        await loadProfileData();
+      }
 
       setIsEditing(false);
       toast.success("Profile updated successfully!");
@@ -325,6 +388,18 @@ const Profile = () => {
   const moduleCompletionRate = performanceSummary?.overallModuleCompletionRate || 0;
   const strongestTopic = performanceSummary?.strongestTopic?.topic || null;
   const needsImprovementTopic = performanceSummary?.needsImprovementTopic?.topic || null;
+  const industryInterestCount = user.industryInterests?.length || 0;
+  const preferredCategoryCount = user.preferredCategories?.length || 0;
+  const profileSkillCount = user.skills?.length || 0;
+  const recommendationProfileFields = [
+    industryInterestCount > 0,
+    preferredCategoryCount > 0,
+    Boolean(user.onboardingSkillLevel),
+    profileSkillCount > 0,
+  ];
+  const recommendationSignalCoverage = Math.round(
+    (recommendationProfileFields.filter(Boolean).length / recommendationProfileFields.length) * 100,
+  );
   const profileCompletionFields = [
     user.phone,
     user.address,
@@ -338,11 +413,39 @@ const Profile = () => {
     user.cityMunicipality,
     user.province,
     user.postalCode,
+    industryInterestCount > 0 ? "interests" : "",
+    preferredCategoryCount > 0 ? "categories" : "",
+    user.onboardingSkillLevel,
+    profileSkillCount > 0 ? "skills" : "",
   ];
   const completedProfileFields = profileCompletionFields.filter(
     (field) => typeof field === "string" && field.trim().length > 0,
   ).length;
   const profileCompletion = Math.round((completedProfileFields / profileCompletionFields.length) * 100);
+  const hasLearningHistory = Boolean(
+    performanceSummary &&
+      (performanceSummary.modulesCompleted > 0 ||
+        performanceSummary.assessmentsTaken > 0 ||
+        performanceSummary.totalLearningMinutes > 0 ||
+        enrollments.length > 0),
+  );
+  const predictiveReadiness = Math.round(
+    (profileCompletion + recommendationSignalCoverage + (hasLearningHistory ? 100 : 0)) / 3,
+  );
+
+  const toggleFormListValue = (field: "industryInterests" | "preferredCategories", value: string) => {
+    setFormData((current) => {
+      const existingValues = current[field];
+      const nextValues = existingValues.includes(value)
+        ? existingValues.filter((item) => item !== value)
+        : [...existingValues, value];
+
+      return {
+        ...current,
+        [field]: nextValues,
+      };
+    });
+  };
 
   const identityItems: InfoCardItem[] = [
     { label: "Email", value: user.email, icon: Mail },
@@ -610,6 +713,96 @@ const Profile = () => {
                         </div>
                       </div>
 
+                      {isLearner && (
+                        <div className="space-y-5 rounded-3xl border border-border/60 bg-background/50 p-5">
+                          <div>
+                            <h3 className="text-lg font-semibold">Recommendation profile</h3>
+                            <p className="text-sm text-muted-foreground">
+                              These learner inputs feed personalized recommendations and predictive reporting.
+                            </p>
+                          </div>
+
+                          <div className="space-y-3">
+                            <Label>Industry interests</Label>
+                            <div className="flex flex-wrap gap-2">
+                              {ONBOARDING_INDUSTRY_OPTIONS.map((option) => {
+                                const isSelected = formData.industryInterests.includes(option);
+                                return (
+                                  <Button
+                                    key={option}
+                                    type="button"
+                                    variant={isSelected ? "default" : "outline"}
+                                    size="sm"
+                                    onClick={() => toggleFormListValue("industryInterests", option)}
+                                  >
+                                    {option}
+                                  </Button>
+                                );
+                              })}
+                            </div>
+                          </div>
+
+                          <div className="space-y-3">
+                            <Label>Preferred categories</Label>
+                            <div className="flex flex-wrap gap-2">
+                              {ONBOARDING_CATEGORY_OPTIONS.map((option) => {
+                                const isSelected = formData.preferredCategories.includes(option);
+                                return (
+                                  <Button
+                                    key={option}
+                                    type="button"
+                                    variant={isSelected ? "default" : "outline"}
+                                    size="sm"
+                                    onClick={() => toggleFormListValue("preferredCategories", option)}
+                                  >
+                                    {option}
+                                  </Button>
+                                );
+                              })}
+                            </div>
+                          </div>
+
+                          <div className="grid gap-4 lg:grid-cols-[0.85fr_1.15fr]">
+                            <div className="space-y-2">
+                              <Label htmlFor="onboarding-skill-level">Current skill level</Label>
+                              <Select
+                                value={formData.onboardingSkillLevel}
+                                onValueChange={(value) =>
+                                  setFormData({
+                                    ...formData,
+                                    onboardingSkillLevel: value as AuthUser["onboardingSkillLevel"],
+                                  })
+                                }
+                              >
+                                <SelectTrigger id="onboarding-skill-level">
+                                  <SelectValue placeholder="Select learning stage" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {ONBOARDING_SKILL_LEVEL_OPTIONS.map((option) => (
+                                    <SelectItem key={option.value} value={option.value}>
+                                      {option.label}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                            </div>
+
+                            <div className="space-y-2">
+                              <Label htmlFor="skills-input">Skills</Label>
+                              <Textarea
+                                id="skills-input"
+                                value={formData.skillsInput}
+                                onChange={(e) => setFormData({ ...formData, skillsInput: e.target.value })}
+                                placeholder="Add skills separated by commas or line breaks"
+                              />
+                              <p className="text-xs text-muted-foreground">
+                                Example: Communication, Spreadsheet basics, Customer service
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
                       <div className="flex flex-wrap gap-2 border-t border-border/60 pt-4">
                         <Button className="gap-2" onClick={handleSave} disabled={loading}>
                           {loading ? (
@@ -657,6 +850,53 @@ const Profile = () => {
                         </div>
                         {renderInfoGrid(locationItems)}
                       </div>
+
+                      {isLearner && (
+                        <div>
+                          <div className="mb-3 flex items-center gap-2">
+                            <Badge variant="outline" className="rounded-full px-3 py-1">
+                              Recommendation profile
+                            </Badge>
+                          </div>
+                          <div className="space-y-3 rounded-2xl border border-border/60 bg-background/50 p-4">
+                            <div className="flex flex-wrap gap-2">
+                              {(user.industryInterests || []).map((interest) => (
+                                <Badge key={interest} variant="secondary" className="rounded-full px-3 py-1">
+                                  {interest}
+                                </Badge>
+                              ))}
+                              {(user.preferredCategories || []).map((category) => (
+                                <Badge key={category} variant="outline" className="rounded-full px-3 py-1">
+                                  {category}
+                                </Badge>
+                              ))}
+                              {(!user.industryInterests || user.industryInterests.length === 0) &&
+                              (!user.preferredCategories || user.preferredCategories.length === 0) ? (
+                                <p className="text-sm text-muted-foreground">
+                                  Add interests and preferred categories to strengthen personalized recommendations.
+                                </p>
+                              ) : null}
+                            </div>
+                            <div className="grid gap-3 sm:grid-cols-2">
+                              <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
+                                <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Learning stage</p>
+                                <p className="mt-2 text-lg font-semibold">
+                                  {user.onboardingSkillLevel
+                                    ? ONBOARDING_SKILL_LEVEL_OPTIONS.find((option) => option.value === user.onboardingSkillLevel)?.label || prettifyValue(user.onboardingSkillLevel)
+                                    : "Not provided"}
+                                </p>
+                              </div>
+                              <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
+                                <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Skills recorded</p>
+                                <p className="mt-2 text-lg font-semibold">{profileSkillCount}</p>
+                                <p className="mt-2 text-sm text-muted-foreground">
+                                  {profileSkillCount > 0 ? user.skills?.join(", ") : "No skills added yet"}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -764,6 +1004,49 @@ const Profile = () => {
                 </div>
               </CardContent>
             </Card>
+
+            {isLearner && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-xl">
+                    <Sparkles className="h-5 w-5 text-primary" />
+                    Learner Profile Analytics
+                  </CardTitle>
+                  <CardDescription>
+                    These profile signals now feed recommendation refreshes and downstream predictive reporting inputs.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
+                      <p className="text-sm text-muted-foreground">Recommendation signal coverage</p>
+                      <p className="mt-3 text-3xl font-semibold">{recommendationSignalCoverage}%</p>
+                      <p className="mt-2 text-xs text-muted-foreground">Interests, categories, stage, and skills populated</p>
+                    </div>
+                    <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
+                      <p className="text-sm text-muted-foreground">Predictive readiness</p>
+                      <p className="mt-3 text-3xl font-semibold">{predictiveReadiness}%</p>
+                      <p className="mt-2 text-xs text-muted-foreground">Blends profile completion, recommendation inputs, and learning history</p>
+                    </div>
+                    <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
+                      <p className="text-sm text-muted-foreground">Industry interests</p>
+                      <p className="mt-3 text-3xl font-semibold">{industryInterestCount}</p>
+                    </div>
+                    <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
+                      <p className="text-sm text-muted-foreground">Preferred categories</p>
+                      <p className="mt-3 text-3xl font-semibold">{preferredCategoryCount}</p>
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
+                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Why this matters</p>
+                    <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                      Updating your learner profile now triggers an explicit recommendation refresh, so changes to interests, category preferences, skill level, and skills are reflected in personalized course suggestions without waiting for the next learning event.
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+            )}
 
             {isLearner && (
               <Card>

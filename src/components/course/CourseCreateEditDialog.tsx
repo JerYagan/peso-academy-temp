@@ -50,10 +50,14 @@ export const CourseCreateEditDialog = ({
     level: "Beginner" as Course["level"],
     duration: "",
     skills: [] as string[],
+    industryTags: [] as string[],
+    careerPaths: [] as string[],
     thumbnail: "",
   });
   const [categoryOther, setCategoryOther] = useState("");
   const [newSkill, setNewSkill] = useState("");
+  const [newIndustryTag, setNewIndustryTag] = useState("");
+  const [newCareerPath, setNewCareerPath] = useState("");
   const [selectedThumbnailFile, setSelectedThumbnailFile] = useState<File | null>(null);
   const [thumbnailPreviewUrl, setThumbnailPreviewUrl] = useState<string | null>(null);
 
@@ -77,6 +81,8 @@ export const CourseCreateEditDialog = ({
       courseDocument: course?.courseDocument || undefined,
       isTESDAAccredited: false,
       skills: formData.skills,
+      industryTags: formData.industryTags,
+      careerPaths: formData.careerPaths,
       published,
     };
   };
@@ -155,6 +161,8 @@ export const CourseCreateEditDialog = ({
         level: course.level,
         duration: course.duration.toString(),
         skills: course.skills || [],
+        industryTags: course.industryTags || [],
+        careerPaths: course.careerPaths || [],
         thumbnail: course.thumbnail || "",
       });
       setCategoryOther(isOther ? cat : "");
@@ -166,6 +174,8 @@ export const CourseCreateEditDialog = ({
         level: "Beginner",
         duration: "",
         skills: [],
+        industryTags: [],
+        careerPaths: [],
         thumbnail: "",
       });
       setCategoryOther("");
@@ -289,8 +299,30 @@ export const CourseCreateEditDialog = ({
     }
   };
 
+  const addIndustryTag = () => {
+    if (newIndustryTag.trim() && !formData.industryTags.includes(newIndustryTag.trim())) {
+      setFormData({ ...formData, industryTags: [...formData.industryTags, newIndustryTag.trim()] });
+      setNewIndustryTag("");
+    }
+  };
+
+  const addCareerPath = () => {
+    if (newCareerPath.trim() && !formData.careerPaths.includes(newCareerPath.trim())) {
+      setFormData({ ...formData, careerPaths: [...formData.careerPaths, newCareerPath.trim()] });
+      setNewCareerPath("");
+    }
+  };
+
   const removeSkill = (skill: string) => {
     setFormData({ ...formData, skills: formData.skills.filter((s) => s !== skill) });
+  };
+
+  const removeIndustryTag = (tag: string) => {
+    setFormData({ ...formData, industryTags: formData.industryTags.filter((value) => value !== tag) });
+  };
+
+  const removeCareerPath = (path: string) => {
+    setFormData({ ...formData, careerPaths: formData.careerPaths.filter((value) => value !== path) });
   };
 
   return (
@@ -447,6 +479,70 @@ export const CourseCreateEditDialog = ({
                       onClick={() => removeSkill(skill)}
                       className="ml-1 hover:text-destructive"
                     >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </Badge>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <Label>Industry Tags</Label>
+            <div className="flex gap-2">
+              <Input
+                value={newIndustryTag}
+                onChange={(e) => setNewIndustryTag(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    addIndustryTag();
+                  }
+                }}
+                placeholder="Add an industry tag"
+              />
+              <Button type="button" onClick={addIndustryTag} variant="outline">
+                <Plus className="w-4 h-4" />
+              </Button>
+            </div>
+            {formData.industryTags.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-2">
+                {formData.industryTags.map((tag) => (
+                  <Badge key={tag} variant="secondary" className="gap-1">
+                    {tag}
+                    <button type="button" onClick={() => removeIndustryTag(tag)} className="ml-1 hover:text-destructive">
+                      <X className="w-3 h-3" />
+                    </button>
+                  </Badge>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-2">
+            <Label>Career Paths</Label>
+            <div className="flex gap-2">
+              <Input
+                value={newCareerPath}
+                onChange={(e) => setNewCareerPath(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    addCareerPath();
+                  }
+                }}
+                placeholder="Add a career path"
+              />
+              <Button type="button" onClick={addCareerPath} variant="outline">
+                <Plus className="w-4 h-4" />
+              </Button>
+            </div>
+            {formData.careerPaths.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-2">
+                {formData.careerPaths.map((path) => (
+                  <Badge key={path} variant="secondary" className="gap-1">
+                    {path}
+                    <button type="button" onClick={() => removeCareerPath(path)} className="ml-1 hover:text-destructive">
                       <X className="w-3 h-3" />
                     </button>
                   </Badge>

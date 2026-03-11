@@ -23,8 +23,23 @@ type UserProfileRecord = {
   city_municipality?: string | null;
   province?: string | null;
   postal_code?: string | null;
+  industry_interests?: string[] | null;
+  preferred_categories?: string[] | null;
+  onboarding_skill_level?: string | null;
   skills?: string[] | null;
   created_at: string;
+};
+
+const getMetadataStringArray = (value: unknown): string[] | undefined => {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+
+  const entries = value
+    .map((item) => (typeof item === "string" ? item.trim() : ""))
+    .filter(Boolean);
+
+  return entries.length > 0 ? entries : undefined;
 };
 
 const resolveUserRole = (profileRole: unknown, metadataRole: unknown): User["role"] => {
@@ -64,7 +79,14 @@ const buildUserFromSources = (
     cityMunicipality: profileData?.city_municipality || undefined,
     province: profileData?.province || undefined,
     postalCode: profileData?.postal_code || undefined,
-    skills: profileData?.skills || undefined,
+    industryInterests: profileData?.industry_interests || getMetadataStringArray(authUser.user_metadata?.industry_interests),
+    preferredCategories: profileData?.preferred_categories || getMetadataStringArray(authUser.user_metadata?.preferred_categories),
+    onboardingSkillLevel:
+      (profileData?.onboarding_skill_level as User["onboardingSkillLevel"] | undefined) ||
+      (typeof authUser.user_metadata?.onboarding_skill_level === "string"
+        ? (authUser.user_metadata.onboarding_skill_level as User["onboardingSkillLevel"])
+        : undefined),
+    skills: profileData?.skills || getMetadataStringArray(authUser.user_metadata?.skills),
     createdAt: profileData?.created_at || authUser.created_at || new Date().toISOString(),
   };
 };
@@ -227,6 +249,10 @@ export const supabaseAuthService = {
             city_municipality: profile?.cityMunicipality ?? null,
             province: profile?.province ?? null,
             postal_code: profile?.postalCode ?? null,
+            industry_interests: profile?.industryInterests ?? [],
+            preferred_categories: profile?.preferredCategories ?? [],
+            onboarding_skill_level: profile?.onboardingSkillLevel ?? null,
+            skills: profile?.skills ?? [],
           },
           // For development: auto-confirm email if email confirmation is disabled
           // This requires Supabase project settings to have "Enable email confirmations" disabled
@@ -399,6 +425,10 @@ export const supabaseAuthService = {
             city_municipality: profile?.cityMunicipality,
             province: profile?.province,
             postal_code: profile?.postalCode,
+            industry_interests: profile?.industryInterests || [],
+            preferred_categories: profile?.preferredCategories || [],
+            onboarding_skill_level: profile?.onboardingSkillLevel || null,
+            skills: profile?.skills || [],
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
           } as any)
@@ -464,6 +494,30 @@ export const supabaseAuthService = {
         }
       }
 
+      const onboardingUpdateData: Record<string, unknown> = {};
+      if (profile?.industryInterests !== undefined) onboardingUpdateData.industry_interests = profile.industryInterests;
+      if (profile?.preferredCategories !== undefined) onboardingUpdateData.preferred_categories = profile.preferredCategories;
+      if (profile?.onboardingSkillLevel !== undefined) onboardingUpdateData.onboarding_skill_level = profile.onboardingSkillLevel || null;
+      if (profile?.skills !== undefined) onboardingUpdateData.skills = profile.skills;
+
+      if (profileData && Object.keys(onboardingUpdateData).length > 0) {
+        const { data: syncedProfile, error: onboardingSyncError } = await supabase
+          .from("users")
+          .update({
+            ...onboardingUpdateData,
+            updated_at: new Date().toISOString(),
+          } as any)
+          .eq("id", authData.user.id)
+          .select()
+          .single();
+
+        if (!onboardingSyncError && syncedProfile) {
+          profileData = syncedProfile;
+        } else if (onboardingSyncError) {
+          console.warn("Could not sync onboarding fields to users table:", onboardingSyncError);
+        }
+      }
+
       // If we still don't have profile data, create a minimal user object from auth data
       // This allows the user to log in, and the profile can be created on first access
       if (!profileData) {
@@ -485,6 +539,10 @@ export const supabaseAuthService = {
           cityMunicipality: profile?.cityMunicipality,
           province: profile?.province,
           postalCode: profile?.postalCode,
+          industryInterests: profile?.industryInterests,
+          preferredCategories: profile?.preferredCategories,
+          onboardingSkillLevel: profile?.onboardingSkillLevel,
+          skills: profile?.skills,
           createdAt: authData.user.created_at || new Date().toISOString(),
         };
         return { user: minimalUser, error: null };
@@ -508,6 +566,9 @@ export const supabaseAuthService = {
         cityMunicipality: profileData.city_municipality || undefined,
         province: profileData.province || undefined,
         postalCode: profileData.postal_code || undefined,
+        industryInterests: profileData.industry_interests || undefined,
+        preferredCategories: profileData.preferred_categories || undefined,
+        onboardingSkillLevel: (profileData.onboarding_skill_level as User["onboardingSkillLevel"] | undefined) || undefined,
         skills: profileData.skills || undefined,
         createdAt: profileData.created_at,
       };
@@ -750,6 +811,9 @@ export const supabaseAuthService = {
       if (updates.cityMunicipality !== undefined) updateData.city_municipality = updates.cityMunicipality || null;
       if (updates.province !== undefined) updateData.province = updates.province || null;
       if (updates.postalCode !== undefined) updateData.postal_code = updates.postalCode || null;
+      if (updates.industryInterests !== undefined) updateData.industry_interests = updates.industryInterests;
+      if (updates.preferredCategories !== undefined) updateData.preferred_categories = updates.preferredCategories;
+      if (updates.onboardingSkillLevel !== undefined) updateData.onboarding_skill_level = updates.onboardingSkillLevel || null;
       if (updates.avatar !== undefined) updateData.avatar = updates.avatar;
       if (updates.skills !== undefined) updateData.skills = updates.skills;
       if (updates.role !== undefined) updateData.role = updates.role;
@@ -768,6 +832,10 @@ export const supabaseAuthService = {
       if (updates.cityMunicipality !== undefined) metadataUpdates.city_municipality = updates.cityMunicipality || null;
       if (updates.province !== undefined) metadataUpdates.province = updates.province || null;
       if (updates.postalCode !== undefined) metadataUpdates.postal_code = updates.postalCode || null;
+      if (updates.industryInterests !== undefined) metadataUpdates.industry_interests = updates.industryInterests || [];
+      if (updates.preferredCategories !== undefined) metadataUpdates.preferred_categories = updates.preferredCategories || [];
+      if (updates.onboardingSkillLevel !== undefined) metadataUpdates.onboarding_skill_level = updates.onboardingSkillLevel || null;
+      if (updates.skills !== undefined) metadataUpdates.skills = updates.skills || [];
 
       if (Object.keys(metadataUpdates).length > 0) {
         const { error: metadataError } = await supabase.auth.updateUser({
@@ -822,6 +890,9 @@ export const supabaseAuthService = {
         cityMunicipality: data.city_municipality || undefined,
         province: data.province || undefined,
         postalCode: data.postal_code || undefined,
+        industryInterests: data.industry_interests || undefined,
+        preferredCategories: data.preferred_categories || undefined,
+        onboardingSkillLevel: (data.onboarding_skill_level as User["onboardingSkillLevel"] | undefined) || undefined,
         skills: data.skills || undefined,
         createdAt: data.created_at,
       };

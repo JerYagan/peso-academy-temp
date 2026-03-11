@@ -11,6 +11,8 @@ export interface Course {
   courseDocument?: string; // URL to uploaded PDF/PPTX document
   isTESDAAccredited: boolean;
   skills: string[];
+  industryTags?: string[];
+  careerPaths?: string[];
   enrolledCount: number;
   rating: number;
   createdAt: string;

@@ -10,6 +10,7 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "seed:users": "tsx scripts/create-test-users.ts",
+    "seed:courses": "tsx scripts/seed-course-content.ts",
     "seed:analytics": "tsx scripts/seed-analytics-demo.ts"
   },
   "dependencies": {

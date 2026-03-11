@@ -13,8 +13,9 @@ import { toast } from "sonner";
 import { User } from "@/types/auth";
 import { formatDistanceToNow, startOfMonth, endOfMonth, isWithinInterval } from "date-fns";
 import { resolveTrainerOwnership } from "@/lib/trainerOwnership";
-import { buildLearnerCourseRecommendations, reportingService, type LearnerCourseRecommendation, type LearnerPerformanceSummary, type LearnerPerformanceTopicResult } from "@/services/reportingService";
+import { buildLearnerCourseRecommendations, reportingService, type CollaborativeRecommendationSignal, type LearnerCourseRecommendation, type LearnerPerformanceSummary, type LearnerPerformanceTopicResult } from "@/services/reportingService";
 import { analyticsService, type PersistedLearnerRecommendation } from "@/services/analyticsService";
+import { moduleSessionService, type EnrichedModuleSession, type ModuleSessionAggregate } from "@/services/moduleSessionService";
 import { getDashboardRoute } from "@/lib/roles";
 
 interface TraineeDashboardProps {
@@ -33,11 +34,24 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
   const [allEnrollments, setAllEnrollments] = useState<Enrollment[]>([]);
   const [performanceSummary, setPerformanceSummary] = useState<LearnerPerformanceSummary | null>(null);
   const [persistedRecommendations, setPersistedRecommendations] = useState<PersistedLearnerRecommendation[]>([]);
+  const [lastAccessedModule, setLastAccessedModule] = useState<EnrichedModuleSession | null>(null);
+  const [sessionAggregates, setSessionAggregates] = useState<ModuleSessionAggregate[]>([]);
+  const [collaborativeSignals, setCollaborativeSignals] = useState<Record<string, CollaborativeRecommendationSignal>>({});
   const [loadingCourses, setLoadingCourses] = useState(true);
   const [loadingPerformance, setLoadingPerformance] = useState(true);
+  const [loadingSessionHistory, setLoadingSessionHistory] = useState(true);
 
   useEffect(() => {
     void loadDashboardData();
+  }, [user]);
+
+  useEffect(() => {
+    const onFocus = () => {
+      void loadDashboardData();
+    };
+
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
   }, [user]);
 
   const loadDashboardData = async () => {
@@ -45,6 +59,7 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
 
     setLoadingCourses(true);
     setLoadingPerformance(true);
+    setLoadingSessionHistory(true);
 
     const courseLoad = (async () => {
       try {
@@ -77,8 +92,12 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
 
     const performanceLoad = (async () => {
       try {
-        const summary = await reportingService.getLearnerPerformanceSummary(user.id);
+        const [summary, collaborative] = await Promise.all([
+          reportingService.getLearnerPerformanceSummary(user.id),
+          reportingService.getCollaborativeRecommendationSignals(user.id),
+        ]);
         setPerformanceSummary(summary);
+        setCollaborativeSignals(collaborative);
       } catch (error) {
         console.error("Error loading learner performance summary:", error);
         toast.error("Failed to load learner performance summary");
@@ -87,7 +106,22 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
       }
     })();
 
-    await Promise.allSettled([courseLoad, performanceLoad]);
+    const sessionHistoryLoad = (async () => {
+      try {
+        const [session, aggregates] = await Promise.all([
+          moduleSessionService.getLastAccessedModuleCard(user.id),
+          moduleSessionService.getSessionAggregatesByModule(user.id),
+        ]);
+        setLastAccessedModule(session);
+        setSessionAggregates(aggregates);
+      } catch (error) {
+        console.error("Error loading trainee session history:", error);
+      } finally {
+        setLoadingSessionHistory(false);
+      }
+    })();
+
+    await Promise.allSettled([courseLoad, performanceLoad, sessionHistoryLoad]);
   };
 
   const formatLearningTime = (minutes: number) => {
@@ -107,9 +141,47 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
     return formatDistanceToNow(date, { addSuffix: true });
   };
 
+  const formatSessionDuration = (seconds: number) => {
+    if (seconds <= 0) return "0m";
+
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+
+    if (hours === 0) {
+      return `${Math.max(1, minutes)}m`;
+    }
+
+    if (minutes === 0) {
+      return `${hours}h`;
+    }
+
+    return `${hours}h ${minutes}m`;
+  };
+
+  const formatSessionStatus = (status: EnrichedModuleSession["sessionStatus"]) => {
+    switch (status) {
+      case "completed":
+        return "Completed";
+      case "timed_out":
+        return "Timed out";
+      case "abandoned":
+        return "Left mid-session";
+      default:
+        return "In progress";
+    }
+  };
+
   const recommendedCourses = useMemo<LearnerCourseRecommendation[]>(() => {
-    return buildLearnerCourseRecommendations(user, allCourses, allEnrollments, performanceSummary, 3);
-  }, [allCourses, allEnrollments, performanceSummary, user]);
+    return buildLearnerCourseRecommendations(
+      user,
+      allCourses,
+      allEnrollments,
+      performanceSummary,
+      3,
+      sessionAggregates,
+      collaborativeSignals,
+    );
+  }, [allCourses, allEnrollments, collaborativeSignals, performanceSummary, sessionAggregates, user]);
 
   const recommendationCards = useMemo(
     () => analyticsService.hydrateRecommendationCards(recommendedCourses, persistedRecommendations),
@@ -135,6 +207,14 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
             modulesCompleted: performanceSummary?.modulesCompleted || 0,
             assessmentsTaken: performanceSummary?.assessmentsTaken || 0,
             completedCourses: completedCourses.length,
+            industryInterestCount: user.industryInterests?.length || 0,
+            preferredCategoryCount: user.preferredCategories?.length || 0,
+            onboardingSkillLevel: user.onboardingSkillLevel || null,
+            hasProfileSkills: Boolean(user.skills && user.skills.length > 0),
+            recentSessionCount: sessionAggregates.reduce((sum, aggregate) => sum + aggregate.sessionCount, 0),
+            repeatedIncompleteModules: sessionAggregates.filter((aggregate) => aggregate.lastSessionStatus !== "completed" && aggregate.sessionCount >= 2).length,
+            collaborativeCandidateCount: Object.keys(collaborativeSignals).length,
+            hybridRecommendationEngine: true,
           },
         );
 
@@ -158,16 +238,34 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
     return () => {
       cancelled = true;
     };
-  }, [completedCourses.length, performanceSummary, recommendedCourses, user.id, user.role]);
+  }, [collaborativeSignals, completedCourses.length, performanceSummary, recommendedCourses, sessionAggregates, user.id, user.role]);
 
   const hasRecommendationContext = Boolean(
+    recommendedCourses.length > 0,
+  );
+
+  const hasLearningHistory = Boolean(
     performanceSummary &&
       (performanceSummary.modulesCompleted > 0 ||
         performanceSummary.assessmentsTaken > 0 ||
+        performanceSummary.totalLearningMinutes > 0 ||
         completedCourses.length > 0),
   );
 
+  const hasOnboardingSignals = Boolean(
+    (user.industryInterests && user.industryInterests.length > 0) ||
+      (user.preferredCategories && user.preferredCategories.length > 0) ||
+      user.onboardingSkillLevel ||
+      (user.skills && user.skills.length > 0),
+  );
+
   const recommendationHeadline = (() => {
+    if (!hasLearningHistory) {
+      return hasOnboardingSignals
+        ? "Starter courses based on your onboarding profile"
+        : "Starter courses for new trainees";
+    }
+
     if (!performanceSummary) {
       return "Courses picked from your profile and learning path";
     }
@@ -188,6 +286,12 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
   })();
 
   const recommendationDescription = (() => {
+    if (!hasLearningHistory) {
+      return hasOnboardingSignals
+        ? "These starter picks use the interests, preferred categories, skill level, and existing skills you shared during signup."
+        : "These starter picks use beginner-friendly defaults, curated entry pathways, and popular trainee choices so you can begin immediately.";
+    }
+
     if (!performanceSummary) {
       return "We blend your profile skills and platform demand signals to suggest relevant courses.";
     }
@@ -268,7 +372,7 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
             <div>
               <p className="font-medium">Personalized recommendations unlock after learning activity.</p>
               <p className="text-sm text-muted-foreground">
-                Complete a module or submit an assessment and your dashboard will surface next-step course suggestions here.
+                Complete your onboarding preferences or start a module and your dashboard will surface next-step course suggestions here.
               </p>
             </div>
             <Button asChild>
@@ -295,7 +399,7 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
             <p className="mt-2 max-w-3xl text-sm leading-7 text-muted-foreground">{recommendationDescription}</p>
           </div>
           <Badge variant="outline" className="w-fit rounded-full bg-background/80 px-3 py-1 text-xs font-semibold">
-            Triggered by your dashboard activity
+            {hasLearningHistory ? "Triggered by your dashboard activity" : hasOnboardingSignals ? "Driven by your onboarding profile" : "Using beginner-friendly defaults"}
           </Badge>
         </div>
 
@@ -359,6 +463,7 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
                   <Button variant="outline" asChild>
                     <Link
                       to={`/courses/${course.id}`}
+                      state={{ entrySource: "dashboard_recommendations" }}
                       onClick={() => {
                         if (persisted) {
                           void analyticsService.logRecommendationClick(user.id, persisted, "dashboard_recommendations");
@@ -745,6 +850,88 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
           </Card> */}
         </div>
 
+        <Card>
+          <CardHeader className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2 text-xl">
+                <Clock3 className="h-5 w-5 text-primary" />
+                Last Accessed Module
+              </CardTitle>
+              <CardDescription>
+                Resume from the most recent module session stored in your learning history.
+              </CardDescription>
+            </div>
+            {lastAccessedModule && !loadingSessionHistory ? (
+              <Badge variant="secondary" className="w-fit">
+                {formatSessionStatus(lastAccessedModule.sessionStatus)}
+              </Badge>
+            ) : null}
+          </CardHeader>
+          <CardContent>
+            {loadingSessionHistory ? (
+              <div className="flex items-center justify-center py-8">
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+              </div>
+            ) : lastAccessedModule ? (
+              <div className="space-y-5">
+                <div className="space-y-2">
+                  <p className="text-lg font-semibold leading-tight">
+                    {lastAccessedModule.moduleTitle || "Untitled module"}
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    {lastAccessedModule.courseTitle || "Untitled course"}
+                  </p>
+                </div>
+
+                <div className="grid gap-3 md:grid-cols-3">
+                  <div className="rounded-lg border p-3">
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Last opened</p>
+                    <p className="mt-2 text-sm font-medium">{formatActivityTime(lastAccessedModule.lastSeenAt)}</p>
+                  </div>
+                  <div className="rounded-lg border p-3">
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Latest session</p>
+                    <p className="mt-2 text-sm font-medium">{formatSessionDuration(lastAccessedModule.durationSeconds)}</p>
+                  </div>
+                  <div className="rounded-lg border p-3">
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Resume point</p>
+                    <p className="mt-2 text-sm font-medium">
+                      {typeof lastAccessedModule.resumePositionSeconds === "number" && lastAccessedModule.resumePositionSeconds > 0
+                        ? formatSessionDuration(lastAccessedModule.resumePositionSeconds)
+                        : "Start from current module"}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  <Button asChild>
+                    <Link
+                      to={`/courses/${lastAccessedModule.courseId}`}
+                      state={{
+                        entrySource: "dashboard_last_accessed_module",
+                        moduleId: lastAccessedModule.moduleId,
+                      }}
+                    >
+                      Continue Module
+                    </Link>
+                  </Button>
+                  <Button asChild variant="outline">
+                    <Link to="/progress">View Session History</Link>
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-4 py-4 text-center">
+                <p className="text-sm text-muted-foreground">
+                  Your recent module activity will appear here after you open a learning module.
+                </p>
+                <Button asChild variant="outline">
+                  <Link to="/courses">Browse Courses</Link>
+                </Button>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
   {renderRecommendedCourses()}
 
         {renderPerformanceSummary()}
@@ -834,7 +1021,9 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
                             </Button>
                           ) : (
                             <Button asChild className="w-full mt-4">
-                              <Link to={`/courses/${course.id}`}>Continue Learning</Link>
+                              <Link to={`/courses/${course.id}`} state={{ entrySource: "dashboard_continue_learning" }}>
+                                Continue Learning
+                              </Link>
                             </Button>
                           )}
                         </div>

@@ -11,6 +11,12 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { User } from "@/types/auth";
 import { getDashboardRoute, type UserRole as AppUserRole } from "@/lib/roles";
 import AuthPageShell from "@/components/auth/AuthPageShell";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  ONBOARDING_CATEGORY_OPTIONS,
+  ONBOARDING_INDUSTRY_OPTIONS,
+  ONBOARDING_SKILL_LEVEL_OPTIONS,
+} from "@/lib/onboarding";
 
 const genderOptions: Array<{ value: NonNullable<User["gender"]>; label: string }> = [
   { value: "male", label: "Male" },
@@ -57,6 +63,10 @@ const SignUp = () => {
   const [cityMunicipality, setCityMunicipality] = useState("");
   const [province, setProvince] = useState("");
   const [postalCode, setPostalCode] = useState("");
+  const [industryInterests, setIndustryInterests] = useState<string[]>([]);
+  const [preferredCategories, setPreferredCategories] = useState<string[]>([]);
+  const [onboardingSkillLevel, setOnboardingSkillLevel] = useState<User["onboardingSkillLevel"] | "">("");
+  const [existingSkills, setExistingSkills] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [signupSuccess, setSignupSuccess] = useState(false);
@@ -64,6 +74,15 @@ const SignUp = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const redirectTo = searchParams.get("redirect");
+
+  const toggleSelection = (value: string, currentValues: string[], setValues: (values: string[]) => void) => {
+    if (currentValues.includes(value)) {
+      setValues(currentValues.filter((currentValue) => currentValue !== value));
+      return;
+    }
+
+    setValues([...currentValues, value]);
+  };
 
   // Navigate after successful signup, or when returning from Google OAuth (already authenticated)
   useEffect(() => {
@@ -101,6 +120,15 @@ const SignUp = () => {
     }
 
     try {
+      const normalizedSkills = Array.from(
+        new Set(
+          existingSkills
+            .split(/[,\n]/)
+            .map((skill) => skill.trim())
+            .filter(Boolean),
+        ),
+      );
+
       const result = await signup(email, password, name, "trainee", {
         phone,
         address,
@@ -114,6 +142,10 @@ const SignUp = () => {
         cityMunicipality,
         province,
         postalCode,
+        industryInterests,
+        preferredCategories,
+        onboardingSkillLevel: onboardingSkillLevel || undefined,
+        skills: normalizedSkills.length > 0 ? normalizedSkills : undefined,
       });
       if (result.success) {
         setSignupSuccess(true);
@@ -377,6 +409,77 @@ const SignUp = () => {
                     value={postalCode}
                     onChange={(e) => setPostalCode(e.target.value)}
                     className="h-12 rounded-xl border-border/80 bg-muted/20 px-4"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-5 rounded-2xl border border-border/60 bg-muted/10 p-5">
+                <div>
+                  <h4 className="text-base font-semibold text-foreground">Learning preferences</h4>
+                  <p className="text-sm text-muted-foreground">
+                    These onboarding signals help us recommend starter courses before you complete any modules or assessments.
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="skill-level">Current skill level</Label>
+                  <Select
+                    value={onboardingSkillLevel}
+                    onValueChange={(value) => setOnboardingSkillLevel(value as User["onboardingSkillLevel"])}
+                  >
+                    <SelectTrigger id="skill-level" className="h-12 rounded-xl border-border/80 bg-muted/20 px-4">
+                      <SelectValue placeholder="Select your current level" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {ONBOARDING_SKILL_LEVEL_OPTIONS.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+
+                <div className="space-y-3">
+                  <Label>Industry interests</Label>
+                  <div className="grid gap-3 md:grid-cols-2">
+                    {ONBOARDING_INDUSTRY_OPTIONS.map((interest) => (
+                      <label key={interest} className="flex items-start gap-3 rounded-xl border border-border/70 bg-background p-3 text-sm">
+                        <Checkbox
+                          checked={industryInterests.includes(interest)}
+                          onCheckedChange={() => toggleSelection(interest, industryInterests, setIndustryInterests)}
+                          className="mt-0.5"
+                        />
+                        <span>{interest}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <Label>Preferred course categories</Label>
+                  <div className="grid gap-3 md:grid-cols-2">
+                    {ONBOARDING_CATEGORY_OPTIONS.map((category) => (
+                      <label key={category} className="flex items-start gap-3 rounded-xl border border-border/70 bg-background p-3 text-sm">
+                        <Checkbox
+                          checked={preferredCategories.includes(category)}
+                          onCheckedChange={() => toggleSelection(category, preferredCategories, setPreferredCategories)}
+                          className="mt-0.5"
+                        />
+                        <span>{category}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="existing-skills">Existing skills</Label>
+                  <Textarea
+                    id="existing-skills"
+                    placeholder="Add any skills you already have, separated by commas or new lines"
+                    value={existingSkills}
+                    onChange={(e) => setExistingSkills(e.target.value)}
+                    className="min-h-24 rounded-xl border-border/80 bg-muted/20 px-4 py-3"
                   />
                 </div>
               </div>

@@ -151,13 +151,15 @@ export const analyticsService = {
       rank: index + 1,
       score: recommendation.score,
       reasons: recommendation.reasons,
-      source_mix: {
+      source_mix: recommendation.sourceMix || {
         contentBased: true,
         popularityWeighted: true,
         collaborative: false,
+        sessionBehavior: true,
+        assessmentPerformance: true,
       },
       recommendation_context: recommendationContext || {},
-      model_version: "phase1-blended-v1",
+      model_version: recommendation.modelVersion || "phase3-hybrid-v1",
       generated_at: new Date().toISOString(),
     }));
 
@@ -171,7 +173,7 @@ export const analyticsService = {
       return [];
     }
 
-    return (data || [])
+    const persistedRecommendations = (data || [])
       .map((row: any) => ({
         id: row.id,
         userId: row.user_id,
@@ -184,6 +186,29 @@ export const analyticsService = {
         modelVersion: row.model_version,
       }))
       .sort((left, right) => left.rank - right.rank);
+
+    await Promise.all(
+      persistedRecommendations.map((recommendation) =>
+        analyticsService.trackEvent({
+          eventName: "recommendation_refresh",
+          userId,
+          courseId: recommendation.courseId,
+          recommendationId: recommendation.id,
+          surface: sourceSurface,
+          metadata: {
+            rank: recommendation.rank,
+            score: recommendation.score,
+            modelVersion: recommendation.modelVersion,
+            recommendationCount: persistedRecommendations.length,
+            recommendationContext: recommendationContext || {},
+          },
+        }),
+      ),
+    );
+
+    void analyticsService.refreshPhase1Analytics(userId);
+
+    return persistedRecommendations;
   },
 
   logRecommendationImpressions: async (

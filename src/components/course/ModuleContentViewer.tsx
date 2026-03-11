@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -7,6 +7,8 @@ import { Separator } from "@/components/ui/separator";
 import { CheckCircle2, Play, FileText, Upload, FileQuestion, Clock, Code, Video, ImageIcon, Link2 } from "lucide-react";
 import { Module, Enrollment } from "@/types";
 import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/contexts/AuthContext";
+import { MODULE_SESSION_HEARTBEAT_MS, moduleSessionService } from "@/services/moduleSessionService";
 import VideoPlayer from "./VideoPlayer";
 import DocumentViewer from "./DocumentViewer";
 import AssignmentSubmission from "./AssignmentSubmission";
@@ -20,6 +22,7 @@ interface ModuleContentViewerProps {
   enrollment: Enrollment;
   isCompleted: boolean;
   isPreviewMode?: boolean;
+  entrySource?: string;
   onComplete: (timeSpentMinutes?: number) => void;
 }
 
@@ -28,13 +31,21 @@ const ModuleContentViewer = ({
   enrollment,
   isCompleted,
   isPreviewMode = false,
+  entrySource = "course_module_viewer",
   onComplete,
 }: ModuleContentViewerProps) => {
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState("content");
   const [timeSpent, setTimeSpent] = useState<number | null>(null);
-  const [currentTimeSpent, setCurrentTimeSpent] = useState(0); // Current session time in seconds
-  const [quizAnswers, setQuizAnswers] = useState<Record<string, string>>({}); // Store quiz answers by block ID
-  const [quizResults, setQuizResults] = useState<Record<string, boolean>>({}); // Store quiz results (answered correctly)
+  const [currentTimeSpent, setCurrentTimeSpent] = useState(0);
+  const [quizAnswers, setQuizAnswers] = useState<Record<string, string>>({});
+  const [quizResults, setQuizResults] = useState<Record<string, boolean>>({});
+  const sessionIdRef = useRef<string | null>(null);
+  const sessionStartedAtRef = useRef<number | null>(null);
+  const heartbeatIntervalRef = useRef<number | null>(null);
+  const displayIntervalRef = useRef<number | null>(null);
+  const endingSessionRef = useRef(false);
+  const latestResumePositionRef = useRef<number | undefined>(undefined);
 
   const loadTimeSpent = useCallback(async () => {
     if (!supabase || isPreviewMode) return;
@@ -59,6 +70,137 @@ const ModuleContentViewer = ({
   useEffect(() => {
     loadTimeSpent();
   }, [loadTimeSpent]);
+
+  const getElapsedSeconds = useCallback(() => {
+    if (!sessionStartedAtRef.current) {
+      return 0;
+    }
+
+    return Math.max(0, Math.floor((Date.now() - sessionStartedAtRef.current) / 1000));
+  }, []);
+
+  const stopLocalTimers = useCallback(() => {
+    if (displayIntervalRef.current) {
+      window.clearInterval(displayIntervalRef.current);
+      displayIntervalRef.current = null;
+    }
+
+    if (heartbeatIntervalRef.current) {
+      window.clearInterval(heartbeatIntervalRef.current);
+      heartbeatIntervalRef.current = null;
+    }
+  }, []);
+
+  const flushActiveSession = useCallback(async () => {
+    if (!sessionIdRef.current) {
+      return;
+    }
+
+    const durationSeconds = getElapsedSeconds();
+    setCurrentTimeSpent(durationSeconds);
+
+    await moduleSessionService.heartbeatSession(
+      sessionIdRef.current,
+      durationSeconds,
+      latestResumePositionRef.current,
+    );
+  }, [getElapsedSeconds]);
+
+  const endActiveSession = useCallback(
+    async (status: "completed" | "abandoned" | "timed_out") => {
+      if (!sessionIdRef.current || endingSessionRef.current) {
+        return;
+      }
+
+      endingSessionRef.current = true;
+      stopLocalTimers();
+
+      const sessionId = sessionIdRef.current;
+      const durationSeconds = getElapsedSeconds();
+
+      setCurrentTimeSpent(durationSeconds);
+
+      await moduleSessionService.endSession(
+        sessionId,
+        durationSeconds,
+        status,
+        latestResumePositionRef.current,
+      );
+
+      sessionIdRef.current = null;
+      sessionStartedAtRef.current = null;
+      endingSessionRef.current = false;
+    },
+    [getElapsedSeconds, stopLocalTimers],
+  );
+
+  useEffect(() => {
+    if (isPreviewMode || !user?.id) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const startSession = async () => {
+      setCurrentTimeSpent(0);
+
+      const session = await moduleSessionService.startSession({
+        userId: user.id,
+        enrollmentId: enrollment.id,
+        courseId: enrollment.courseId,
+        moduleId: module.id,
+        entrySource,
+      });
+
+      if (cancelled || !session) {
+        return;
+      }
+
+      sessionIdRef.current = session.id;
+      sessionStartedAtRef.current = Date.now() - session.durationSeconds * 1000;
+      setCurrentTimeSpent(session.durationSeconds);
+
+      displayIntervalRef.current = window.setInterval(() => {
+        setCurrentTimeSpent(getElapsedSeconds());
+      }, 1000);
+
+      heartbeatIntervalRef.current = window.setInterval(() => {
+        if (!sessionIdRef.current) {
+          return;
+        }
+
+        void flushActiveSession();
+      }, MODULE_SESSION_HEARTBEAT_MS);
+    };
+
+    void startSession();
+
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        void flushActiveSession();
+      }
+    };
+
+    const handleBeforeUnload = () => {
+      void endActiveSession("timed_out");
+    };
+
+    const handlePageHide = () => {
+      void endActiveSession("timed_out");
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    window.addEventListener("pagehide", handlePageHide);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      cancelled = true;
+      window.removeEventListener("beforeunload", handleBeforeUnload);
+      window.removeEventListener("pagehide", handlePageHide);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+      void endActiveSession(isCompleted ? "completed" : "abandoned");
+    };
+  }, [endActiveSession, enrollment.courseId, enrollment.id, entrySource, flushActiveSession, getElapsedSeconds, isCompleted, isPreviewMode, module.id, user?.id]);
 
   const formatTime = (seconds: number) => {
     const hours = Math.floor(seconds / 3600);
@@ -205,6 +347,9 @@ const ModuleContentViewer = ({
                 url={block.videoUrl} 
                 enrollmentId={isPreviewMode ? undefined : enrollment.id}
                 moduleId={isPreviewMode ? undefined : module.id}
+                onPlaybackPositionChange={(seconds) => {
+                  latestResumePositionRef.current = seconds;
+                }}
               />
             </div>
           );
@@ -490,6 +635,9 @@ const ModuleContentViewer = ({
                       url={url} 
                       enrollmentId={isPreviewMode ? undefined : enrollment.id}
                       moduleId={isPreviewMode ? undefined : module.id}
+                      onPlaybackPositionChange={(seconds) => {
+                        latestResumePositionRef.current = seconds;
+                      }}
                     />
                   </CardContent>
                 </Card>
@@ -581,10 +729,11 @@ const ModuleContentViewer = ({
                   : "Mark this module as complete when you're done reviewing all content"}
               </p>
               <Button 
-                onClick={() => {
+                onClick={async () => {
                   const totalMinutes = timeSpent !== null 
                     ? timeSpent + Math.ceil(currentTimeSpent / 60)
                     : Math.ceil(currentTimeSpent / 60);
+                  await endActiveSession("completed");
                   onComplete(totalMinutes);
                 }} 
                 className="gap-2"

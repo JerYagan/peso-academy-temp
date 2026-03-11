@@ -20,6 +20,8 @@ import { Course, Enrollment, Module } from "@/types";
 import { User } from "@/types/auth";
 import { toast } from "sonner";
 import { resolveTrainerOwnership } from "@/lib/trainerOwnership";
+import { formatDistanceToNow } from "date-fns";
+import { moduleSessionService, type ModuleSession, type TrainerLearnerSessionSummary } from "@/services/moduleSessionService";
 
 interface LearnerData extends User {
   enrollments: Enrollment[];
@@ -38,6 +40,68 @@ interface LearnerCourseProgress {
   }>;
 }
 
+interface LearnerSessionInsight {
+  learnerId: string;
+  totalSessions: number;
+  totalDurationSeconds: number;
+  lastSeenAt: string | null;
+  lastCourseTitle: string | null;
+  lastModuleTitle: string | null;
+  repeatedShortSessionCount: number;
+  needsAttention: boolean;
+}
+
+interface RecentLearnerSessionCard {
+  id: string;
+  courseTitle: string | null;
+  moduleTitle: string | null;
+  lastSeenAt: string;
+  durationSeconds: number;
+  sessionStatus: ModuleSession["sessionStatus"];
+}
+
+const SHORT_SESSION_SECONDS = 5 * 60;
+const SHORT_SESSION_REPEAT_THRESHOLD = 3;
+
+const formatRelativeActivity = (value: string | null) => {
+  if (!value) return "No recent activity";
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "No recent activity";
+
+  return formatDistanceToNow(date, { addSuffix: true });
+};
+
+const formatSessionDuration = (seconds: number) => {
+  if (seconds <= 0) return "0m";
+
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+
+  if (hours === 0) {
+    return `${Math.max(1, minutes)}m`;
+  }
+
+  if (minutes === 0) {
+    return `${hours}h`;
+  }
+
+  return `${hours}h ${minutes}m`;
+};
+
+const formatSessionStatus = (status: ModuleSession["sessionStatus"]) => {
+  switch (status) {
+    case "completed":
+      return "Completed";
+    case "timed_out":
+      return "Timed out";
+    case "abandoned":
+      return "Left mid-session";
+    default:
+      return "In progress";
+  }
+};
+
 const TrainerLearners = () => {
   const { user } = useAuth();
   const [learners, setLearners] = useState<LearnerData[]>([]);
@@ -48,6 +112,9 @@ const TrainerLearners = () => {
   const [selectedLearner, setSelectedLearner] = useState<LearnerData | null>(null);
   const [progressLoading, setProgressLoading] = useState(false);
   const [learnerProgress, setLearnerProgress] = useState<LearnerCourseProgress[]>([]);
+  const [learnerSessionInsights, setLearnerSessionInsights] = useState<Record<string, LearnerSessionInsight>>({});
+  const [selectedLearnerSessionSummaries, setSelectedLearnerSessionSummaries] = useState<Record<string, TrainerLearnerSessionSummary>>({});
+  const [selectedLearnerRecentSessions, setSelectedLearnerRecentSessions] = useState<RecentLearnerSessionCard[]>([]);
 
   useEffect(() => {
     if (user) {
@@ -130,6 +197,9 @@ const TrainerLearners = () => {
 
       // Get unique learner IDs
       const uniqueLearnerIds = Array.from(new Set(myEnrollments.map((e) => e.userId)));
+      const trainerSessionSummaries = await moduleSessionService.getTrainerLearnerSessionSummaries({
+        limit: Math.max(myEnrollments.length * 2, 50),
+      });
 
       // Fetch user data for each learner
       const learnersData: LearnerData[] = [];
@@ -150,6 +220,51 @@ const TrainerLearners = () => {
       }
 
       setLearners(learnersData);
+
+      const learnerEnrollmentMap = new Map<string, Enrollment[]>();
+      for (const enrollment of myEnrollments) {
+        const current = learnerEnrollmentMap.get(enrollment.userId) || [];
+        current.push(enrollment);
+        learnerEnrollmentMap.set(enrollment.userId, current);
+      }
+
+      const insightMap = new Map<string, LearnerSessionInsight>();
+      for (const summary of trainerSessionSummaries) {
+        const learnerEnrollments = learnerEnrollmentMap.get(summary.learnerId) || [];
+        const matchingEnrollment = learnerEnrollments.find((enrollment) => enrollment.courseId === summary.courseId);
+        const courseNeedsAttention =
+          summary.totalSessions >= SHORT_SESSION_REPEAT_THRESHOLD &&
+          summary.totalDurationSeconds / summary.totalSessions <= SHORT_SESSION_SECONDS &&
+          matchingEnrollment?.status !== "completed";
+        const existing = insightMap.get(summary.learnerId);
+
+        if (!existing) {
+          insightMap.set(summary.learnerId, {
+            learnerId: summary.learnerId,
+            totalSessions: summary.totalSessions,
+            totalDurationSeconds: summary.totalDurationSeconds,
+            lastSeenAt: summary.lastSeenAt,
+            lastCourseTitle: summary.courseTitle,
+            lastModuleTitle: summary.lastModuleTitle,
+            repeatedShortSessionCount: courseNeedsAttention ? 1 : 0,
+            needsAttention: courseNeedsAttention,
+          });
+          continue;
+        }
+
+        existing.totalSessions += summary.totalSessions;
+        existing.totalDurationSeconds += summary.totalDurationSeconds;
+        existing.repeatedShortSessionCount += courseNeedsAttention ? 1 : 0;
+        existing.needsAttention = existing.needsAttention || courseNeedsAttention;
+
+        if (!existing.lastSeenAt || summary.lastSeenAt > existing.lastSeenAt) {
+          existing.lastSeenAt = summary.lastSeenAt;
+          existing.lastCourseTitle = summary.courseTitle;
+          existing.lastModuleTitle = summary.lastModuleTitle;
+        }
+      }
+
+      setLearnerSessionInsights(Object.fromEntries(Array.from(insightMap.entries())));
     } catch (error) {
       console.error("Error loading learners:", error);
       toast.error("Failed to load learners");
@@ -164,10 +279,12 @@ const TrainerLearners = () => {
     setProgressLoading(true);
 
     try {
-      const [learnerEnrollments, learnerCertificates, allCourses] = await Promise.all([
+      const [learnerEnrollments, learnerCertificates, allCourses, trainerSessionSummaries, recentSessions] = await Promise.all([
         enrollmentService.getEnrollments(learner.id),
         certificateService.getCertificates(learner.id),
         courseService.getCourses(),
+        moduleSessionService.getTrainerLearnerSessionSummaries({ learnerId: learner.id, limit: 50 }),
+        moduleSessionService.getLearnerSessionsForTrainer(user?.id || "", learner.id, 8),
       ]);
 
       const enrollmentIds = learnerEnrollments.map((enrollment) => enrollment.id);
@@ -232,10 +349,26 @@ const TrainerLearners = () => {
         .sort((left, right) => new Date(right.enrollment.enrolledAt).getTime() - new Date(left.enrollment.enrolledAt).getTime());
 
       setLearnerProgress(progressRows);
+      setSelectedLearnerSessionSummaries(
+        Object.fromEntries(trainerSessionSummaries.map((summary) => [summary.courseId, summary]))
+      );
+      setSelectedLearnerRecentSessions(
+        recentSessions.map((session) => ({
+          id: session.id,
+          courseTitle: courseLookup.get(session.courseId)?.title || null,
+          moduleTitle:
+            (modulesByCourse.get(session.courseId) || []).find((module) => module.id === session.moduleId)?.title || null,
+          lastSeenAt: session.lastSeenAt,
+          durationSeconds: session.durationSeconds,
+          sessionStatus: session.sessionStatus,
+        }))
+      );
     } catch (error) {
       console.error("Error loading learner progress:", error);
       toast.error("Failed to load learner progress");
       setLearnerProgress([]);
+      setSelectedLearnerSessionSummaries({});
+      setSelectedLearnerRecentSessions([]);
     } finally {
       setProgressLoading(false);
     }
@@ -247,6 +380,8 @@ const TrainerLearners = () => {
       setSelectedLearner(null);
       setLearnerProgress([]);
       setProgressLoading(false);
+      setSelectedLearnerSessionSummaries({});
+      setSelectedLearnerRecentSessions([]);
     }
   };
 
@@ -296,7 +431,7 @@ const TrainerLearners = () => {
                 {learners.map((learner) => (
                   <div
                     key={learner.id}
-                    className="flex items-center justify-between p-4 border rounded-lg hover:bg-muted/50 transition-colors"
+                    className="flex items-center justify-between gap-4 rounded-lg border p-4 transition-colors hover:bg-muted/50"
                   >
                     <div className="flex items-center gap-4">
                       <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center">
@@ -319,9 +454,29 @@ const TrainerLearners = () => {
                             {learner.enrollments.length} course{learner.enrollments.length !== 1 ? 's' : ''}
                           </span>
                         </div>
+                        {learnerSessionInsights[learner.id] ? (
+                          <div className="mt-2 space-y-1 text-xs text-muted-foreground">
+                            <p>
+                              Last activity {formatRelativeActivity(learnerSessionInsights[learner.id].lastSeenAt)}
+                            </p>
+                            <p>
+                              Last accessed {learnerSessionInsights[learner.id].lastModuleTitle || "module"}
+                              {learnerSessionInsights[learner.id].lastCourseTitle
+                                ? ` • ${learnerSessionInsights[learner.id].lastCourseTitle}`
+                                : ""}
+                            </p>
+                          </div>
+                        ) : null}
                       </div>
                     </div>
-                    <Button variant="outline" onClick={() => void handleViewProgress(learner)}>View Progress</Button>
+                    <div className="flex flex-col items-end gap-2">
+                      {learnerSessionInsights[learner.id]?.needsAttention ? (
+                        <Badge variant="secondary" className="border-amber-300 bg-amber-50 text-amber-700">
+                          Repeated short sessions
+                        </Badge>
+                      ) : null}
+                      <Button variant="outline" onClick={() => void handleViewProgress(learner)}>View Progress</Button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -389,6 +544,74 @@ const TrainerLearners = () => {
                   </Card>
                 </div>
 
+                <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-base">Recent Session History</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      {selectedLearnerRecentSessions.length > 0 ? (
+                        selectedLearnerRecentSessions.map((session) => (
+                          <div key={session.id} className="rounded-lg border p-3">
+                            <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                              <div>
+                                <p className="font-medium">{session.moduleTitle || "Untitled module"}</p>
+                                <p className="text-sm text-muted-foreground">{session.courseTitle || "Untitled course"}</p>
+                              </div>
+                              <div className="flex flex-wrap gap-2">
+                                <Badge variant="secondary">{formatSessionDuration(session.durationSeconds)}</Badge>
+                                <Badge variant="outline">{formatSessionStatus(session.sessionStatus)}</Badge>
+                              </div>
+                            </div>
+                            <p className="mt-2 text-xs text-muted-foreground">
+                              Last opened {formatRelativeActivity(session.lastSeenAt)}
+                            </p>
+                          </div>
+                        ))
+                      ) : (
+                        <p className="text-sm text-muted-foreground">No recent trainer-visible session history is available for this learner yet.</p>
+                      )}
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="text-base">Session Signals</CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      {learnerSessionInsights[selectedLearner?.id || ""] ? (
+                        <>
+                          <div className="rounded-lg border p-3">
+                            <p className="text-sm text-muted-foreground">Last accessed module</p>
+                            <p className="mt-1 font-medium">
+                              {learnerSessionInsights[selectedLearner?.id || ""].lastModuleTitle || "No recorded session"}
+                            </p>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                              {learnerSessionInsights[selectedLearner?.id || ""].lastCourseTitle || "No recorded course context"}
+                            </p>
+                          </div>
+                          <div className="rounded-lg border p-3">
+                            <p className="text-sm text-muted-foreground">Last activity</p>
+                            <p className="mt-1 font-medium">
+                              {formatRelativeActivity(learnerSessionInsights[selectedLearner?.id || ""].lastSeenAt)}
+                            </p>
+                          </div>
+                          <div className="rounded-lg border p-3">
+                            <p className="text-sm text-muted-foreground">Intervention signal</p>
+                            <p className="mt-1 font-medium">
+                              {learnerSessionInsights[selectedLearner?.id || ""].needsAttention
+                                ? `${learnerSessionInsights[selectedLearner?.id || ""].repeatedShortSessionCount} course signal(s) need review`
+                                : "No repeated short-session pattern detected"}
+                            </p>
+                          </div>
+                        </>
+                      ) : (
+                        <p className="text-sm text-muted-foreground">Session signals will appear after the learner opens tracked modules.</p>
+                      )}
+                    </CardContent>
+                  </Card>
+                </div>
+
                 <ScrollArea className="max-h-[60vh] pr-4">
                   <div className="space-y-4">
                     {learnerProgress.map((item) => (
@@ -410,6 +633,39 @@ const TrainerLearners = () => {
                           </div>
                         </CardHeader>
                         <CardContent className="space-y-4">
+                          {selectedLearnerSessionSummaries[item.enrollment.courseId] ? (
+                            <div className="grid gap-3 md:grid-cols-4 text-sm">
+                              <div className="rounded-lg border p-3">
+                                <p className="text-muted-foreground">Last accessed module</p>
+                                <p className="mt-1 font-medium">
+                                  {selectedLearnerSessionSummaries[item.enrollment.courseId].lastModuleTitle || "No tracked module"}
+                                </p>
+                              </div>
+                              <div className="rounded-lg border p-3">
+                                <p className="text-muted-foreground">Last activity</p>
+                                <p className="mt-1 font-medium">
+                                  {formatRelativeActivity(selectedLearnerSessionSummaries[item.enrollment.courseId].lastSeenAt)}
+                                </p>
+                              </div>
+                              <div className="rounded-lg border p-3">
+                                <p className="text-muted-foreground">Session depth</p>
+                                <p className="mt-1 font-medium">
+                                  {selectedLearnerSessionSummaries[item.enrollment.courseId].totalSessions} sessions • {formatSessionDuration(selectedLearnerSessionSummaries[item.enrollment.courseId].totalDurationSeconds)}
+                                </p>
+                              </div>
+                              <div className="rounded-lg border p-3">
+                                <p className="text-muted-foreground">Attention flag</p>
+                                <p className="mt-1 font-medium">
+                                  {selectedLearnerSessionSummaries[item.enrollment.courseId].totalSessions >= SHORT_SESSION_REPEAT_THRESHOLD &&
+                                  selectedLearnerSessionSummaries[item.enrollment.courseId].totalDurationSeconds / selectedLearnerSessionSummaries[item.enrollment.courseId].totalSessions <= SHORT_SESSION_SECONDS &&
+                                  item.enrollment.status !== "completed"
+                                    ? "Repeated short sessions"
+                                    : "No issue detected"}
+                                </p>
+                              </div>
+                            </div>
+                          ) : null}
+
                           <div className="space-y-2">
                             <div className="flex items-center justify-between text-sm">
                               <span className="text-muted-foreground">Course Progress</span>
