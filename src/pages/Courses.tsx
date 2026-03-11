@@ -144,8 +144,8 @@ const Courses = () => {
       return;
     }
     let cancelled = false;
-    moduleService.getModulesByCourse(previewCourse.id).then((modules) => {
-      if (!cancelled) setPreviewModuleCount(modules.length);
+    moduleService.getModuleCountByCourse(previewCourse.id).then((count) => {
+      if (!cancelled) setPreviewModuleCount(count);
     });
     return () => {
       cancelled = true;

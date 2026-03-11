@@ -28,6 +28,7 @@ import TrainerCourses from "./pages/trainer/Courses";
 import TrainerLearners from "./pages/trainer/Learners";
 import ManageModules from "@/pages/trainer/ManageModules";
 import ModuleEditorPage from "@/pages/trainer/ModuleEditorPage";
+import TaxonomyManagement from "@/pages/TaxonomyManagement";
 import ProgressDashboard from "./pages/ProgressDashboard";
 import NotFound from "./pages/NotFound";
 import { initializeMockData } from "@/services/mockData";
@@ -164,6 +165,14 @@ const App = () => (
               }
             />
             <Route
+              path="/admin/taxonomy"
+              element={
+                <ProtectedRoute allowedRoles={["admin", "trainer"]}>
+                  <TaxonomyManagement />
+                </ProtectedRoute>
+              }
+            />
+            <Route
               path="/admin/roles"
               element={
                 <ProtectedRoute>
@@ -246,6 +255,14 @@ const App = () => (
               }
             />
             
+            <Route
+              path="/trainer/taxonomy"
+              element={
+                <ProtectedRoute allowedRoles={["admin", "trainer"]}>
+                  <TaxonomyManagement />
+                </ProtectedRoute>
+              }
+            />
             <Route
               path="/progress"
               element={

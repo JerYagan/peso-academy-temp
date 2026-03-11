@@ -6,11 +6,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import {
   ChevronLeft,
@@ -61,6 +60,12 @@ const createEmptyBlock = (type: ContentBlockType): ContentBlock => {
   return createDefaultContentBlock(type, `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`);
 };
 
+const DEFAULT_ASSESSMENT_CONFIG = {
+  passingScore: 70,
+  maxAttempts: 3,
+  allowRetryAfterPassing: false,
+};
+
 const ModuleEditorPage = () => {
   const { courseId, moduleId } = useParams<{ courseId: string; moduleId?: string }>();
   const navigate = useNavigate();
@@ -90,81 +95,54 @@ const ModuleEditorPage = () => {
   const [contentBlocks, setContentBlocks] = useState<ContentBlock[]>([]);
 
   const [currentAssessment, setCurrentAssessment] = useState<Assessment | null>(null);
-  const [assessmentLoading, setAssessmentLoading] = useState(false);
-  const [assessmentFormData, setAssessmentFormData] = useState({
-    title: "",
-    description: "",
-    timeLimit: undefined as number | undefined,
-    passingScore: 70,
-    maxAttempts: 3,
-    isActive: true,
-    skillTags: [] as string[],
-    topicTags: [] as string[],
-  });
+  const [assessmentConfig, setAssessmentConfig] = useState(DEFAULT_ASSESSMENT_CONFIG);
   const allowedSkillOptions = getAllowedSkillTagsForCategory(course?.category);
   const allowedTopicOptions = getAllowedTopicTagsForCategory(course?.category);
   const derivedAssessmentSummary = useMemo(() => getQuizAssessmentSummary(contentBlocks), [contentBlocks]);
 
   const loadModuleAssessment = useCallback(async (targetModuleId: string) => {
-    setAssessmentLoading(true);
     try {
       const assessment = await assessmentService.getAssessmentByModule(targetModuleId);
-      if (!assessment) {
-        setCurrentAssessment(null);
-        setAssessmentFormData({
-          title: "",
-          description: "",
-          timeLimit: undefined,
-          passingScore: 70,
-          maxAttempts: 3,
-          isActive: true,
-          skillTags: [],
-          topicTags: [],
-        });
-        return;
-      }
-
       setCurrentAssessment(assessment);
-      setAssessmentFormData({
-        title: assessment.title,
-        description: assessment.description || "",
-        timeLimit: assessment.timeLimit || undefined,
-        passingScore: assessment.passingScore,
-        maxAttempts: assessment.maxAttempts,
-        isActive: assessment.isActive,
-        skillTags: assessment.skillTags || [],
-        topicTags: assessment.topicTags || [],
+      setAssessmentConfig({
+        passingScore: assessment?.passingScore ?? DEFAULT_ASSESSMENT_CONFIG.passingScore,
+        maxAttempts: assessment?.maxAttempts ?? DEFAULT_ASSESSMENT_CONFIG.maxAttempts,
+        allowRetryAfterPassing: assessment?.allowRetryAfterPassing ?? DEFAULT_ASSESSMENT_CONFIG.allowRetryAfterPassing,
       });
     } catch (error) {
       console.error("Error loading assessment:", error);
       toast.error("Failed to load module assessment");
-    } finally {
-      setAssessmentLoading(false);
+      setAssessmentConfig(DEFAULT_ASSESSMENT_CONFIG);
     }
   }, []);
 
   const loadEditor = useCallback(async () => {
-    if (!courseId) return;
+    if (!courseId) {
+      setCourse(null);
+      setModules([]);
+      setEditingModule(null);
+      setLoading(false);
+      return;
+    }
 
     setLoading(true);
     try {
-      const [courseRecord, courseModules] = await Promise.all([
+      const [courseData, moduleList] = await Promise.all([
         courseService.getCourse(courseId),
         moduleService.getModulesByCourse(courseId),
       ]);
 
-      if (!courseRecord) {
+      if (!courseData) {
         toast.error("Course not found");
-        navigate(basePath);
+        navigate(basePath, { replace: true });
         return;
       }
 
-      setCourse(courseRecord);
-      setModules(courseModules);
+      setCourse(courseData);
+      setModules(moduleList);
 
       if (!moduleId) {
         setEditingModule(null);
-        setContentBlocks([createEmptyBlock("text")]);
         setFormData({
           title: "",
           description: "",
@@ -175,45 +153,36 @@ const ModuleEditorPage = () => {
           module_thumbnail: "",
           module_document: "",
         });
+        setContentBlocks([]);
         setCurrentAssessment(null);
+        setAssessmentConfig(DEFAULT_ASSESSMENT_CONFIG);
         return;
       }
 
-      const existingModule = await moduleService.getModule(moduleId);
-      if (!existingModule) {
+      const targetModule = moduleList.find((module) => module.id === moduleId) || await moduleService.getModule(moduleId);
+
+      if (!targetModule) {
         toast.error("Module not found");
-        navigate(`${basePath}/${courseId}/modules`);
+        navigate(`${basePath}/${courseId}/modules`, { replace: true });
         return;
       }
 
-      setEditingModule(existingModule);
+      setEditingModule(targetModule);
       setFormData({
-        title: existingModule.title,
-        description: existingModule.description,
-        materials: existingModule.materials || [],
-        prerequisites: existingModule.prerequisites || [],
-        skillTags: existingModule.skillTags || [],
-        topicTags: existingModule.topicTags || [],
-        module_thumbnail: existingModule.module_thumbnail || "",
-        module_document: existingModule.module_document || "",
+        title: targetModule.title || "",
+        description: targetModule.description || "",
+        materials: targetModule.materials || [],
+        prerequisites: targetModule.prerequisites || [],
+        skillTags: targetModule.skillTags || [],
+        topicTags: targetModule.topicTags || [],
+        module_thumbnail: targetModule.module_thumbnail || "",
+        module_document: targetModule.module_document || "",
       });
-
-      if (existingModule.content) {
-        const parsedBlocks = parseModuleContentBlocks(existingModule.content);
-        if (parsedBlocks.length > 0) {
-          setContentBlocks(parsedBlocks);
-        } else {
-          setContentBlocks([{ ...createEmptyBlock("text"), title: "Content", content: existingModule.content }]);
-        }
-      } else {
-        setContentBlocks([createEmptyBlock("text")]);
-      }
-
-      await loadModuleAssessment(existingModule.id);
+      setContentBlocks(parseModuleContentBlocks(targetModule.content));
+      await loadModuleAssessment(targetModule.id);
     } catch (error) {
       console.error("Error loading module editor:", error);
       toast.error("Failed to load module editor");
-      navigate(`${basePath}/${courseId}/modules`);
     } finally {
       setLoading(false);
     }
@@ -311,7 +280,7 @@ const ModuleEditorPage = () => {
       toast.error("Modules must include at least one approved skill tag and one approved topic tag");
       return;
     }
-    if (status === "finalized" && currentAssessment && !derivedAssessmentSummary.readyForAssessment) {
+    if (status === "finalized" && derivedAssessmentSummary.gradableQuizBlockCount > 0 && !derivedAssessmentSummary.readyForAssessment) {
       toast.error(derivedAssessmentSummary.invalidIssues[0]?.message || "Finalize requires at least one valid quiz block for the assessment.");
       return;
     }
@@ -335,24 +304,32 @@ const ModuleEditorPage = () => {
         status,
       };
 
+      const assessmentSettings = {
+        title: currentAssessment?.title,
+        description: currentAssessment?.description,
+        timeLimit: currentAssessment?.timeLimit,
+        passingScore: assessmentConfig.passingScore,
+        maxAttempts: assessmentConfig.maxAttempts,
+        allowRetryAfterPassing: assessmentConfig.allowRetryAfterPassing,
+        isActive: currentAssessment?.isActive,
+        skillTags: formData.skillTags,
+        topicTags: formData.topicTags,
+      };
+
       if (editingModule) {
         const updatedModule = await moduleService.updateModule(editingModule.id, payload);
-        if (derivedAssessmentSummary.readyForAssessment) {
+        if (derivedAssessmentSummary.readyForAssessment || derivedAssessmentSummary.gradableQuizBlockCount === 0) {
           try {
             const syncedAssessment = await assessmentService.syncDerivedAssessmentFromQuizBlocks(
               updatedModule.id,
               payload.title,
               contentBlocks,
-              {
-                ...assessmentFormData,
-                skillTags: assessmentFormData.skillTags.length > 0 ? assessmentFormData.skillTags : formData.skillTags,
-                topicTags: assessmentFormData.topicTags.length > 0 ? assessmentFormData.topicTags : formData.topicTags,
-              },
+              assessmentSettings,
             );
             setCurrentAssessment(syncedAssessment);
           } catch (error) {
             console.error("Assessment sync failed after module update:", error);
-            assessmentSyncWarning = "Module saved, but the derived assessment could not be synced. Open the assessment tab to retry.";
+            assessmentSyncWarning = "Module saved, but the quiz-derived assessment could not be synced. Review the quiz blocks and save again.";
           }
         }
         setEditingModule(updatedModule);
@@ -363,21 +340,17 @@ const ModuleEditorPage = () => {
         }
       } else {
         const createdModule = await moduleService.createModule(payload as Omit<Module, "id" | "created_at">);
-        if (derivedAssessmentSummary.readyForAssessment) {
+        if (derivedAssessmentSummary.readyForAssessment || derivedAssessmentSummary.gradableQuizBlockCount === 0) {
           try {
             await assessmentService.syncDerivedAssessmentFromQuizBlocks(
               createdModule.id,
               payload.title,
               contentBlocks,
-              {
-                ...assessmentFormData,
-                skillTags: assessmentFormData.skillTags.length > 0 ? assessmentFormData.skillTags : formData.skillTags,
-                topicTags: assessmentFormData.topicTags.length > 0 ? assessmentFormData.topicTags : formData.topicTags,
-              },
+              assessmentSettings,
             );
           } catch (error) {
             console.error("Assessment sync failed after module creation:", error);
-            assessmentSyncWarning = "Module created, but the derived assessment could not be synced yet. Open the assessment tab to retry.";
+            assessmentSyncWarning = "Module created, but the quiz-derived assessment could not be synced yet. Review the quiz blocks and save again.";
           }
         }
         toast.success(status === "finalized" ? "Module created and finalized" : "Module saved as draft");
@@ -390,56 +363,6 @@ const ModuleEditorPage = () => {
     } catch (error) {
       console.error("Error saving module:", error);
       toast.error(editingModule ? "Failed to update module" : "Failed to create module");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleSaveAssessment = async () => {
-    if (!editingModule) return;
-    if (!assessmentFormData.title.trim()) {
-      toast.error("Assessment title is required");
-      return;
-    }
-    if (assessmentFormData.topicTags.length === 0) {
-      toast.error("Assessments must include at least one approved topic tag");
-      return;
-    }
-    if (!derivedAssessmentSummary.readyForAssessment) {
-      toast.error(derivedAssessmentSummary.invalidIssues[0]?.message || "Add at least one valid quiz block before saving assessment settings.");
-      return;
-    }
-
-    setSaving(true);
-    try {
-      const syncedAssessment = await assessmentService.syncDerivedAssessmentFromQuizBlocks(
-        editingModule.id,
-        formData.title || editingModule.title,
-        contentBlocks,
-        assessmentFormData,
-      );
-      setCurrentAssessment(syncedAssessment);
-      toast.success(currentAssessment ? "Assessment updated" : "Assessment created");
-      await loadModuleAssessment(editingModule.id);
-    } catch (error) {
-      console.error("Error saving assessment:", error);
-      toast.error("Failed to save assessment");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleDeleteAssessment = async () => {
-    if (!currentAssessment || !editingModule) return;
-
-    setSaving(true);
-    try {
-      await assessmentService.deleteAssessment(currentAssessment.id);
-      toast.success("Assessment deleted");
-      await loadModuleAssessment(editingModule.id);
-    } catch (error) {
-      console.error("Error deleting assessment:", error);
-      toast.error("Failed to delete assessment");
     } finally {
       setSaving(false);
     }
@@ -573,48 +496,120 @@ const ModuleEditorPage = () => {
 
           <TabsContent value="content" className="space-y-6">
             <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_280px] xl:items-start">
-              <Card>
-                <CardHeader>
-                  <CardTitle>Content Blocks</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {contentBlocks.length > 0 ? (
-                    <div className="space-y-4">
-                      {contentBlocks.map((block, index) => (
-                        <ContentBlockComponent
-                          key={block.id}
-                          block={block}
-                          index={index}
-                          onUpdate={(updatedBlock) => {
-                            setContentBlocks((current) => current.map((candidate) => (candidate.id === updatedBlock.id ? updatedBlock : candidate)));
+              <div className="space-y-6">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Content Blocks</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {contentBlocks.length > 0 ? (
+                      <div className="space-y-4">
+                        {contentBlocks.map((block, index) => (
+                          <ContentBlockComponent
+                            key={block.id}
+                            block={block}
+                            index={index}
+                            onUpdate={(updatedBlock) => {
+                              setContentBlocks((current) => current.map((candidate) => (candidate.id === updatedBlock.id ? updatedBlock : candidate)));
+                            }}
+                            onDelete={(blockId) => {
+                              setContentBlocks((current) => current.filter((candidate) => candidate.id !== blockId));
+                            }}
+                            onMove={(blockId, direction) => {
+                              setContentBlocks((current) => {
+                                const currentIndex = current.findIndex((candidate) => candidate.id === blockId);
+                                const nextIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1;
+                                if (currentIndex < 0 || nextIndex < 0 || nextIndex >= current.length) return current;
+                                const reordered = [...current];
+                                [reordered[currentIndex], reordered[nextIndex]] = [reordered[nextIndex], reordered[currentIndex]];
+                                return reordered;
+                              });
+                            }}
+                            onUploadAsset={handleBlockAssetUpload}
+                            uploadingAssetKey={uploadingAssetKey}
+                            canMoveUp={index > 0}
+                            canMoveDown={index < contentBlocks.length - 1}
+                          />
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">
+                        Select a content type from the panel to start building this module.
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+
+                <DerivedAssessmentSummary
+                  contentBlocks={contentBlocks}
+                  emptyMessage="Add graded quiz blocks here to generate the module assessment automatically."
+                />
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg">Assessment Configuration</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <p className="text-sm text-muted-foreground">
+                      Trainers and admins can tune how the quiz-derived module assessment behaves for trainees.
+                    </p>
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="space-y-2">
+                        <Label htmlFor="assessment-passing-score">Passing Score (%)</Label>
+                        <Input
+                          id="assessment-passing-score"
+                          type="number"
+                          min={1}
+                          max={100}
+                          value={assessmentConfig.passingScore}
+                          onChange={(event) => {
+                            const nextValue = Number.parseInt(event.target.value, 10);
+                            setAssessmentConfig((current) => ({
+                              ...current,
+                              passingScore: Number.isFinite(nextValue) ? Math.min(100, Math.max(1, nextValue)) : DEFAULT_ASSESSMENT_CONFIG.passingScore,
+                            }));
                           }}
-                          onDelete={(blockId) => {
-                            setContentBlocks((current) => current.filter((candidate) => candidate.id !== blockId));
-                          }}
-                          onMove={(blockId, direction) => {
-                            setContentBlocks((current) => {
-                              const currentIndex = current.findIndex((candidate) => candidate.id === blockId);
-                              const nextIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1;
-                              if (currentIndex < 0 || nextIndex < 0 || nextIndex >= current.length) return current;
-                              const reordered = [...current];
-                              [reordered[currentIndex], reordered[nextIndex]] = [reordered[nextIndex], reordered[currentIndex]];
-                              return reordered;
-                            });
-                          }}
-                          onUploadAsset={handleBlockAssetUpload}
-                          uploadingAssetKey={uploadingAssetKey}
-                          canMoveUp={index > 0}
-                          canMoveDown={index < contentBlocks.length - 1}
                         />
-                      ))}
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="assessment-max-attempts">Allowed Attempts</Label>
+                        <Input
+                          id="assessment-max-attempts"
+                          type="number"
+                          min={1}
+                          max={20}
+                          value={assessmentConfig.maxAttempts}
+                          onChange={(event) => {
+                            const nextValue = Number.parseInt(event.target.value, 10);
+                            setAssessmentConfig((current) => ({
+                              ...current,
+                              maxAttempts: Number.isFinite(nextValue) ? Math.min(20, Math.max(1, nextValue)) : DEFAULT_ASSESSMENT_CONFIG.maxAttempts,
+                            }));
+                          }}
+                        />
+                      </div>
                     </div>
-                  ) : (
-                    <div className="rounded-xl border border-dashed p-8 text-center text-sm text-muted-foreground">
-                      Select a content type from the panel to start building this module.
+                    <div className="flex items-start gap-3 rounded-lg border p-4">
+                      <Checkbox
+                        id="assessment-allow-retry-after-pass"
+                        checked={assessmentConfig.allowRetryAfterPassing}
+                        onCheckedChange={(checked) => {
+                          setAssessmentConfig((current) => ({
+                            ...current,
+                            allowRetryAfterPassing: checked === true,
+                          }));
+                        }}
+                      />
+                      <div className="space-y-1">
+                        <Label htmlFor="assessment-allow-retry-after-pass">Allow retry after passing</Label>
+                        <p className="text-sm text-muted-foreground">
+                          When disabled, trainees stop getting new attempts as soon as they pass. When enabled, they can retry until they exhaust the configured attempt limit.
+                        </p>
+                      </div>
                     </div>
-                  )}
-                </CardContent>
-              </Card>
+                  </CardContent>
+                </Card>
+              </div>
 
               <Card className="xl:sticky xl:top-6">
                 <CardHeader>
@@ -715,6 +710,7 @@ const ModuleEditorPage = () => {
                   onChange={(skillTags) => setFormData((current) => ({ ...current, skillTags }))}
                   placeholder="Select approved skill tags"
                   description="Use approved skill tags only so trainer analytics and recommendations stay consistent."
+                  termType="skill_tag"
                 />
 
                 <TaxonomyTagField
@@ -724,6 +720,7 @@ const ModuleEditorPage = () => {
                   onChange={(topicTags) => setFormData((current) => ({ ...current, topicTags }))}
                   placeholder="Select approved topic tags"
                   description="Topic-level learner performance summaries and analytics use these tags directly."
+                  termType="topic_tag"
                 />
 
                 <Separator />
@@ -759,138 +756,6 @@ const ModuleEditorPage = () => {
                     )}
                   </div>
                 </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <div className="flex items-center justify-between gap-4">
-                  <div>
-                    <CardTitle>Assessment</CardTitle>
-                    <p className="text-sm text-muted-foreground">
-                      {editingModule ? "Configure assessment metadata here. Graded questions are derived from quiz blocks in the Content tab." : "Save the module first to configure an assessment."}
-                    </p>
-                  </div>
-                  {currentAssessment && editingModule && (
-                    <Button variant="destructive" onClick={() => void handleDeleteAssessment()} disabled={saving}>
-                      <Trash2 className="mr-2 h-4 w-4" />
-                      Delete Assessment
-                    </Button>
-                  )}
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-6">
-                {!editingModule ? (
-                  <div className="rounded-lg border border-dashed p-6 text-sm text-muted-foreground">
-                    Create the module as a draft first. Once it exists, this tab will let you define the assessment metadata and review the derived quiz summary.
-                  </div>
-                ) : (
-                  <>
-                    <DerivedAssessmentSummary contentBlocks={contentBlocks} />
-
-                    <div className="grid gap-4 md:grid-cols-2">
-                      <div className="space-y-2 md:col-span-2">
-                        <Label>Assessment Title</Label>
-                        <Input
-                          value={assessmentFormData.title}
-                          onChange={(event) => setAssessmentFormData((current) => ({ ...current, title: event.target.value }))}
-                          placeholder="Module assessment title"
-                        />
-                      </div>
-                      <div className="space-y-2 md:col-span-2">
-                        <Label>Description</Label>
-                        <Textarea
-                          rows={3}
-                          value={assessmentFormData.description}
-                          onChange={(event) => setAssessmentFormData((current) => ({ ...current, description: event.target.value }))}
-                          placeholder="Optional instructions or notes"
-                        />
-                      </div>
-                      <div className="space-y-2 md:col-span-2">
-                        <TaxonomyTagField
-                          label="Assessment Skill Tags"
-                          options={allowedSkillOptions}
-                          values={assessmentFormData.skillTags}
-                          onChange={(skillTags) => setAssessmentFormData((current) => ({ ...current, skillTags }))}
-                          placeholder="Select approved skill tags"
-                          description="Keep assessment skill tags aligned with the approved course taxonomy."
-                        />
-                      </div>
-                      <div className="space-y-2 md:col-span-2">
-                        <TaxonomyTagField
-                          label="Assessment Topic Tags"
-                          options={allowedTopicOptions}
-                          values={assessmentFormData.topicTags}
-                          onChange={(topicTags) => setAssessmentFormData((current) => ({ ...current, topicTags }))}
-                          placeholder="Select approved topic tags"
-                          description="Assessment topic tags are required so topic-level performance does not depend on free-text titles."
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Time Limit (minutes)</Label>
-                        <Input
-                          type="number"
-                          min="1"
-                          value={assessmentFormData.timeLimit || ""}
-                          onChange={(event) =>
-                            setAssessmentFormData((current) => ({
-                              ...current,
-                              timeLimit: event.target.value ? parseInt(event.target.value, 10) : undefined,
-                            }))
-                          }
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Passing Score (%)</Label>
-                        <Input
-                          type="number"
-                          min="0"
-                          max="100"
-                          value={assessmentFormData.passingScore}
-                          onChange={(event) =>
-                            setAssessmentFormData((current) => ({
-                              ...current,
-                              passingScore: parseInt(event.target.value, 10) || 70,
-                            }))
-                          }
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Max Attempts</Label>
-                        <Input
-                          type="number"
-                          min="1"
-                          value={assessmentFormData.maxAttempts}
-                          onChange={(event) =>
-                            setAssessmentFormData((current) => ({
-                              ...current,
-                              maxAttempts: parseInt(event.target.value, 10) || 3,
-                            }))
-                          }
-                        />
-                      </div>
-                      <div className="flex items-center gap-3 rounded-lg border p-3">
-                        <Switch
-                          checked={assessmentFormData.isActive}
-                          onCheckedChange={(checked) => setAssessmentFormData((current) => ({ ...current, isActive: checked }))}
-                        />
-                        <div>
-                          <p className="font-medium">Assessment Active</p>
-                          <p className="text-sm text-muted-foreground">Learners can only take active assessments.</p>
-                        </div>
-                      </div>
-                    </div>
-
-                    <Button onClick={() => void handleSaveAssessment()} disabled={saving || assessmentLoading}>
-                      {(saving || assessmentLoading) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                      {currentAssessment ? "Update Assessment" : "Create Assessment"}
-                    </Button>
-
-                    <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-                      Quiz blocks in the Content tab are now the source of assessment questions. This panel only stores assessment metadata such as passing score, time limit, attempts, active state, and taxonomy tags.
-                    </div>
-                  </>
-                )}
               </CardContent>
             </Card>
           </TabsContent>

@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams, useNavigate, Link, useSearchParams, useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import DashboardLayout from "@/components/DashboardLayout";
@@ -62,6 +62,7 @@ const CourseDetail = () => {
   const [modules, setModules] = useState<Module[]>([]);
   const [enrollment, setEnrollment] = useState<Enrollment | null>(null);
   const [selectedModule, setSelectedModule] = useState<Module | null>(null);
+  const [loadingSelectedModuleId, setLoadingSelectedModuleId] = useState<string | null>(null);
   const [completedModuleIds, setCompletedModuleIds] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [enrolling, setEnrolling] = useState(false);
@@ -73,6 +74,7 @@ const CourseDetail = () => {
   const isPreviewMode = Boolean(searchParams.get("preview") && previewKey);
   const previewEnrollmentId = `preview-enrollment-${id || "course"}`;
   const locationState = location.state as { entrySource?: string; moduleId?: string } | null;
+  const moduleRequestSequenceRef = useRef(0);
 
   const moduleEntrySource = (() => {
     if (typeof locationState?.entrySource === "string" && locationState.entrySource.trim()) {
@@ -93,9 +95,28 @@ const CourseDetail = () => {
 
   useEffect(() => {
     if (id) {
-      loadCourseData();
+      void loadCourseData();
     }
   }, [id, user, isPreviewMode, previewKey, requestedModuleId]);
+
+  const loadModuleContent = async (moduleId: string): Promise<Module | null> => {
+    setLoadingSelectedModuleId(moduleId);
+    const requestSequence = moduleRequestSequenceRef.current + 1;
+    moduleRequestSequenceRef.current = requestSequence;
+
+    try {
+      const module = await moduleService.getModule(moduleId);
+      if (moduleRequestSequenceRef.current !== requestSequence) {
+        return null;
+      }
+
+      return module;
+    } finally {
+      if (moduleRequestSequenceRef.current === requestSequence) {
+        setLoadingSelectedModuleId(null);
+      }
+    }
+  };
 
   const loadCourseData = async () => {
     if (!id) return;
@@ -153,8 +174,10 @@ const CourseDetail = () => {
       }
       setCourse(courseData);
 
-      // Load modules (for description / sidebar)
-      const modulesData = modulesSourceCourseId ? await moduleService.getModulesByCourse(modulesSourceCourseId) : [];
+      const [modulesData, enrollments] = await Promise.all([
+        modulesSourceCourseId ? moduleService.getModulesByCourseSummary(modulesSourceCourseId) : Promise.resolve([]),
+        !isPreviewMode && user ? enrollmentService.getEnrollments(user.id) : Promise.resolve([]),
+      ]);
       setModules(modulesData);
 
       const initialModule = requestedModuleId
@@ -162,6 +185,9 @@ const CourseDetail = () => {
         : modulesData[0] || null;
 
       if (isPreviewMode) {
+        const previewModule = !courseData.courseDocument && initialModule
+          ? await loadModuleContent(initialModule.id)
+          : initialModule;
         setEnrollment({
           id: previewEnrollmentId,
           userId: user?.id || "preview-user",
@@ -170,7 +196,7 @@ const CourseDetail = () => {
           status: "enrolled",
           enrolledAt: new Date().toISOString(),
         });
-        setSelectedModule(initialModule);
+        setSelectedModule(previewModule);
         setCompletedModuleIds([]);
         setLoading(false);
         return;
@@ -178,12 +204,11 @@ const CourseDetail = () => {
 
       if (!user) {
         setEnrollment(null);
+        setSelectedModule(initialModule);
         setLoading(false);
         return;
       }
 
-      // Load enrollment
-      const enrollments = await enrollmentService.getEnrollments(user.id);
       const userEnrollment = enrollments.find((e) => e.courseId === id);
       
       if (!userEnrollment) {
@@ -195,8 +220,12 @@ const CourseDetail = () => {
 
       setEnrollment(userEnrollment);
 
-      // Load completed modules with time spent
-      const completed = await moduleCompletionService.getCompletedModules(userEnrollment.id);
+      const [completed, hydratedModule] = await Promise.all([
+        moduleCompletionService.getCompletedModules(userEnrollment.id),
+        !courseData.courseDocument && initialModule
+          ? loadModuleContent(initialModule.id)
+          : Promise.resolve(initialModule),
+      ]);
       setCompletedModuleIds(completed);
       
       if (supabase) {
@@ -206,7 +235,7 @@ const CourseDetail = () => {
           .eq("enrollment_id", userEnrollment.id);
       }
 
-      setSelectedModule(initialModule);
+      setSelectedModule(hydratedModule);
     } catch (error) {
       console.error("Error loading course data:", error);
       toast.error("Failed to load course data");
@@ -215,8 +244,17 @@ const CourseDetail = () => {
     }
   };
 
-  const handleModuleSelect = (module: Module) => {
+  const handleModuleSelect = async (module: Module) => {
+    if (course?.courseDocument || selectedModule?.id === module.id) {
+      setSelectedModule(module);
+      return;
+    }
+
     setSelectedModule(module);
+    const hydratedModule = await loadModuleContent(module.id);
+    if (hydratedModule) {
+      setSelectedModule(hydratedModule);
+    }
   };
 
   const handleModuleComplete = async (moduleId: string, timeSpentMinutes?: number) => {
@@ -587,7 +625,11 @@ const CourseDetail = () => {
                       return (
                         <button
                           key={module.id}
-                          onClick={() => canAccess && handleModuleSelect(module)}
+                          onClick={() => {
+                            if (canAccess) {
+                              void handleModuleSelect(module);
+                            }
+                          }}
                           disabled={!canAccess}
                           className={`w-full text-left p-3 rounded-lg transition-colors ${
                             isSelected
@@ -646,6 +688,15 @@ const CourseDetail = () => {
                 </CardHeader>
                 <CardContent>
                   <DocumentViewer url={course.courseDocument} title={course.title} />
+                </CardContent>
+              </Card>
+            ) : loadingSelectedModuleId && selectedModule?.id === loadingSelectedModuleId ? (
+              <Card>
+                <CardContent className="flex min-h-[400px] items-center justify-center">
+                  <div className="text-center">
+                    <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-b-2 border-primary"></div>
+                    <p className="text-sm text-muted-foreground">Loading module...</p>
+                  </div>
                 </CardContent>
               </Card>
             ) : selectedModule ? (

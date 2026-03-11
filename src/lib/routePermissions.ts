@@ -33,6 +33,7 @@ export const routePermissions: RoutePermissionConfig[] = [
   // Admin routes - require ANY related permission (if you can create/update/delete, you can access the dashboard)
   { path: "/admin/users", requiredPermissions: ["users.view", "users.create", "users.update", "users.delete", "users.manage_roles"] },
   { path: "/admin/courses", requiredPermissions: ["courses.view", "courses.create", "courses.update", "courses.delete"] },
+  { path: "/admin/taxonomy", requiredPermissions: ["courses.create", "courses.update", "training.manage"] },
   { path: "/admin/roles", requiredPermissions: ["users.manage_roles", "users.view"] },
   { path: "/admin/audit-logs", requiredPermissions: ["system.audit"] },
   { path: "/admin/enrollments", requiredPermissions: ["training.manage", "courses.view"] },
@@ -40,6 +41,7 @@ export const routePermissions: RoutePermissionConfig[] = [
 
   // Trainer routes - if you can manage training or courses, you can access
   { path: "/trainer/courses", requiredPermissions: ["courses.view", "courses.create", "courses.update", "courses.delete", "training.manage"] },
+  { path: "/trainer/taxonomy", requiredPermissions: ["courses.create", "courses.update", "training.manage"] },
   { path: "/trainer/learners", requiredPermissions: ["training.manage", "courses.view"] },
 ];
 

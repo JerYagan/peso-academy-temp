@@ -14,7 +14,7 @@ User credentials:
 ### Admin
 
 ### Course/Module Creation
-- [ ] modules are being added but it says fails to add module. This is a blocker for trainers and admins to create courses and modules.
+- [ ] Add others in course category dropdown and add a note to choose the closest approved skill and topic tags for reporting and recommendations to work properly.
 
 ### Registration
 - [ ] Registered account goes to Auth but not in the users table. This causes issues for admin when trying to manage users and for trainers when trying to assign courses to users.
@@ -82,15 +82,28 @@ User credentials:
 			- While implementing the audit, fixed `src/services/assessmentService.ts` so derived assessments store and compare the actual correct option text instead of a quiz-block index, while still accepting older numeric-index rows during grading.
 			- Validation result: editor diagnostics were clean, the new script compiled and started successfully, and a clean-shell `npm run build` completed without reported errors. Live audit/backfill execution still requires `SUPABASE_URL` or `VITE_SUPABASE_URL` plus `SUPABASE_SERVICE_ROLE_KEY` in the shell.
 	- Phase 6: reporting and analytics protection
-		- Verify that dashboards, learner profile summaries, trainer analytics, admin reports, and assessment-only recommendations still read from `assessment_attempts` unchanged.
-		- Regression-test score aggregation because reporting currently relies on `assessment_attempts.score`, not module content directly.
-		- Preserve analytics events such as `assessment_submit`; only the question source changes, not the attempt event contract.
+		- [x] Verify that dashboards, learner profile summaries, trainer analytics, admin reports, and assessment-only recommendations still read from `assessment_attempts` unchanged.
+		- [x] Regression-test score aggregation because reporting currently relies on `assessment_attempts.score`, not module content directly.
+		- [x] Preserve analytics events such as `assessment_submit`; only the question source changes, not the attempt event contract.
+		- Phase 6 implementation status on March 12, 2026
+			- Added `scripts/check-assessment-reporting-regressions.ts` as a repository-level regression guard for assessment reporting and analytics invariants.
+			- Added `npm run check:assessment-reporting`, which writes `temp_markdowns/assessment_reporting_regression_report.md` and verifies nine critical invariants across assessment submission, learner summaries, staff reporting, analytics SQL rollups, and staff attempt visibility policies.
+			- Confirmed the learner assessment runtime still writes `assessment_attempts.score` and `assessment_attempts.passed`, still emits the `assessment_submit` analytics event, and still refreshes the phase 1 analytics rollups after submission.
+			- Confirmed reporting and analytics paths still aggregate from `assessment_attempts.score` rather than from raw module quiz content or `assessment_questions` rows.
+			- Validation result: the new regression script passed 9 of 9 checks, editor diagnostics were clean, and a clean-shell `npm run build` completed without reported errors. Existing chunk-size warning remains.
 	- Phase 7: rollout order
-		- Step 1: add quiz block grading fields and editor validation.
-		- Step 2: build the derivation/sync utility from module quiz blocks to `assessments` plus `assessment_questions`.
-		- Step 3: switch trainer/admin UI from manual assessment-question editing to derived assessment summaries.
-		- Step 4: run migration and mismatch audit on existing module data.
-		- Step 5: remove deprecated manual question-entry paths after verification.
+		- [x] Step 1: add quiz block grading fields and editor validation.
+		- [x] Step 2: build the derivation/sync utility from module quiz blocks to `assessments` plus `assessment_questions`.
+		- [x] Step 3: switch trainer/admin UI from manual assessment-question editing to derived assessment summaries.
+		- [ ] Step 4: run migration and mismatch audit on existing module data. This remains an operational rollout step that still needs a live Supabase environment.
+		- [x] Step 5: remove deprecated manual question-entry paths after verification.
+		- Phase 7 implementation status on March 12, 2026
+			- Removed the deprecated manual assessment delete actions from both trainer authoring surfaces so assessment lifecycle now follows quiz-block changes instead of a second destructive UI path.
+			- Updated `src/services/assessmentService.ts` so saving a module with zero gradable quiz blocks deactivates the derived assessment and its active questions instead of leaving stale assessment rows behind.
+			- Removed the remaining learner fallback that inferred assessment availability from material marker strings. `src/components/course/ModuleContentViewer.tsx` now relies only on the actual derived assessment record.
+			- Removed deprecated `quiz-activity` and `module-assessment` material markers from `scripts/seed-course-content.ts` so seeded demo content follows the same rollout path as the app.
+			- Removed the unused manual assessment/question CRUD surface from `src/services/assessmentService.ts`, leaving derived sync as the supported authoring path.
+			- Validation result: editor diagnostics were clean, source search found no remaining manual assessment-delete references in `src/`, and a clean-shell `npm run build` completed without reported errors. Existing chunk-size warning remains.
 	- Verification checklist
 		- Creating a module with quiz blocks should automatically create or update the linked assessment and questions with no duplicate trainer input.
 		- Editing quiz text, options, answers, order, or points should update the derived assessment questions deterministically.
@@ -162,9 +175,9 @@ User credentials:
 				- 1 to 3 scripts
 				- 1 to 2 SQL files or migrations
 		- Workstream F: regression protection
-			- [ ] Verify reporting still uses `assessment_attempts.score` and does not require downstream aggregation rewrites.
-			- [ ] Regression test trainer analytics, admin reports, learner profile, dashboard score summaries, and assessment-only recommendations.
-			- [ ] Verify analytics events and notifications still fire on submission and grading.
+			- [x] Verify reporting still uses `assessment_attempts.score` and does not require downstream aggregation rewrites.
+			- [x] Regression test trainer analytics, admin reports, learner profile, dashboard score summaries, and assessment-only recommendations.
+			- [x] Verify analytics events and notifications still fire on submission and grading.
 			- Estimated file changes
 				- mostly tests or targeted smoke-check scripts
 				- possible small adjustments in `src/services/reportingService.ts`
@@ -208,14 +221,24 @@ User credentials:
 		- Existing score-based dashboards, reports, and recommendation features continue to work without schema-specific UI regressions.
 		- Legacy modules are either migrated or explicitly flagged for cleanup.
 
+## Regarding the quiz and assessment
+- [ ] Assessment section in module creation tab should not exists because the quiz blocks in the content tab should be the source of truth for the assessment questions and answers. The current setup creates confusion and extra work for the trainers because they have to enter the same information in two different places. Removing the separate assessment section will streamline the authoring process and reduce the chances of discrepancies between quiz content and recorded assessments.
+
+### Admin & Trainer
+- [ ] In admin, can you make a category and tag management which the admin and trainer can manage (Add, Edit, Delete) the categories and tags for the courses and modules. This will help to organize the courses and modules better and also help the trainers to find the relevant courses and modules easily.
+- [ ] In the creation and editing of courses and modules, instead of using dropdown for categories and tags, can you make it a searchable dropdown which can show the existing categories and tags and also allow the admin and trainer to add new categories and tags on the fly. This will improve the user experience and also help to maintain the consistency of categories and tags across the platform.
+
 ### Trainer
 - [ ] Viewing progress modal should be vertically scrollable
 
 ### Trainee
-- [ ] Certificate is available even though the trainee has not completed the course yet.
+- [ ] Loading time for courses and modules should be optimized, especially for users with slower internet connections
+- [ ] Prevent the certificate from being generated twice (in case the user click mark as complete twice)
 
 ### Courses Module
 - [ ] Learners Enrolled shows 0 even though there are learners enrolled in the course
+
+
 
 <!-- 
 git clone -b peso https://github.com/CAP101G1/peso-academy.git

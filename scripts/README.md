@@ -110,6 +110,23 @@ npx tsx scripts/audit-derived-assessments.ts --report temp_markdowns/custom-deri
 - `SUPABASE_URL` or `VITE_SUPABASE_URL`
 - `SUPABASE_SERVICE_ROLE_KEY`
 
+### `check-assessment-reporting-regressions.ts`
+
+Runs a repository-level regression check for assessment analytics and reporting invariants.
+
+**Usage:**
+
+```bash
+npm run check:assessment-reporting
+```
+
+**What it does:**
+- Verifies `submitAttempt` still persists `score` and `passed` to `assessment_attempts`
+- Verifies the `assessment_submit` analytics event and rollup refresh call still exist
+- Verifies reporting and analytics code still aggregate from `assessment_attempts.score`
+- Verifies staff visibility policies/RPC hooks for assessment attempts are still present
+- Writes a markdown report to `temp_markdowns/assessment_reporting_regression_report.md`
+
 ## Security Notes
 
 ⚠️ **Never commit your service role key to version control!**

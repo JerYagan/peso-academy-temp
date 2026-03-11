@@ -30,6 +30,90 @@ type EnrollmentErrorWithFeedback = Error & {
   feedback?: EnrollmentErrorFeedback;
 };
 
+type EnrollmentCompletionState = {
+  progress: number;
+  totalModules: number;
+  completedModules: number;
+  requiredAssessmentCount: number;
+  passedAssessmentCount: number;
+  isCourseComplete: boolean;
+};
+
+type CacheEntry<T> = {
+  data: T;
+  expiresAt: number;
+};
+
+const REQUEST_CACHE_TTL_MS = 60_000;
+const COURSE_SELECT_FIELDS = "id, title, description, program_id, category, level, duration, instructor, instructor_id, thumbnail, course_document, is_tesda_accredited, skills, skill_tags, topic_tags, industry_tags, career_paths, enrolled_count, rating, created_at, published";
+const MODULE_SUMMARY_SELECT_FIELDS = "id, course_id, title, description, order, materials, prerequisites, skill_tags, topic_tags, module_thumbnail, module_document, created_at, updated_at, status";
+const MODULE_FULL_SELECT_FIELDS = `${MODULE_SUMMARY_SELECT_FIELDS}, content`;
+
+const unsupportedCourseReadColumns = new Set<string>();
+const unsupportedModuleReadColumns = new Set<string>();
+
+let courseListCache: CacheEntry<Course[]> | null = null;
+let pendingCourseListRequest: Promise<Course[]> | null = null;
+const courseCacheById = new Map<string, CacheEntry<Course | null>>();
+const pendingCourseRequests = new Map<string, Promise<Course | null>>();
+const moduleListCacheByKey = new Map<string, CacheEntry<Module[]>>();
+const pendingModuleListRequests = new Map<string, Promise<Module[]>>();
+const moduleCacheById = new Map<string, CacheEntry<Module | null>>();
+const pendingModuleRequests = new Map<string, Promise<Module | null>>();
+const moduleCountCacheByCourseId = new Map<string, CacheEntry<number>>();
+const pendingModuleCountRequests = new Map<string, Promise<number>>();
+
+const getCachedEntry = <T>(entry: CacheEntry<T> | null | undefined): T | null => {
+  if (!entry || entry.expiresAt <= Date.now()) {
+    return null;
+  }
+
+  return entry.data;
+};
+
+const setCacheEntry = <T>(data: T): CacheEntry<T> => ({
+  data,
+  expiresAt: Date.now() + REQUEST_CACHE_TTL_MS,
+});
+
+const invalidateCourseCaches = (courseId?: string) => {
+  courseListCache = null;
+  pendingCourseListRequest = null;
+
+  if (courseId) {
+    courseCacheById.delete(courseId);
+    pendingCourseRequests.delete(courseId);
+    return;
+  }
+
+  courseCacheById.clear();
+  pendingCourseRequests.clear();
+};
+
+const invalidateModuleCaches = (courseId?: string, moduleId?: string) => {
+  if (courseId) {
+    moduleListCacheByKey.delete(`${courseId}:full`);
+    moduleListCacheByKey.delete(`${courseId}:summary`);
+    pendingModuleListRequests.delete(`${courseId}:full`);
+    pendingModuleListRequests.delete(`${courseId}:summary`);
+    moduleCountCacheByCourseId.delete(courseId);
+    pendingModuleCountRequests.delete(courseId);
+  } else {
+    moduleListCacheByKey.clear();
+    pendingModuleListRequests.clear();
+    moduleCountCacheByCourseId.clear();
+    pendingModuleCountRequests.clear();
+  }
+
+  if (moduleId) {
+    moduleCacheById.delete(moduleId);
+    pendingModuleRequests.delete(moduleId);
+  } else if (!courseId) {
+    moduleCacheById.clear();
+    pendingModuleRequests.clear();
+  }
+};
+
 const createEnrollmentError = (feedback: EnrollmentErrorFeedback): EnrollmentErrorWithFeedback => {
   const error = new Error(feedback.description) as EnrollmentErrorWithFeedback;
   error.name = "EnrollmentError";
@@ -322,6 +406,24 @@ const loadCourseTrainersById = async (trainerIds: string[], fallbackNames?: Map<
   return trainerMap;
 };
 
+const mapModuleRecord = (module: any, includeContent = true): Module => ({
+  id: module.id,
+  course_id: module.course_id,
+  title: module.title,
+  description: module.description,
+  order: module.order,
+  content: includeContent ? module.content || undefined : undefined,
+  materials: resolveCourseMaterialUrls(module.materials),
+  prerequisites: module.prerequisites || [],
+  skillTags: module.skill_tags || [],
+  topicTags: module.topic_tags || [],
+  module_thumbnail: resolveCourseMaterialUrl(module.module_thumbnail),
+  module_document: resolveCourseMaterialUrl(module.module_document),
+  created_at: module.created_at,
+  updated_at: module.updated_at || module.created_at,
+  status: (module.status === "finalized" ? "finalized" : "draft") as Module["status"],
+});
+
 const mapCourseRecord = (
   course: any,
   liveEnrollmentCounts?: Map<string, number>,
@@ -353,6 +455,21 @@ const mapCourseRecord = (
 });
 
 const unsupportedCourseColumns = new Set<string>();
+const unsupportedModuleColumns = new Set<string>();
+
+const normalizeMissingColumnName = (columnName: string | null | undefined): string | null => {
+  const normalized = String(columnName || "")
+    .trim()
+    .replace(/^"|"$/g, "")
+    .replace(/^'|'$/g, "");
+
+  if (!normalized) {
+    return null;
+  }
+
+  const segments = normalized.split(".").filter(Boolean);
+  return segments[segments.length - 1] || normalized;
+};
 
 const getMissingCourseColumn = (error: unknown): string | null => {
   const message = typeof error === "object" && error !== null && "message" in error
@@ -365,21 +482,121 @@ const getMissingCourseColumn = (error: unknown): string | null => {
 
   const schemaCacheMatch = haystack.match(/'([^']+)' column of 'courses'/i);
   if (schemaCacheMatch?.[1]) {
-    return schemaCacheMatch[1];
+    return normalizeMissingColumnName(schemaCacheMatch[1]);
   }
 
   const postgresMatch = haystack.match(/column\s+"([^"]+)"\s+does not exist/i);
   if (postgresMatch?.[1]) {
-    return postgresMatch[1];
+    return normalizeMissingColumnName(postgresMatch[1]);
+  }
+
+  const unquotedPostgresMatch = haystack.match(/column\s+([a-zA-Z0-9_.]+)\s+does not exist/i);
+  if (unquotedPostgresMatch?.[1]) {
+    return normalizeMissingColumnName(unquotedPostgresMatch[1]);
   }
 
   return null;
+};
+
+const buildSelectWithFallback = (baseSelect: string, unsupportedColumns: Set<string>) => {
+  const fields = baseSelect
+    .split(",")
+    .map((field) => field.trim())
+    .filter(Boolean)
+    .filter((field) => !unsupportedColumns.has(field));
+
+  return fields.length > 0 ? fields.join(", ") : "*";
+};
+
+const executeCourseReadWithFallback = async <T>(
+  execute: (selectClause: string) => Promise<{ data: T | null; error: any }>,
+  selectClause: string,
+): Promise<{ data: T | null; error: any }> => {
+  let nextSelect = buildSelectWithFallback(selectClause, unsupportedCourseReadColumns);
+
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const result = await execute(nextSelect);
+    if (!result.error) {
+      return result;
+    }
+
+    const missingColumn = getMissingCourseColumn(result.error);
+    if (!missingColumn) {
+      return result;
+    }
+
+    unsupportedCourseReadColumns.add(missingColumn);
+    nextSelect = buildSelectWithFallback(selectClause, unsupportedCourseReadColumns);
+  }
+
+  return execute("*");
+};
+
+const getMissingModuleColumn = (error: unknown): string | null => {
+  const message = typeof error === "object" && error !== null && "message" in error
+    ? String((error as { message?: string }).message || "")
+    : "";
+  const details = typeof error === "object" && error !== null && "details" in error
+    ? String((error as { details?: string }).details || "")
+    : "";
+  const haystack = `${message} ${details}`;
+
+  const schemaCacheMatch = haystack.match(/'([^']+)' column of 'modules'/i);
+  if (schemaCacheMatch?.[1]) {
+    return normalizeMissingColumnName(schemaCacheMatch[1]);
+  }
+
+  const postgresMatch = haystack.match(/column\s+"([^"]+)"\s+does not exist/i);
+  if (postgresMatch?.[1]) {
+    return normalizeMissingColumnName(postgresMatch[1]);
+  }
+
+  const unquotedPostgresMatch = haystack.match(/column\s+([a-zA-Z0-9_.]+)\s+does not exist/i);
+  if (unquotedPostgresMatch?.[1]) {
+    return normalizeMissingColumnName(unquotedPostgresMatch[1]);
+  }
+
+  return null;
+};
+
+const executeModuleReadWithFallback = async <T>(
+  execute: (selectClause: string) => Promise<{ data: T | null; error: any }>,
+  selectClause: string,
+): Promise<{ data: T | null; error: any }> => {
+  let nextSelect = buildSelectWithFallback(selectClause, unsupportedModuleReadColumns);
+
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const result = await execute(nextSelect);
+    if (!result.error) {
+      return result;
+    }
+
+    const missingColumn = getMissingModuleColumn(result.error);
+    if (!missingColumn) {
+      return result;
+    }
+
+    unsupportedModuleReadColumns.add(missingColumn);
+    nextSelect = buildSelectWithFallback(selectClause, unsupportedModuleReadColumns);
+  }
+
+  return execute("*");
 };
 
 const sanitizeCourseWritePayload = (payload: Record<string, unknown>) => {
   const nextPayload = { ...payload };
 
   for (const column of unsupportedCourseColumns) {
+    delete nextPayload[column];
+  }
+
+  return nextPayload;
+};
+
+const sanitizeModuleWritePayload = (payload: Record<string, unknown>) => {
+  const nextPayload = { ...payload };
+
+  for (const column of unsupportedModuleColumns) {
     delete nextPayload[column];
   }
 
@@ -410,6 +627,30 @@ const executeCourseWriteWithFallback = async <T>(
   return execute(nextPayload);
 };
 
+const executeModuleWriteWithFallback = async <T>(
+  execute: (payload: Record<string, unknown>) => Promise<{ data: T | null; error: any }>,
+  payload: Record<string, unknown>,
+): Promise<{ data: T | null; error: any }> => {
+  let nextPayload = sanitizeModuleWritePayload(payload);
+
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const result = await execute(nextPayload);
+    if (!result.error) {
+      return result;
+    }
+
+    const missingColumn = getMissingModuleColumn(result.error);
+    if (!missingColumn || !(missingColumn in nextPayload)) {
+      return result;
+    }
+
+    unsupportedModuleColumns.add(missingColumn);
+    delete nextPayload[missingColumn];
+  }
+
+  return execute(nextPayload);
+};
+
 // Course operations
 export const courseService = {
   /**
@@ -420,60 +661,111 @@ export const courseService = {
       console.warn("Supabase not initialized");
       return [];
     }
-    const { data, error } = await supabase
-      .from("courses")
-      .select("*")
-      .order("created_at", { ascending: false });
 
-    if (error) {
-      handleSupabaseError(error);
-      return [];
+    const cachedCourses = getCachedEntry(courseListCache);
+    if (cachedCourses) {
+      return cachedCourses;
     }
 
-    const liveEnrollmentCounts = await loadActiveEnrollmentCounts((data || []).map((course) => course.id));
-    const programsById = await loadProgramsById((data || []).map((course) => course.program_id).filter(Boolean));
-    const trainerFallbackNames = new Map(
-      (data || [])
-        .filter((course) => course.instructor_id)
-        .map((course) => [course.instructor_id, String(course.instructor || "")]),
-    );
-    const trainersById = await loadCourseTrainersById(
-      (data || []).map((course) => course.instructor_id).filter(Boolean),
-      trainerFallbackNames,
-    );
+    if (pendingCourseListRequest) {
+      return pendingCourseListRequest;
+    }
 
-    return data?.map((course) => mapCourseRecord(course, liveEnrollmentCounts, programsById, trainersById)) || [];
+    pendingCourseListRequest = (async () => {
+      const { data, error } = await executeCourseReadWithFallback(
+        (selectClause) => supabase
+          .from("courses")
+          .select(selectClause)
+          .order("created_at", { ascending: false }),
+        COURSE_SELECT_FIELDS,
+      );
+
+      if (error) {
+        handleSupabaseError(error);
+        return [];
+      }
+
+      const courseRows = data || [];
+      const trainerFallbackNames = new Map(
+        courseRows
+          .filter((course) => course.instructor_id)
+          .map((course) => [course.instructor_id, String(course.instructor || "")]),
+      );
+
+      const [liveEnrollmentCounts, programsById, trainersById] = await Promise.all([
+        loadActiveEnrollmentCounts(courseRows.map((course) => course.id)),
+        loadProgramsById(courseRows.map((course) => course.program_id).filter(Boolean)),
+        loadCourseTrainersById(courseRows.map((course) => course.instructor_id).filter(Boolean), trainerFallbackNames),
+      ]);
+
+      const mappedCourses = courseRows.map((course) => mapCourseRecord(course, liveEnrollmentCounts, programsById, trainersById));
+      courseListCache = setCacheEntry(mappedCourses);
+      for (const mappedCourse of mappedCourses) {
+        courseCacheById.set(mappedCourse.id, setCacheEntry(mappedCourse));
+      }
+
+      return mappedCourses;
+    })();
+
+    try {
+      return await pendingCourseListRequest;
+    } finally {
+      pendingCourseListRequest = null;
+    }
   },
 
   /**
    * Get a single course by ID
    */
   getCourse: async (id: string): Promise<Course | null> => {
-    const { data, error } = await supabase
-      .from("courses")
-      .select("*")
-      .eq("id", id)
-      .single();
-
-    if (error) {
-      handleSupabaseError(error);
-      return null;
+    const cachedCourse = getCachedEntry(courseCacheById.get(id));
+    if (cachedCourse) {
+      return cachedCourse;
     }
 
-    if (!data) return null;
-
-    let enrolledCount = data.enrolled_count ?? 0;
-    const liveEnrollmentCounts = await loadActiveEnrollmentCounts([data.id]);
-    const programsById = await loadProgramsById(data.program_id ? [data.program_id] : []);
-    const trainersById = await loadCourseTrainersById(
-      data.instructor_id ? [data.instructor_id] : [],
-      new Map(data.instructor_id ? [[data.instructor_id, String(data.instructor || "")]] : []),
-    );
-    if (liveEnrollmentCounts.has(data.id)) {
-      enrolledCount = liveEnrollmentCounts.get(data.id) || 0;
+    const pendingRequest = pendingCourseRequests.get(id);
+    if (pendingRequest) {
+      return pendingRequest;
     }
 
-    return mapCourseRecord({ ...data, enrolled_count: enrolledCount }, undefined, programsById, trainersById);
+    const request = (async () => {
+      const { data, error } = await executeCourseReadWithFallback(
+        (selectClause) => supabase
+          .from("courses")
+          .select(selectClause)
+          .eq("id", id)
+          .single(),
+        COURSE_SELECT_FIELDS,
+      );
+
+      if (error) {
+        handleSupabaseError(error);
+        return null;
+      }
+
+      if (!data) return null;
+
+      const [liveEnrollmentCounts, programsById, trainersById] = await Promise.all([
+        loadActiveEnrollmentCounts([data.id]),
+        loadProgramsById(data.program_id ? [data.program_id] : []),
+        loadCourseTrainersById(
+          data.instructor_id ? [data.instructor_id] : [],
+          new Map(data.instructor_id ? [[data.instructor_id, String(data.instructor || "")]] : []),
+        ),
+      ]);
+      const enrolledCount = liveEnrollmentCounts.get(data.id) ?? data.enrolled_count ?? 0;
+      const mappedCourse = mapCourseRecord({ ...data, enrolled_count: enrolledCount }, undefined, programsById, trainersById);
+      courseCacheById.set(id, setCacheEntry(mappedCourse));
+      return mappedCourse;
+    })();
+
+    pendingCourseRequests.set(id, request);
+
+    try {
+      return await request;
+    } finally {
+      pendingCourseRequests.delete(id);
+    }
   },
 
   /**
@@ -528,6 +820,8 @@ export const courseService = {
       data.instructor_id ? [data.instructor_id] : [],
       new Map(data.instructor_id ? [[data.instructor_id, course.instructor || ""]] : []),
     );
+
+    invalidateCourseCaches();
 
     return {
       ...mapCourseRecord(data, undefined, undefined, trainersById),
@@ -585,6 +879,8 @@ export const courseService = {
       new Map(data.instructor_id ? [[data.instructor_id, updates.instructor || ""]] : []),
     );
 
+    invalidateCourseCaches(id);
+
     return {
       ...mapCourseRecord(data, undefined, undefined, trainersById),
       instructor: updates.instructor || trainersById.get(data.instructor_id || "")?.displayName || "PESO Training Team",
@@ -601,6 +897,9 @@ export const courseService = {
       handleSupabaseError(error);
       throw error;
     }
+
+    invalidateCourseCaches(id);
+    invalidateModuleCaches();
   },
 };
 
@@ -720,6 +1019,93 @@ export const programService = {
 
 // Module operations
 export const moduleService = {
+  getModulesByCourseSummary: async (courseId: string): Promise<Module[]> => {
+    if (!supabase) {
+      console.warn("Supabase not initialized");
+      return [];
+    }
+
+    const cacheKey = `${courseId}:summary`;
+    const cachedModules = getCachedEntry(moduleListCacheByKey.get(cacheKey));
+    if (cachedModules) {
+      return cachedModules;
+    }
+
+    const pendingRequest = pendingModuleListRequests.get(cacheKey);
+    if (pendingRequest) {
+      return pendingRequest;
+    }
+
+    const request = (async () => {
+      const { data, error } = await executeModuleReadWithFallback(
+        (selectClause) => supabase
+          .from("modules")
+          .select(selectClause)
+          .eq("course_id", courseId)
+          .order("order", { ascending: true }),
+        MODULE_SUMMARY_SELECT_FIELDS,
+      );
+
+      if (error) {
+        handleSupabaseError(error);
+        return [];
+      }
+
+      const mappedModules = (data || []).map((module: any) => mapModuleRecord(module, false));
+      moduleListCacheByKey.set(cacheKey, setCacheEntry(mappedModules));
+      return mappedModules;
+    })();
+
+    pendingModuleListRequests.set(cacheKey, request);
+
+    try {
+      return await request;
+    } finally {
+      pendingModuleListRequests.delete(cacheKey);
+    }
+  },
+
+  getModuleCountByCourse: async (courseId: string): Promise<number> => {
+    if (!supabase) {
+      console.warn("Supabase not initialized");
+      return 0;
+    }
+
+    const cachedCount = getCachedEntry(moduleCountCacheByCourseId.get(courseId));
+    if (cachedCount !== null) {
+      return cachedCount;
+    }
+
+    const pendingRequest = pendingModuleCountRequests.get(courseId);
+    if (pendingRequest) {
+      return pendingRequest;
+    }
+
+    const request = (async () => {
+      const { count, error } = await supabase
+        .from("modules")
+        .select("id", { count: "exact", head: true })
+        .eq("course_id", courseId);
+
+      if (error) {
+        handleSupabaseError(error);
+        return 0;
+      }
+
+      const total = count || 0;
+      moduleCountCacheByCourseId.set(courseId, setCacheEntry(total));
+      return total;
+    })();
+
+    pendingModuleCountRequests.set(courseId, request);
+
+    try {
+      return await request;
+    } finally {
+      pendingModuleCountRequests.delete(courseId);
+    }
+  },
+
   /**
    * Get all modules for a course
    */
@@ -729,36 +1115,53 @@ export const moduleService = {
       return [];
     }
 
-    const { data, error } = await supabase
-      .from("modules")
-      .select("*, module_document")
-      .eq("course_id", courseId)
-      .order("order", { ascending: true });
-
-    if (error) {
-      handleSupabaseError(error);
-      return [];
+    const cacheKey = `${courseId}:full`;
+    const cachedModules = getCachedEntry(moduleListCacheByKey.get(cacheKey));
+    if (cachedModules) {
+      return cachedModules;
     }
 
-    return (
-      data?.map((module: any) => ({
-        id: module.id,
-        course_id: module.course_id,
-        title: module.title,
-        description: module.description,
-        order: module.order,
-        content: module.content || undefined,
-        materials: resolveCourseMaterialUrls(module.materials),
-        prerequisites: module.prerequisites || [],
-        skillTags: module.skill_tags || [],
-        topicTags: module.topic_tags || [],
-        module_thumbnail: resolveCourseMaterialUrl((module as any).module_thumbnail),
-        module_document: resolveCourseMaterialUrl(module.module_document),
-        created_at: module.created_at,
-        updated_at: module.updated_at || module.created_at,
-        status: (module.status === "finalized" ? "finalized" : "draft") as "draft" | "finalized",
-      })) || []
-    );
+    const pendingRequest = pendingModuleListRequests.get(cacheKey);
+    if (pendingRequest) {
+      return pendingRequest;
+    }
+
+    const request = (async () => {
+      const { data, error } = await executeModuleReadWithFallback(
+        (selectClause) => supabase
+          .from("modules")
+          .select(selectClause)
+          .eq("course_id", courseId)
+          .order("order", { ascending: true }),
+        MODULE_FULL_SELECT_FIELDS,
+      );
+
+      if (error) {
+        handleSupabaseError(error);
+        return [];
+      }
+
+      const mappedModules = (data || []).map((module: any) => mapModuleRecord(module));
+      moduleListCacheByKey.set(cacheKey, setCacheEntry(mappedModules));
+      moduleListCacheByKey.set(
+        `${courseId}:summary`,
+        setCacheEntry(mappedModules.map((module) => ({ ...module, content: undefined }))),
+      );
+      for (const module of mappedModules) {
+        moduleCacheById.set(module.id, setCacheEntry(module));
+      }
+      moduleCountCacheByCourseId.set(courseId, setCacheEntry(mappedModules.length));
+
+      return mappedModules;
+    })();
+
+    pendingModuleListRequests.set(cacheKey, request);
+
+    try {
+      return await request;
+    } finally {
+      pendingModuleListRequests.delete(cacheKey);
+    }
   },
 
   /**
@@ -770,36 +1173,45 @@ export const moduleService = {
       return null;
     }
 
-    const { data, error } = await supabase
-      .from("modules")
-      .select("*")
-      .eq("id", id)
-      .single();
-
-    if (error) {
-      handleSupabaseError(error);
-      return null;
+    const cachedModule = getCachedEntry(moduleCacheById.get(id));
+    if (cachedModule) {
+      return cachedModule;
     }
 
-    if (!data) return null;
+    const pendingRequest = pendingModuleRequests.get(id);
+    if (pendingRequest) {
+      return pendingRequest;
+    }
 
-    return {
-      id: data.id,
-      course_id: data.course_id,
-      title: data.title,
-      description: data.description,
-      order: data.order,
-      content: data.content || undefined,
-      materials: resolveCourseMaterialUrls(data.materials),
-      prerequisites: data.prerequisites || [],
-      skillTags: (data as any).skill_tags || [],
-      topicTags: (data as any).topic_tags || [],
-      module_thumbnail: resolveCourseMaterialUrl((data as any).module_thumbnail),
-      module_document: resolveCourseMaterialUrl((data as any).module_document),
-      created_at: data.created_at,
-      updated_at: (data as any).updated_at || data.created_at,
-      status: ((data as any).status === "finalized" ? "finalized" : "draft") as Module["status"],
-    };
+    const request = (async () => {
+      const { data, error } = await executeModuleReadWithFallback(
+        (selectClause) => supabase
+          .from("modules")
+          .select(selectClause)
+          .eq("id", id)
+          .single(),
+        MODULE_FULL_SELECT_FIELDS,
+      );
+
+      if (error) {
+        handleSupabaseError(error);
+        return null;
+      }
+
+      if (!data) return null;
+
+      const mappedModule = mapModuleRecord(data);
+      moduleCacheById.set(id, setCacheEntry(mappedModule));
+      return mappedModule;
+    })();
+
+    pendingModuleRequests.set(id, request);
+
+    try {
+      return await request;
+    } finally {
+      pendingModuleRequests.delete(id);
+    }
   },
 
   /**
@@ -828,50 +1240,40 @@ export const moduleService = {
     const canonicalSkillTags = deriveSkillTags(undefined, module.skillTags);
     const canonicalTopicTags = deriveTopicTags(undefined, canonicalSkillTags, module.topicTags);
 
-    const { data, error } = await supabase
-      .from("modules")
-      .insert({
-        course_id: module.course_id,
-        title: module.title,
-        description: module.description,
-        order: order,
-        content: module.content || null,
-        materials: module.materials || [],
-        prerequisites: module.prerequisites || [],
-        skill_tags: canonicalSkillTags,
-        topic_tags: canonicalTopicTags,
-        module_thumbnail: (module as any).module_thumbnail || null,
-        module_document: (module as any).module_document || null,
-        status: (module as any).status || "draft",
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      } as any)
-      .select()
-      .single();
+    const insertPayload = {
+      course_id: module.course_id,
+      title: module.title,
+      description: module.description,
+      order: order,
+      content: module.content || null,
+      materials: module.materials || [],
+      prerequisites: module.prerequisites || [],
+      skill_tags: canonicalSkillTags,
+      topic_tags: canonicalTopicTags,
+      module_thumbnail: (module as any).module_thumbnail || null,
+      module_document: (module as any).module_document || null,
+      status: (module as any).status || "draft",
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    } as Record<string, unknown>;
+
+    const { data, error } = await executeModuleWriteWithFallback(
+      (payload) => supabase
+        .from("modules")
+        .insert(payload)
+        .select()
+        .single(),
+      insertPayload,
+    );
 
     if (error) {
       handleSupabaseError(error);
       throw error;
     }
 
-    const row = data as any;
-    return {
-      id: data.id,
-      course_id: data.course_id,
-      title: data.title,
-      description: data.description,
-      order: data.order,
-      content: data.content || undefined,
-      materials: resolveCourseMaterialUrls(data.materials),
-      prerequisites: data.prerequisites || [],
-      skillTags: row.skill_tags || [],
-      topicTags: row.topic_tags || [],
-      module_thumbnail: resolveCourseMaterialUrl((data as any).module_thumbnail),
-      module_document: resolveCourseMaterialUrl(data.module_document),
-      created_at: data.created_at,
-      updated_at: row.updated_at || data.created_at,
-      status: (row.status === "finalized" ? "finalized" : "draft") as Module["status"],
-    };
+    invalidateModuleCaches(data.course_id, data.id);
+
+    return mapModuleRecord(data);
   },
 
   /**
@@ -896,36 +1298,24 @@ export const moduleService = {
     if (updates.skillTags !== undefined) updateData.skill_tags = deriveSkillTags(undefined, updates.skillTags);
     if (updates.topicTags !== undefined) updateData.topic_tags = deriveTopicTags(undefined, updates.skillTags, updates.topicTags);
 
-    const { data, error } = await supabase
-      .from("modules")
-      .update(updateData)
-      .eq("id", id)
-      .select()
-      .single();
+    const { data, error } = await executeModuleWriteWithFallback(
+      (payload) => supabase
+        .from("modules")
+        .update(payload)
+        .eq("id", id)
+        .select()
+        .single(),
+      updateData,
+    );
 
     if (error) {
       handleSupabaseError(error);
       throw error;
     }
 
-    const row = data as any;
-    return {
-      id: data.id,
-      course_id: data.course_id,
-      title: data.title,
-      description: data.description,
-      order: data.order,
-      content: data.content || undefined,
-      materials: resolveCourseMaterialUrls(data.materials),
-      prerequisites: data.prerequisites || [],
-      skillTags: row.skill_tags || [],
-      topicTags: row.topic_tags || [],
-      module_thumbnail: resolveCourseMaterialUrl((data as any).module_thumbnail),
-      module_document: resolveCourseMaterialUrl(data.module_document),
-      created_at: data.created_at,
-      updated_at: row.updated_at || data.created_at,
-      status: (row.status === "finalized" ? "finalized" : "draft") as Module["status"],
-    };
+    invalidateModuleCaches(data.course_id, data.id);
+
+    return mapModuleRecord(data);
   },
 
   /**
@@ -945,6 +1335,8 @@ export const moduleService = {
       handleSupabaseError(error);
       throw error;
     }
+
+    invalidateModuleCaches(undefined, id);
   },
 
   /**
@@ -968,6 +1360,8 @@ export const moduleService = {
         throw error;
       }
     }
+
+    invalidateModuleCaches(courseId);
   },
 };
 
@@ -1122,6 +1516,101 @@ export const moduleCompletionService = {
   },
 };
 
+async function getEnrollmentCompletionState(
+  enrollmentId: string,
+  courseId: string,
+): Promise<EnrollmentCompletionState | null> {
+  if (!supabase) {
+    return null;
+  }
+
+  const { data: modules, error: modulesError } = await supabase
+    .from("modules")
+    .select("id")
+    .eq("course_id", courseId);
+
+  if (modulesError) {
+    handleSupabaseError(modulesError);
+    throw modulesError;
+  }
+
+  const moduleIds = (modules || []).map((module) => module.id);
+  if (moduleIds.length === 0) {
+    return {
+      progress: 0,
+      totalModules: 0,
+      completedModules: 0,
+      requiredAssessmentCount: 0,
+      passedAssessmentCount: 0,
+      isCourseComplete: false,
+    };
+  }
+
+  const [{ data: completions, error: completionsError }, { data: assessments, error: assessmentsError }] = await Promise.all([
+    supabase
+      .from("module_completions")
+      .select("module_id, completed_at")
+      .eq("enrollment_id", enrollmentId)
+      .not("completed_at", "is", null),
+    supabase
+      .from("assessments")
+      .select("id")
+      .eq("is_active", true)
+      .in("module_id", moduleIds),
+  ]);
+
+  if (completionsError) {
+    handleSupabaseError(completionsError);
+    throw completionsError;
+  }
+
+  if (assessmentsError) {
+    handleSupabaseError(assessmentsError);
+    throw assessmentsError;
+  }
+
+  const completedModules = new Set((completions || []).map((completion) => completion.module_id)).size;
+  const requiredAssessmentIds = Array.from(new Set((assessments || []).map((assessment) => assessment.id)));
+
+  let passedAssessmentCount = 0;
+  if (requiredAssessmentIds.length > 0) {
+    const { data: passedAttempts, error: attemptsError } = await supabase
+      .from("assessment_attempts")
+      .select("assessment_id")
+      .eq("enrollment_id", enrollmentId)
+      .eq("passed", true)
+      .in("assessment_id", requiredAssessmentIds)
+      .not("submitted_at", "is", null);
+
+    if (attemptsError) {
+      handleSupabaseError(attemptsError);
+      throw attemptsError;
+    }
+
+    passedAssessmentCount = new Set((passedAttempts || []).map((attempt) => attempt.assessment_id)).size;
+  }
+
+  const totalModules = moduleIds.length;
+  const requiredAssessmentCount = requiredAssessmentIds.length;
+  const totalUnits = totalModules + requiredAssessmentCount;
+  const completedUnits = completedModules + passedAssessmentCount;
+  const progress = totalUnits > 0 ? Math.round((completedUnits / totalUnits) * 100) : 0;
+  const isCourseComplete = completedModules === totalModules && passedAssessmentCount === requiredAssessmentCount;
+
+  return {
+    progress,
+    totalModules,
+    completedModules,
+    requiredAssessmentCount,
+    passedAssessmentCount,
+    isCourseComplete,
+  };
+}
+
+export async function refreshEnrollmentProgress(enrollmentId: string): Promise<void> {
+  await updateEnrollmentProgress(enrollmentId);
+}
+
 /**
  * Helper function to update enrollment progress based on completed modules
  */
@@ -1131,65 +1620,54 @@ async function updateEnrollmentProgress(enrollmentId: string): Promise<void> {
   // Get enrollment
   const { data: enrollment } = await supabase
     .from("enrollments")
-    .select("course_id, user_id")
+    .select("course_id, user_id, status, completed_at")
     .eq("id", enrollmentId)
     .single();
 
   if (!enrollment) return;
 
-  // Get total modules for the course
-  const { data: modules } = await supabase
-    .from("modules")
-    .select("id")
-    .eq("course_id", enrollment.course_id);
-
-  if (!modules || modules.length === 0) return;
-
-  // Get completed modules
-  const { data: completions } = await supabase
-    .from("module_completions")
-    .select("module_id")
-    .eq("enrollment_id", enrollmentId);
-
-  const completedCount = completions?.length || 0;
-  const totalModules = modules.length;
-  const progress = Math.round((completedCount / totalModules) * 100);
+  const completionState = await getEnrollmentCompletionState(enrollmentId, enrollment.course_id);
+  if (!completionState || completionState.totalModules === 0) {
+    return;
+  }
 
   // Update enrollment progress and status
-  const updateData: any = { progress };
-  if (progress === 100) {
+  const updateData: any = { progress: completionState.progress };
+  if (completionState.isCourseComplete) {
     updateData.status = "completed";
-    updateData.completed_at = new Date().toISOString();
+    updateData.completed_at = enrollment.completed_at || new Date().toISOString();
     
-    // Notify user about course completion
-    try {
-      const { data: course } = await supabase
-        .from("courses")
-        .select("title")
-        .eq("id", enrollment.course_id)
-        .single();
-      
-      if (course) {
-        await notificationHelpers.notifyCourseCompleted(
-          enrollment.user_id,
-          course.title,
-          enrollment.course_id
-        );
+    if (enrollment.status !== "completed" || !enrollment.completed_at) {
+      try {
+        const { data: course } = await supabase
+          .from("courses")
+          .select("title")
+          .eq("id", enrollment.course_id)
+          .single();
+        
+        if (course) {
+          await notificationHelpers.notifyCourseCompleted(
+            enrollment.user_id,
+            course.title,
+            enrollment.course_id
+          );
+        }
+      } catch (error) {
+        console.error("Error sending course completion notification:", error);
       }
-    } catch (error) {
-      console.error("Error sending course completion notification:", error);
-      // Don't throw - notification failure shouldn't block progress update
+
+      try {
+        await autoGenerateCertificate(enrollmentId);
+      } catch (error) {
+        console.error("Error auto-generating certificate:", error);
+      }
     }
-    
-    // Auto-generate certificate if course is completed
-    try {
-      await autoGenerateCertificate(enrollmentId);
-    } catch (error) {
-      console.error("Error auto-generating certificate:", error);
-      // Don't throw - certificate generation failure shouldn't block progress update
-    }
-  } else if (progress > 0 && progress < 100) {
+  } else if (completionState.progress > 0) {
     updateData.status = "in-progress";
+    updateData.completed_at = null;
+  } else {
+    updateData.status = "enrolled";
+    updateData.completed_at = null;
   }
 
   await supabase.from("enrollments").update(updateData).eq("id", enrollmentId);
@@ -1213,6 +1691,11 @@ async function autoGenerateCertificate(enrollmentId: string): Promise<void> {
     return;
   }
 
+  const completionState = await getEnrollmentCompletionState(enrollmentId, enrollment.course_id);
+  if (!completionState?.isCourseComplete) {
+    return;
+  }
+
   // Get course details
   const { data: course } = await supabase
     .from("courses")
@@ -1229,19 +1712,6 @@ async function autoGenerateCertificate(enrollmentId: string): Promise<void> {
     course.title,
     course.certificate_type || "completion"
   );
-
-  // Notify user about certificate issuance
-  try {
-    await notificationHelpers.notifyCertificateIssued(
-      enrollment.user_id,
-      course.title,
-      certificate.id,
-      course.certificate_type || "completion"
-    );
-  } catch (error) {
-    console.error("Error sending certificate notification:", error);
-    // Don't throw - notification failure shouldn't block certificate issuance
-  }
 
   // Update enrollment with certificate ID
   await supabase
@@ -1891,6 +2361,33 @@ export const certificateService = {
     courseTitle: string,
     certificateType: "completion" | "participation" = "completion"
   ): Promise<Certificate> => {
+    const { data: existingCertificate, error: existingCertificateError } = await supabase
+      .from("certificates")
+      .select("id, user_id, course_id, issued_at, certificate_number, certificate_type, verification_code")
+      .eq("user_id", userId)
+      .eq("course_id", courseId)
+      .order("issued_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    if (existingCertificateError) {
+      handleSupabaseError(existingCertificateError);
+      throw existingCertificateError;
+    }
+
+    if (existingCertificate) {
+      return {
+        id: existingCertificate.id,
+        userId: existingCertificate.user_id,
+        courseId: existingCertificate.course_id,
+        courseTitle,
+        issuedAt: existingCertificate.issued_at,
+        certificateNumber: existingCertificate.certificate_number,
+        certificateType: existingCertificate.certificate_type,
+        verificationCode: existingCertificate.verification_code,
+      };
+    }
+
     const certificateNumber = `TESDA-${courseId.toUpperCase()}-${Date.now()}`;
     const verificationCode = `VER-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
@@ -1912,28 +2409,59 @@ export const certificateService = {
       throw error;
     }
 
+    const { data: matchingCertificates, error: matchingCertificatesError } = await supabase
+      .from("certificates")
+      .select("id, user_id, course_id, issued_at, certificate_number, certificate_type, verification_code")
+      .eq("user_id", userId)
+      .eq("course_id", courseId)
+      .order("issued_at", { ascending: true });
+
+    if (matchingCertificatesError) {
+      handleSupabaseError(matchingCertificatesError);
+      throw matchingCertificatesError;
+    }
+
+    const orderedCertificates = matchingCertificates || [];
+    const canonicalCertificate = orderedCertificates[0] || data;
+    const duplicateCertificateIds = orderedCertificates
+      .slice(1)
+      .map((certificate) => certificate.id)
+      .filter((certificateId) => certificateId !== canonicalCertificate.id);
+
+    if (duplicateCertificateIds.length > 0) {
+      const { error: deleteDuplicatesError } = await supabase
+        .from("certificates")
+        .delete()
+        .in("id", duplicateCertificateIds);
+
+      if (deleteDuplicatesError) {
+        handleSupabaseError(deleteDuplicatesError);
+        throw deleteDuplicatesError;
+      }
+    }
+
     const certificate = {
-      id: data.id,
-      userId: data.user_id,
-      courseId: data.course_id,
+      id: canonicalCertificate.id,
+      userId: canonicalCertificate.user_id,
+      courseId: canonicalCertificate.course_id,
       courseTitle,
-      issuedAt: data.issued_at,
-      certificateNumber: data.certificate_number,
-      certificateType: data.certificate_type,
-      verificationCode: data.verification_code,
+      issuedAt: canonicalCertificate.issued_at,
+      certificateNumber: canonicalCertificate.certificate_number,
+      certificateType: canonicalCertificate.certificate_type,
+      verificationCode: canonicalCertificate.verification_code,
     };
 
-    // Notify user about certificate issuance (if not already notified by autoGenerateCertificate)
-    try {
-      await notificationHelpers.notifyCertificateIssued(
-        userId,
-        courseTitle,
-        certificate.id,
-        certificateType
-      );
-    } catch (error) {
-      console.error("Error sending certificate notification:", error);
-      // Don't throw - notification failure shouldn't block certificate issuance
+    if (certificate.id === data.id) {
+      try {
+        await notificationHelpers.notifyCertificateIssued(
+          userId,
+          courseTitle,
+          certificate.id,
+          certificateType
+        );
+      } catch (error) {
+        console.error("Error sending certificate notification:", error);
+      }
     }
 
     return certificate;

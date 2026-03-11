@@ -17,7 +17,7 @@ import { ContentBlock } from "./ContentBlock";
 import { assessmentService, type Assessment } from "@/services/assessmentService";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
-import { getGradableQuizBlocks, parseModuleContentBlocks } from "@/lib/contentBlocks";
+import { parseModuleContentBlocks } from "@/lib/contentBlocks";
 
 interface ModuleContentViewerProps {
   module: Module;
@@ -25,7 +25,7 @@ interface ModuleContentViewerProps {
   isCompleted: boolean;
   isPreviewMode?: boolean;
   entrySource?: string;
-  onComplete: (timeSpentMinutes?: number) => void;
+  onComplete: (timeSpentMinutes?: number) => void | Promise<void>;
 }
 
 const ModuleContentViewer = ({
@@ -44,6 +44,7 @@ const ModuleContentViewer = ({
   const [quizResults, setQuizResults] = useState<Record<string, boolean>>({});
   const [moduleAssessment, setModuleAssessment] = useState<Assessment | null>(null);
   const [assessmentLoaded, setAssessmentLoaded] = useState(isPreviewMode);
+  const [completingModule, setCompletingModule] = useState(false);
   const sessionIdRef = useRef<string | null>(null);
   const sessionStartedAtRef = useRef<number | null>(null);
   const heartbeatIntervalRef = useRef<number | null>(null);
@@ -241,17 +242,10 @@ const ModuleContentViewer = ({
     return url.includes("assignment") || url.includes("submit");
   });
 
-  const hasAssessments = !isPreviewMode && module.materials.some((m) => {
-    const url = typeof m === "string" ? m : String(m);
-    return url.includes("assessment") || url.includes("quiz") || url.includes("test");
-  });
-
   // Parse content blocks from JSON content
   const contentBlocks = useMemo(() => {
     return parseModuleContentBlocks(module.content);
   }, [module.content]);
-
-  const gradableQuizBlocks = useMemo(() => getGradableQuizBlocks(contentBlocks), [contentBlocks]);
 
   useEffect(() => {
     if (isPreviewMode) {
@@ -287,7 +281,10 @@ const ModuleContentViewer = ({
     };
   }, [isPreviewMode, module.id]);
 
-  const hasAssessmentActivity = !isPreviewMode && (Boolean(moduleAssessment) || hasAssessments);
+  const firstDerivedAssessmentBlockId = useMemo(() => {
+    const firstDerivedBlock = contentBlocks.find((block) => block.type === "quiz" && block.isGradable !== false);
+    return firstDerivedBlock?.id || null;
+  }, [contentBlocks]);
 
   // Get first heading (h1/h2/h3) text from HTML for use as section title
   const getFirstHeadingFromHtml = (html: string): string | null => {
@@ -440,48 +437,42 @@ const ModuleContentViewer = ({
         const correctAnswerIndex = block.correctAnswer?.toString();
 
         if (isDerivedAssessmentQuestion) {
+          if (blockId !== firstDerivedAssessmentBlockId) {
+            return null;
+          }
+
           return (
-            <Card key={blockId} className="border-2 border-dashed">
-              <CardHeader>
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <CardTitle className="flex items-center gap-2">
-                      <FileQuestion className="w-5 h-5" />
-                      {block.title || "Assessment Question Preview"}
-                    </CardTitle>
-                    <CardDescription className="mt-2">
-                      This graded question is part of the module assessment. Use the Activities tab to answer it for credit.
-                    </CardDescription>
-                  </div>
-                  <Badge variant="secondary">
-                    {block.points || 0} point{(block.points || 0) === 1 ? "" : "s"}
-                  </Badge>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-4">
+            <div key={blockId} className="space-y-4">
+              <div className="flex items-center justify-between gap-3 rounded-lg border bg-muted/30 px-4 py-3">
                 <div>
-                  <Label className="text-base font-semibold">{block.content || "Question"}</Label>
-                </div>
-                {block.options && block.options.length > 0 && (
-                  <div className="space-y-2">
-                    {block.options.map((option, optIdx) => (
-                      <div key={optIdx} className="flex items-center gap-2 rounded-md border px-3 py-2 text-sm text-muted-foreground">
-                        <span className="font-medium">{String.fromCharCode(65 + optIdx)}.</span>
-                        <span>{option}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                <div className="flex items-center justify-between gap-3 rounded-lg bg-muted/50 px-4 py-3">
+                  <p className="font-medium">Module Assessment</p>
                   <p className="text-sm text-muted-foreground">
-                    The graded attempt, score, and pass/fail result are recorded only from the assessment flow.
+                    Answer the graded quiz questions here in the content flow. Your score and pass/fail result will be recorded from this submission.
                   </p>
-                  <Button type="button" variant="outline" onClick={() => setActiveTab("activities")}>
-                    Open Assessment
-                  </Button>
                 </div>
-              </CardContent>
-            </Card>
+                <Badge variant="secondary">
+                  {contentBlocks
+                    .filter((candidate) => candidate.type === "quiz" && candidate.isGradable !== false)
+                    .reduce((total, candidate) => total + (candidate.points || 0), 0)} point
+                  {contentBlocks
+                    .filter((candidate) => candidate.type === "quiz" && candidate.isGradable !== false)
+                    .reduce((total, candidate) => total + (candidate.points || 0), 0) === 1 ? "" : "s"}
+                </Badge>
+              </div>
+              {assessmentLoaded ? (
+                <AssessmentInterface
+                  enrollmentId={enrollment.id}
+                  moduleId={module.id}
+                  courseId={enrollment.courseId}
+                />
+              ) : (
+                <Card>
+                  <CardContent className="flex items-center justify-center py-10 text-sm text-muted-foreground">
+                    Loading assessment...
+                  </CardContent>
+                </Card>
+              )}
+            </div>
           );
         }
         
@@ -617,13 +608,10 @@ const ModuleContentViewer = ({
 
       {/* Module Content Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid w-full grid-cols-4">
+        <TabsList className="flex w-full flex-wrap">
           <TabsTrigger value="content">Content</TabsTrigger>
           {videoMaterials.length > 0 && <TabsTrigger value="videos">Videos</TabsTrigger>}
           {documentMaterials.length > 0 && <TabsTrigger value="documents">Documents</TabsTrigger>}
-          {(hasAssignments || hasAssessmentActivity) && (
-            <TabsTrigger value="activities">Activities</TabsTrigger>
-          )}
         </TabsList>
 
         {/* Content Tab */}
@@ -684,6 +672,27 @@ const ModuleContentViewer = ({
               </CardContent>
             </Card>
           ) : null}
+
+          {hasAssignments && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Upload className="w-5 h-5" />
+                  Assignment Submission
+                </CardTitle>
+                <CardDescription>
+                  Submit your assignment for this module.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <AssignmentSubmission
+                  enrollmentId={enrollment.id}
+                  moduleId={module.id}
+                  courseId={enrollment.courseId}
+                />
+              </CardContent>
+            </Card>
+          )}
         </TabsContent>
 
         {/* Videos Tab */}
@@ -723,7 +732,7 @@ const ModuleContentViewer = ({
             {documentMaterials.map((material, index) => {
               const url = typeof material === "string" ? material : String(material);
               const title = `Document ${index + 1}`;
-              
+
               return (
                 <Card key={index}>
                   <CardHeader>
@@ -740,61 +749,6 @@ const ModuleContentViewer = ({
             })}
           </TabsContent>
         )}
-
-        {/* Activities Tab */}
-        {(hasAssignments || hasAssessmentActivity) && (
-          <TabsContent value="activities" className="space-y-4">
-            {hasAssignments && (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Upload className="w-5 h-5" />
-                    Assignment Submission
-                  </CardTitle>
-                  <CardDescription>
-                    Submit your assignment for this module
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <AssignmentSubmission
-                    enrollmentId={enrollment.id}
-                    moduleId={module.id}
-                    courseId={enrollment.courseId}
-                  />
-                </CardContent>
-              </Card>
-            )}
-
-            {hasAssessmentActivity && (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <FileQuestion className="w-5 h-5" />
-                    Assessment
-                  </CardTitle>
-                  <CardDescription>
-                    {assessmentLoaded
-                      ? "Take the assessment for this module"
-                      : "Loading the assessment for this module"}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  {assessmentLoaded ? (
-                    <AssessmentInterface
-                      enrollmentId={enrollment.id}
-                      moduleId={module.id}
-                      courseId={enrollment.courseId}
-                    />
-                  ) : (
-                    <div className="py-6 text-sm text-muted-foreground">
-                      Loading assessment...
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            )}
-          </TabsContent>
-        )}
       </Tabs>
 
       {/* Complete Module Button */}
@@ -809,16 +763,26 @@ const ModuleContentViewer = ({
               </p>
               <Button 
                 onClick={async () => {
+                  if (completingModule) {
+                    return;
+                  }
+
+                  setCompletingModule(true);
                   const totalMinutes = timeSpent !== null 
                     ? timeSpent + Math.ceil(currentTimeSpent / 60)
                     : Math.ceil(currentTimeSpent / 60);
-                  await endActiveSession("completed");
-                  onComplete(totalMinutes);
+                  try {
+                    await endActiveSession("completed");
+                    await onComplete(totalMinutes);
+                  } finally {
+                    setCompletingModule(false);
+                  }
                 }} 
                 className="gap-2"
+                disabled={completingModule}
               >
                 <CheckCircle2 className="w-4 h-4" />
-                Mark as Complete
+                {completingModule ? "Completing..." : "Mark as Complete"}
               </Button>
             </div>
           </CardContent>

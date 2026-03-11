@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { X, Plus, Loader2, Eye } from "lucide-react";
 import { Course, Program } from "@/types";
@@ -14,6 +14,7 @@ import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import type { UserRole } from "@/types/auth";
 import { TaxonomyTagField } from "@/components/course/TaxonomyTagField";
+import { TaxonomySingleField } from "@/components/course/TaxonomySingleField";
 import { buildCanonicalCourseTaxonomy, getAllowedSkillTagsForCategory, getAllowedTopicTagsForCategory, TAXONOMY_COURSE_CATEGORIES } from "@/lib/taxonomy";
 
 type CourseSaveMode = "draft" | "finalized";
@@ -28,6 +29,7 @@ interface CourseCreateEditDialogProps {
 const COURSE_LEVELS = ["Beginner", "Intermediate", "Advanced"] as const;
 const COURSE_PREVIEW_STORAGE_PREFIX = "peso-course-preview:";
 const COURSE_MANAGER_PROFILE_ROLES = ["admin", "trainer"] as const;
+const PRIMARY_COURSE_CATEGORIES = TAXONOMY_COURSE_CATEGORIES.filter((category) => category !== "Others");
 
 const mapUserRoleToProfileRole = (role: UserRole): "admin" | "trainer" | "trainee" => {
   switch (role) {
@@ -435,7 +437,7 @@ export const CourseCreateEditDialog = ({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{course ? "Edit Course" : "Create New Course"}</DialogTitle>
         </DialogHeader>
@@ -492,27 +494,17 @@ export const CourseCreateEditDialog = ({
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="category">Category *</Label>
-              <Select
+              <TaxonomySingleField
+                label="Category *"
                 value={formData.category}
-                onValueChange={(value) => setFormData({ ...formData, category: value })}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select category" />
-                </SelectTrigger>
-                <SelectContent>
-                  {TAXONOMY_COURSE_CATEGORIES.map((cat) => (
-                    <SelectItem key={cat} value={cat}>
-                      {cat}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {formData.category === "Others" ? (
-                <p className="text-xs text-muted-foreground">
-                  Choose the closest approved skill and topic tags below so reporting and recommendations still classify the course correctly.
-                </p>
-              ) : null}
+                onChange={(value) => setFormData({ ...formData, category: value })}
+                placeholder="Select or create category"
+                termType="course_category"
+                fallbackOptions={TAXONOMY_COURSE_CATEGORIES}
+              />
+              <p className="text-xs text-muted-foreground">
+                If you choose Others, select the closest approved skill and topic tags below so reporting and recommendations continue to classify the course correctly.
+              </p>
             </div>
 
             <div className="space-y-2">
@@ -592,6 +584,7 @@ export const CourseCreateEditDialog = ({
             onChange={(topicTags) => setFormData((current) => ({ ...current, topicTags }))}
             placeholder="Select approved topic tags"
             description="Choose the topics this course contributes to. Topic analytics and recommendation explanations use these values directly."
+            termType="topic_tag"
           />
 
           <div className="space-y-2">

@@ -10,6 +10,14 @@ import { toast } from "sonner";
 import { assessmentService, AssessmentQuestion, Assessment, AssessmentAttempt } from "@/services/assessmentService";
 import { useAuth } from "@/contexts/AuthContext";
 
+interface AssessmentResultSummary {
+  score: number;
+  passed: boolean;
+  passingScore: number;
+  attemptsRemaining: number;
+  canRetry: boolean;
+}
+
 interface AssessmentInterfaceProps {
   enrollmentId: string;
   moduleId: string;
@@ -31,12 +39,21 @@ const AssessmentInterface = ({
   const [timeRemaining, setTimeRemaining] = useState<number | null>(null); // in seconds
   const [timeSpent, setTimeSpent] = useState(0); // in seconds
   const [submissionStatus, setSubmissionStatus] = useState<"idle" | "success" | "error">("idle");
+  const [attemptBlockMessage, setAttemptBlockMessage] = useState<string | null>(null);
+  const [completedAttemptCount, setCompletedAttemptCount] = useState(0);
+  const [latestResult, setLatestResult] = useState<AssessmentResultSummary | null>(null);
 
   const loadAssessment = useCallback(async () => {
     if (!user) return;
 
     setIsLoading(true);
     try {
+      setAttempt(null);
+      setAnswers({});
+      setAttemptBlockMessage(null);
+      setCompletedAttemptCount(0);
+      setLatestResult(null);
+
       // Load assessment
       const assessmentData = await assessmentService.getAssessmentByModule(moduleId);
       
@@ -54,22 +71,59 @@ const AssessmentInterface = ({
 
       // Check for existing attempts
       const attempts = await assessmentService.getAssessmentAttempts(assessmentData.id, user.id);
-      
-      // Check if user has reached max attempts
-      if (attempts.length >= assessmentData.maxAttempts) {
-        const lastAttempt = attempts[0];
-        if (lastAttempt.submittedAt) {
-          toast.info(`You have reached the maximum number of attempts (${assessmentData.maxAttempts})`);
-        }
-      } else {
-        // Start new attempt
-        const newAttempt = await assessmentService.startAttempt(
-          assessmentData.id,
-          enrollmentId,
-          user.id
-        );
-        setAttempt(newAttempt);
+      const activeAttempt = attempts.find((candidate) => !candidate.submittedAt) || null;
+      const completedAttempts = attempts.filter((candidate) => candidate.submittedAt);
+      const passedAttempt = completedAttempts.find((candidate) => candidate.passed) || null;
+      const latestCompletedAttempt = completedAttempts
+        .slice()
+        .sort((left, right) => {
+          const leftTime = left.submittedAt ? new Date(left.submittedAt).getTime() : 0;
+          const rightTime = right.submittedAt ? new Date(right.submittedAt).getTime() : 0;
+          return rightTime - leftTime;
+        })[0] || null;
+      const attemptsRemaining = Math.max(assessmentData.maxAttempts - completedAttempts.length, 0);
+
+      setCompletedAttemptCount(completedAttempts.length);
+
+      if (latestCompletedAttempt && latestCompletedAttempt.score !== undefined && latestCompletedAttempt.passed !== undefined) {
+        setLatestResult({
+          score: latestCompletedAttempt.score,
+          passed: latestCompletedAttempt.passed,
+          passingScore: assessmentData.passingScore,
+          attemptsRemaining,
+          canRetry:
+            !latestCompletedAttempt.passed &&
+            completedAttempts.length < assessmentData.maxAttempts,
+        });
       }
+
+      if (activeAttempt) {
+        setAttempt(activeAttempt);
+        setAnswers(activeAttempt.answers || {});
+        setTimeSpent(activeAttempt.timeSpent || 0);
+        return;
+      }
+
+      if (passedAttempt && !assessmentData.allowRetryAfterPassing) {
+        setAttemptBlockMessage(
+          `You already passed this assessment${passedAttempt.score !== undefined ? ` with ${passedAttempt.score}%` : ""}. Retries after passing are disabled for this module.`,
+        );
+        return;
+      }
+
+      if (completedAttempts.length >= assessmentData.maxAttempts) {
+        setAttemptBlockMessage(`You have reached the maximum number of attempts (${assessmentData.maxAttempts}).`);
+        return;
+      }
+
+      const newAttempt = await assessmentService.startAttempt(
+        assessmentData.id,
+        enrollmentId,
+        user.id
+      );
+      setAttempt(newAttempt);
+      setAnswers(newAttempt.answers || {});
+      setTimeSpent(newAttempt.timeSpent || 0);
     } catch (error) {
       console.error("Error loading assessment:", error);
       toast.error("Failed to load assessment");
@@ -144,9 +198,18 @@ const AssessmentInterface = ({
       );
 
       setSubmissionStatus("success");
+      const nextCompletedAttemptCount = completedAttemptCount + 1;
+      const attemptsRemaining = Math.max(assessment.maxAttempts - nextCompletedAttemptCount, 0);
+      setLatestResult({
+        score: result.score,
+        passed: result.passed,
+        passingScore: assessment.passingScore,
+        attemptsRemaining,
+        canRetry: !result.passed && nextCompletedAttemptCount < assessment.maxAttempts,
+      });
       const message = result.passed
         ? `Assessment passed! Your score: ${result.score}%`
-        : `Assessment submitted. Your score: ${result.score}% (Passing: ${assessment.passingScore}%)`;
+        : `Assessment not passed. Your score: ${result.score}% (Passing: ${assessment.passingScore}%)`;
       toast.success(message);
       
       // Reload to show results
@@ -187,20 +250,62 @@ const AssessmentInterface = ({
 
   if (!attempt) {
     return (
-      <Card>
+      <div className="space-y-6">
+        {latestResult && submissionStatus !== "error" && (
+          <Card className={latestResult.passed ? "border-green-500 bg-green-50 dark:bg-green-950" : "border-amber-500 bg-amber-50 dark:bg-amber-950"}>
+            <CardContent className="pt-6">
+              <div className={`flex items-center gap-2 ${latestResult.passed ? "text-green-700 dark:text-green-400" : "text-amber-700 dark:text-amber-400"}`}>
+                <CheckCircle2 className="w-5 h-5" />
+                <p className="text-sm font-medium">
+                  {latestResult.passed
+                    ? `Assessment passed. Final score: ${latestResult.score}%`
+                    : latestResult.canRetry
+                      ? `Assessment not passed. Score: ${latestResult.score}%. You can retry.`
+                      : `Assessment not passed. Score: ${latestResult.score}%. No attempts remain.`}
+                </p>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+        <Card>
         <CardContent className="flex flex-col items-center justify-center py-12">
-          <AlertCircle className="w-16 h-16 text-muted-foreground mb-4" />
-          <p className="text-muted-foreground">You have reached the maximum number of attempts</p>
+          {latestResult?.passed ? (
+            <CheckCircle2 className="w-16 h-16 text-green-600 dark:text-green-400 mb-4" />
+          ) : (
+            <AlertCircle className="w-16 h-16 text-muted-foreground mb-4" />
+          )}
+          <p className="text-center text-muted-foreground">{attemptBlockMessage || "No assessment attempt is currently available."}</p>
         </CardContent>
-      </Card>
+        </Card>
+      </div>
     );
   }
 
   const totalPoints = questions.reduce((sum, q) => sum + q.points, 0);
   const answeredCount = Object.keys(answers).length;
+  const showLatestResult = latestResult && submissionStatus !== "error";
 
   return (
     <div className="space-y-6">
+      {showLatestResult && (
+        <Card className={latestResult.passed ? "border-green-500 bg-green-50 dark:bg-green-950" : "border-amber-500 bg-amber-50 dark:bg-amber-950"}>
+          <CardContent className="pt-6">
+            <div className={`flex items-center gap-2 ${latestResult.passed ? "text-green-700 dark:text-green-400" : "text-amber-700 dark:text-amber-400"}`}>
+              <CheckCircle2 className="w-5 h-5" />
+              <p className="text-sm font-medium">
+                {latestResult.passed
+                  ? latestResult.attemptsRemaining > 0 && assessment.allowRetryAfterPassing
+                    ? `Assessment passed with ${latestResult.score}%. You may retry again if needed.`
+                    : `Assessment passed with ${latestResult.score}%.`
+                  : latestResult.canRetry
+                    ? `Assessment not passed. You scored ${latestResult.score}%. You can retry below.`
+                    : `Assessment not passed. You scored ${latestResult.score}%. No retries remain.`}
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* Assessment Header */}
       <Card>
         <CardHeader>
@@ -236,6 +341,12 @@ const AssessmentInterface = ({
             <div className="flex items-center gap-4">
               <span className="text-muted-foreground">
                 Passing Score: {assessment.passingScore}%
+              </span>
+              <span className="text-muted-foreground">
+                Attempts Left: {Math.max(assessment.maxAttempts - completedAttemptCount, 0)}
+              </span>
+              <span className="text-muted-foreground">
+                {assessment.allowRetryAfterPassing ? "Retry after pass: allowed" : "Retry after pass: locked"}
               </span>
               <span className="font-medium">Total Points: {totalPoints}</span>
             </div>
@@ -345,20 +456,6 @@ const AssessmentInterface = ({
           </div>
         </CardContent>
       </Card>
-
-      {/* Status Messages */}
-      {submissionStatus === "success" && (
-        <Card className="border-green-500 bg-green-50 dark:bg-green-950">
-          <CardContent className="pt-6">
-            <div className="flex items-center gap-2 text-green-700 dark:text-green-400">
-              <CheckCircle2 className="w-5 h-5" />
-              <p className="text-sm font-medium">
-                Assessment submitted successfully! It will be reviewed by a validator.
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-      )}
 
       {submissionStatus === "error" && (
         <Card className="border-red-500 bg-red-50 dark:bg-red-950">

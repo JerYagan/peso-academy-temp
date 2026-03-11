@@ -36,6 +36,7 @@ import DashboardLayout from "@/components/DashboardLayout";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   AdminDashboardAnalytics,
   CollaborativeRecommendationDebugData,
@@ -386,6 +387,10 @@ const AdminDashboardPlaceholder = () => {
     acceptRate: course.acceptRate,
     acceptanceProbability: course.acceptanceProbability,
   })) || [];
+  const topCourses = analytics?.topCourses.slice(0, 5) || [];
+  const highestRiskCourses = analytics?.riskCourseInsights.slice(0, 5) || [];
+  const disengagementWatchlist = analytics?.disengagementInsights.slice(0, 6) || [];
+  const recentSessions = recentSessionActivity.slice(0, 6);
 
   return (
     <DashboardLayout>
@@ -430,686 +435,733 @@ const AdminDashboardPlaceholder = () => {
           </Card>
         ) : (
           <>
-        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-          {statCards.map((stat) => {
-            const Icon = stat.icon;
-
-            return (
-              <Card key={stat.title} className="border-border/80">
-                <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-3">
-                  <div className="space-y-1">
-                    <CardTitle className="text-sm font-medium text-muted-foreground">{stat.title}</CardTitle>
-                    <div className="text-3xl font-semibold tracking-tight">{stat.value}</div>
-                  </div>
-                  <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-                    <Icon className="h-5 w-5" />
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-sm text-muted-foreground">{stat.description}</p>
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
-
-        <div className="grid gap-4 xl:grid-cols-2">
-          <Card className="border-border/80">
-            <CardHeader>
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <CardTitle>Completion trends</CardTitle>
-                  <CardDescription>Monthly enrollment intake and completions across the platform.</CardDescription>
-                </div>
-                <Badge variant="outline" className="rounded-full px-3 py-1">
-                  {completionDelta >= 0 ? `+${completionDelta}` : completionDelta}% vs last month
-                </Badge>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="h-72 w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={analytics.monthlyTrends}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                    <XAxis dataKey="label" />
-                    <YAxis />
-                    <Tooltip />
-                    <Legend />
-                    <Bar dataKey="totalEnrollments" name="Enrollments" fill={chartPalette.accent} radius={[6, 6, 0, 0]} />
-                    <Bar dataKey="completedEnrollments" name="Completions" fill={chartPalette.primary} radius={[6, 6, 0, 0]} />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="border-border/80">
-            <CardHeader>
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <CardTitle>Certificate issuance</CardTitle>
-                  <CardDescription>Monthly certificate release volume across completed training.</CardDescription>
-                </div>
-                <Badge variant="outline" className="rounded-full px-3 py-1">
-                  {certificateDelta >= 0 ? `+${certificateDelta}` : certificateDelta} this month
-                </Badge>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="h-72 w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={analytics.monthlyTrends}>
-                    <defs>
-                      <linearGradient id="certificateTrend" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor={chartPalette.warm} stopOpacity={0.35} />
-                        <stop offset="95%" stopColor={chartPalette.warm} stopOpacity={0.02} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                    <XAxis dataKey="label" />
-                    <YAxis allowDecimals={false} />
-                    <Tooltip />
-                    <Area
-                      type="monotone"
-                      dataKey="certificatesIssued"
-                      name="Certificates"
-                      stroke={chartPalette.warm}
-                      fill="url(#certificateTrend)"
-                      strokeWidth={3}
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="border-border/80">
-            <CardHeader>
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <CardTitle>Trainee performance trends</CardTitle>
-                  <CardDescription>Average progress and assessment score trends across recent months.</CardDescription>
-                </div>
-                <Badge variant="outline" className="rounded-full px-3 py-1">
-                  Avg score {analytics.averageAssessmentScore}%
-                </Badge>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="h-72 w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={analytics.monthlyTrends}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                    <XAxis dataKey="label" />
-                    <YAxis domain={[0, 100]} />
-                    <Tooltip />
-                    <Legend />
-                    <Line
-                      type="monotone"
-                      dataKey="averageProgress"
-                      name="Avg progress"
-                      stroke={chartPalette.primary}
-                      strokeWidth={3}
-                      dot={{ r: 4 }}
-                    />
-                    <Line
-                      type="monotone"
-                      dataKey="averageAssessmentScore"
-                      name="Avg assessment score"
-                      stroke={chartPalette.rose}
-                      strokeWidth={3}
-                      dot={{ r: 4 }}
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="border-border/80">
-            <CardHeader>
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <CardTitle>System-wide engagement</CardTitle>
-                  <CardDescription>Recent activity and learning time trends across the platform.</CardDescription>
-                </div>
-                <Badge variant="outline" className="rounded-full px-3 py-1">
-                  {engagementDelta >= 0 ? `+${engagementDelta}` : engagementDelta} active learners
-                </Badge>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="h-72 w-full">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={analytics.monthlyTrends}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                    <XAxis dataKey="label" />
-                    <YAxis />
-                    <Tooltip />
-                    <Legend />
-                    <Line
-                      type="monotone"
-                      dataKey="activeLearners"
-                      name="Active learners"
-                      stroke={chartPalette.accent}
-                      strokeWidth={3}
-                      dot={{ r: 4 }}
-                    />
-                    <Line
-                      type="monotone"
-                      dataKey="timeSpentHours"
-                      name="Learning hours"
-                      stroke={chartPalette.slate}
-                      strokeWidth={3}
-                      dot={{ r: 4 }}
-                    />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        <div className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
-          <Card className="border-border/80">
-            <CardHeader>
-              <CardTitle>Engagement snapshot</CardTitle>
-              <CardDescription>Key learning engagement indicators surfaced directly on the dashboard.</CardDescription>
-            </CardHeader>
-            <CardContent className="grid gap-4 sm:grid-cols-2">
-              <div className="rounded-2xl border border-border/70 bg-muted/30 p-4">
-                <p className="text-sm text-muted-foreground">Active learners, last 7 days</p>
-                <p className="mt-2 text-3xl font-semibold tracking-tight">{analytics.activeLearners7Days}</p>
-              </div>
-              <div className="rounded-2xl border border-border/70 bg-muted/30 p-4">
-                <p className="text-sm text-muted-foreground">Active learners, last 30 days</p>
-                <p className="mt-2 text-3xl font-semibold tracking-tight">{analytics.activeLearners30Days}</p>
-              </div>
-              <div className="rounded-2xl border border-border/70 bg-muted/30 p-4">
-                <p className="text-sm text-muted-foreground">Average progress</p>
-                <p className="mt-2 text-3xl font-semibold tracking-tight">{analytics.averageProgress}%</p>
-              </div>
-              <div className="rounded-2xl border border-border/70 bg-muted/30 p-4">
-                <p className="text-sm text-muted-foreground">Average assessment score</p>
-                <p className="mt-2 text-3xl font-semibold tracking-tight">{analytics.averageAssessmentScore}%</p>
-              </div>
-              <div className="rounded-2xl border border-border/70 bg-muted/30 p-4 sm:col-span-2">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <p className="text-sm text-muted-foreground">Total learning time captured</p>
-                    <p className="mt-2 text-3xl font-semibold tracking-tight">{formatHours(analytics.totalLearningHours)}</p>
-                  </div>
-                  <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-                    <Gauge className="h-6 w-6" />
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="border-border/80">
-            <CardHeader>
-              <CardTitle>Top course insights</CardTitle>
-              <CardDescription>Highest-volume courses with completion and certification context.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {analytics.topCourses.length > 0 ? (
-                analytics.topCourses.map((course, index) => (
-                  <div key={course.courseId} className="rounded-2xl border border-border/70 p-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">Top {index + 1}</p>
-                        <h3 className="mt-1 text-base font-semibold">{course.courseTitle}</h3>
-                      </div>
-                      <Badge variant="outline" className="rounded-full px-3 py-1">
-                        {course.completionRate}% complete
-                      </Badge>
-                    </div>
-                    <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                      <div>
-                        <p className="text-xs text-muted-foreground">Enrollments</p>
-                        <p className="mt-1 text-lg font-semibold">{course.enrollments}</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-muted-foreground">Certificates</p>
-                        <p className="mt-1 text-lg font-semibold">{course.certificatesIssued}</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-muted-foreground">Avg progress</p>
-                        <p className="mt-1 text-lg font-semibold">{course.averageProgress}%</p>
-                      </div>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <p className="text-sm text-muted-foreground">No course analytics are available yet.</p>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-
-        <div className="grid gap-4 xl:grid-cols-2">
-          <Card className="border-border/80">
-            <CardHeader>
-              <CardTitle>Predictive oversight</CardTitle>
-              <CardDescription>Stored course-risk and learner-disengagement scores refreshed from current platform activity.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="rounded-2xl border border-border/70 bg-muted/30 p-4">
-                  <p className="text-sm text-muted-foreground">High-risk courses</p>
-                  <p className="mt-2 text-3xl font-semibold tracking-tight">{analytics.predictiveOverview.highRiskCourses}</p>
-                </div>
-                <div className="rounded-2xl border border-border/70 bg-muted/30 p-4">
-                  <p className="text-sm text-muted-foreground">High-risk learners</p>
-                  <p className="mt-2 text-3xl font-semibold tracking-tight">{analytics.predictiveOverview.highRiskLearners}</p>
-                </div>
-                <div className="rounded-2xl border border-border/70 bg-muted/30 p-4">
-                  <p className="text-sm text-muted-foreground">Avg course risk score</p>
-                  <p className="mt-2 text-3xl font-semibold tracking-tight">{analytics.predictiveOverview.averageCourseRiskScore}</p>
-                </div>
-                <div className="rounded-2xl border border-border/70 bg-muted/30 p-4">
-                  <p className="text-sm text-muted-foreground">Avg disengagement score</p>
-                  <p className="mt-2 text-3xl font-semibold tracking-tight">{analytics.predictiveOverview.averageDisengagementScore}</p>
-                </div>
-              </div>
-              {courseRiskChartData.length > 0 ? (
-                <div className="h-72 w-full">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={courseRiskChartData}>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                      <XAxis dataKey="name" tickLine={false} axisLine={false} />
-                      <YAxis tickLine={false} axisLine={false} domain={[0, 100]} />
-                      <Tooltip />
-                      <Legend />
-                      <Bar dataKey="riskScore" name="Risk score" fill={chartPalette.rose} radius={[6, 6, 0, 0]} />
-                      <Bar dataKey="acceptanceRate" name="Rec accept rate" fill={chartPalette.accent} radius={[6, 6, 0, 0]} />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
-              ) : (
-                <p className="text-sm text-muted-foreground">Predictive course-risk scores will appear after analytics rollups populate the stored snapshots.</p>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card className="border-border/80">
-            <CardHeader>
-              <CardTitle>Recommendation performance</CardTitle>
-              <CardDescription>Acceptance probability, recommendation response, and downstream outcomes across the platform.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="rounded-2xl border border-border/70 bg-muted/30 p-4">
-                  <p className="text-sm text-muted-foreground">Impressions</p>
-                  <p className="mt-2 text-3xl font-semibold tracking-tight">{analytics.recommendationAnalytics.totalImpressions}</p>
-                </div>
-                <div className="rounded-2xl border border-border/70 bg-muted/30 p-4">
-                  <p className="text-sm text-muted-foreground">Accept rate</p>
-                  <p className="mt-2 text-3xl font-semibold tracking-tight">{analytics.recommendationAnalytics.averageAcceptRate}%</p>
-                </div>
-                <div className="rounded-2xl border border-border/70 bg-muted/30 p-4">
-                  <p className="text-sm text-muted-foreground">Avg acceptance probability</p>
-                  <p className="mt-2 text-3xl font-semibold tracking-tight">{analytics.recommendationAnalytics.averageAcceptanceProbability}%</p>
-                </div>
-                <div className="rounded-2xl border border-border/70 bg-muted/30 p-4">
-                  <p className="text-sm text-muted-foreground">Recommended completion rate</p>
-                  <p className="mt-2 text-3xl font-semibold tracking-tight">{analytics.recommendationAnalytics.recommendedEnrollmentCompletionRate}%</p>
-                </div>
-              </div>
-              {recommendationPerformanceData.length > 0 ? (
-                <div className="h-72 w-full">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={recommendationPerformanceData}>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                      <XAxis dataKey="name" tickLine={false} axisLine={false} />
-                      <YAxis tickLine={false} axisLine={false} domain={[0, 100]} />
-                      <Tooltip />
-                      <Legend />
-                      <Line type="monotone" dataKey="acceptRate" name="Accept rate" stroke={chartPalette.primary} strokeWidth={3} dot={{ r: 4 }} />
-                      <Line type="monotone" dataKey="acceptanceProbability" name="Predicted acceptance" stroke={chartPalette.warm} strokeWidth={3} dot={{ r: 4 }} />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </div>
-              ) : (
-                <p className="text-sm text-muted-foreground">Recommendation-performance charts will appear after learner recommendation rows accumulate interaction data.</p>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-
-        <div className="grid gap-4 xl:grid-cols-[1fr_1fr]">
-          <Card className="border-border/80">
-            <CardHeader>
-              <CardTitle>Highest course risk</CardTitle>
-              <CardDescription>Stored course-risk snapshots ordered by urgency.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {analytics.riskCourseInsights.length > 0 ? (
-                analytics.riskCourseInsights.map((course) => (
-                  <div key={course.courseId} className="rounded-2xl border border-border/70 p-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="font-semibold">{course.courseTitle}</p>
-                        <p className="text-sm text-muted-foreground">
-                          {course.activeEnrollments} active enrollments • {course.completionRate}% completion
-                        </p>
-                      </div>
-                      <Badge
-                        variant="outline"
-                        className={course.riskLevel === "high" ? "border-red-200 text-red-700" : course.riskLevel === "medium" ? "border-amber-200 text-amber-700" : "border-emerald-200 text-emerald-700"}
-                      >
-                        {course.riskLevel} risk
-                      </Badge>
-                    </div>
-                    <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                      <div>
-                        <p className="text-xs text-muted-foreground">Risk score</p>
-                        <p className="mt-1 text-lg font-semibold">{course.riskScore}</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-muted-foreground">Rec accept rate</p>
-                        <p className="mt-1 text-lg font-semibold">{course.recommendationAcceptanceRate}%</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-muted-foreground">Course link</p>
-                        <Link to={`/admin/courses`} className="mt-1 inline-flex text-sm font-medium text-primary">
-                          Open library
-                        </Link>
-                      </div>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <p className="text-sm text-muted-foreground">No stored course-risk insights are available yet.</p>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card className="border-border/80">
-            <CardHeader>
-              <CardTitle>Learner disengagement watchlist</CardTitle>
-              <CardDescription>Stored disengagement scores highlight learners with inactivity and short-session risk signals.</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {analytics.disengagementInsights.length > 0 ? (
-                analytics.disengagementInsights.map((learner) => (
-                  <div key={learner.userId} className="rounded-2xl border border-border/70 p-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="font-semibold">{learner.userName || learner.userEmail || learner.userId}</p>
-                        <p className="text-sm text-muted-foreground">{learner.userEmail || "Learner record from predictive snapshot"}</p>
-                      </div>
-                      <Badge
-                        variant="outline"
-                        className={learner.riskLevel === "high" ? "border-red-200 text-red-700" : learner.riskLevel === "medium" ? "border-amber-200 text-amber-700" : "border-emerald-200 text-emerald-700"}
-                      >
-                        {learner.riskLevel} risk
-                      </Badge>
-                    </div>
-                    <div className="mt-4 grid gap-3 sm:grid-cols-4">
-                      <div>
-                        <p className="text-xs text-muted-foreground">Score</p>
-                        <p className="mt-1 text-lg font-semibold">{learner.disengagementScore}</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-muted-foreground">Inactive days</p>
-                        <p className="mt-1 text-lg font-semibold">{learner.inactiveDays}</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-muted-foreground">Incomplete enrollments</p>
-                        <p className="mt-1 text-lg font-semibold">{learner.incompleteEnrollments}</p>
-                      </div>
-                      <div>
-                        <p className="text-xs text-muted-foreground">Short sessions</p>
-                        <p className="mt-1 text-lg font-semibold">{learner.repeatedShortSessionCount}</p>
-                      </div>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <p className="text-sm text-muted-foreground">No disengagement watchlist entries are available yet.</p>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-
-        <Card className="border-border/80">
-          <CardHeader>
-            <CardTitle>Recent Session Activity</CardTitle>
-            <CardDescription>
-              Platform-wide recent module sessions for learner monitoring, with quick flags for repeated short-session patterns.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {recentSessionActivity.length > 0 ? (
-              recentSessionActivity.map((session) => (
-                <div key={`${session.learnerId}-${session.courseId}-${session.moduleId}`} className="rounded-2xl border border-border/70 p-4">
-                  <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+              <Card className="overflow-hidden border-primary/15 bg-[linear-gradient(135deg,rgba(15,118,110,0.08)_0%,rgba(29,78,216,0.08)_100%)]">
+                <CardContent className="p-6 sm:p-7">
+                  <div className="flex flex-col gap-6">
                     <div className="space-y-2">
-                      <div>
-                        <p className="font-semibold">
-                          {session.learnerName || "Unknown learner"}
-                        </p>
-                        <p className="text-sm text-muted-foreground">
-                          {session.learnerEmail || session.learnerId}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-sm font-medium">{session.moduleTitle || "Untitled module"}</p>
-                        <p className="text-sm text-muted-foreground">{session.courseTitle || "Untitled course"}</p>
-                      </div>
-                      <p className="text-xs text-muted-foreground">
-                        Last opened {formatRelativeActivity(session.lastSeenAt)}
+                      <p className="text-xs font-semibold uppercase tracking-[0.22em] text-primary">Platform snapshot</p>
+                      <h2 className="text-2xl font-semibold tracking-tight text-foreground">A cleaner read on organization performance, learner activity, and intervention pressure.</h2>
+                      <p className="max-w-3xl text-sm leading-7 text-muted-foreground">
+                        Start with the summary below, then switch into the tab that matches the task you are handling instead of scanning one long dashboard.
                       </p>
                     </div>
-
-                    <div className="flex flex-wrap gap-2">
-                      <Badge variant="secondary">{formatSessionDuration(session.totalDurationSeconds)}</Badge>
-                      <Badge variant="outline">{session.totalSessions} sessions</Badge>
-                      <Badge variant="outline">{formatSessionStatus(session.latestSessionStatus)}</Badge>
-                      {session.needsAttention ? (
-                        <Badge className="bg-amber-50 text-amber-700 hover:bg-amber-50">Needs review</Badge>
-                      ) : null}
+                    <div className="grid gap-3 sm:grid-cols-3">
+                      <div className="rounded-2xl border border-border/70 bg-background/85 p-4">
+                        <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Total users</p>
+                        <p className="mt-2 text-3xl font-semibold tracking-tight">{analytics.totalUsers}</p>
+                        <p className="mt-1 text-xs text-muted-foreground">Across trainees and internal roles</p>
+                      </div>
+                      <div className="rounded-2xl border border-border/70 bg-background/85 p-4">
+                        <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Completion rate</p>
+                        <p className="mt-2 text-3xl font-semibold tracking-tight">{analytics.completionRate}%</p>
+                        <p className="mt-1 text-xs text-muted-foreground">Organization-wide tracked completion</p>
+                      </div>
+                      <div className="rounded-2xl border border-border/70 bg-background/85 p-4">
+                        <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">High-risk learners</p>
+                        <p className="mt-2 text-3xl font-semibold tracking-tight text-amber-700">{analytics.predictiveOverview.highRiskLearners}</p>
+                        <p className="mt-1 text-xs text-muted-foreground">Needing closer review now</p>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))
-            ) : (
-              <p className="text-sm text-muted-foreground">No recent session activity is available yet.</p>
-            )}
-          </CardContent>
-        </Card>
+                </CardContent>
+              </Card>
 
-        <Card className="border-border/80">
-          <CardHeader className="gap-4">
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-              <div className="space-y-1.5">
-                <div className="flex items-center gap-2">
-                  <Sparkles className="h-5 w-5 text-primary" />
-                  <CardTitle>Hybrid recommendation evidence</CardTitle>
-                </div>
-                <CardDescription>
-                  Inspect the collaborative-filtering evidence behind learner recommendations before the final hybrid scorer blends it with content and performance signals.
-                </CardDescription>
-              </div>
-              <div className="flex w-full flex-col gap-2 sm:flex-row lg:w-auto">
-                <Select value={selectedLearnerId} onValueChange={setSelectedLearnerId}>
-                  <SelectTrigger className="min-w-[260px]">
-                    <SelectValue placeholder="Select a learner" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {learnerOptions.map((learner) => (
-                      <SelectItem key={learner.id} value={learner.id}>
-                        {learner.name || learner.email || learner.id}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Button
-                  variant="outline"
-                  onClick={() => setCollaborativeRefreshKey((currentValue) => currentValue + 1)}
-                  disabled={!selectedLearnerId || collaborativeLoading}
-                >
-                  <RefreshCw className={collaborativeLoading ? "animate-spin" : ""} />
-                  Refresh
-                </Button>
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {learnerOptions.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No learners are available for collaborative recommendation inspection yet.</p>
-            ) : collaborativeLoading ? (
-              <div className="flex items-center justify-center py-10 text-sm text-muted-foreground">
-                <Loader2 className="mr-3 h-5 w-5 animate-spin" />
-                Loading collaborative recommendation evidence...
-              </div>
-            ) : !collaborativeDebug ? (
-              <p className="text-sm text-muted-foreground">Select a learner to inspect recommendation evidence.</p>
-            ) : (
-              <>
-                <div className="grid gap-3 md:grid-cols-3">
+              <Card className="border-border/80">
+                <CardHeader>
+                  <CardTitle>Priority signals</CardTitle>
+                  <CardDescription>Start with the highest-leverage platform actions based on the latest admin analytics.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
                   <div className="rounded-2xl border border-border/70 bg-muted/30 p-4">
-                    <p className="text-sm text-muted-foreground">Selected learner</p>
-                    <p className="mt-2 text-lg font-semibold">{selectedLearner?.name || selectedLearner?.email || selectedLearnerId}</p>
-                    <p className="mt-1 text-xs text-muted-foreground">{selectedLearner?.email || "Learner record loaded from the admin directory"}</p>
-                  </div>
-                  <div className="rounded-2xl border border-border/70 bg-muted/30 p-4">
-                    <p className="text-sm text-muted-foreground">Compared enrolled courses</p>
-                    <p className="mt-2 text-3xl font-semibold tracking-tight">{collaborativeDebug.targetCourseCount}</p>
-                  </div>
-                  <div className="rounded-2xl border border-border/70 bg-muted/30 p-4">
-                    <p className="text-sm text-muted-foreground">Similar learners / candidates</p>
-                    <p className="mt-2 text-3xl font-semibold tracking-tight">
-                      {collaborativeDebug.similarLearnerCount} / {collaborativeDebug.candidates.length}
+                    <p className="text-sm text-muted-foreground">Platform momentum</p>
+                    <p className="mt-2 font-medium text-foreground">
+                      {completionDelta >= 0
+                        ? `Completion is up by ${completionDelta}% compared with last month.`
+                        : `Completion is down by ${Math.abs(completionDelta)}% compared with last month.`}
                     </p>
                   </div>
+                  <div className="rounded-2xl border border-border/70 bg-muted/30 p-4">
+                    <p className="text-sm text-muted-foreground">Predictive oversight</p>
+                    <p className="mt-2 font-medium text-foreground">
+                      {analytics.predictiveOverview.highRiskCourses} high-risk courses and {analytics.predictiveOverview.highRiskLearners} high-risk learners are currently surfaced by predictive scoring.
+                    </p>
+                  </div>
+                  <div className="rounded-2xl border border-border/70 bg-muted/30 p-4">
+                    <p className="text-sm text-muted-foreground">Recommendation health</p>
+                    <p className="mt-2 font-medium text-foreground">
+                      {analytics.recommendationAnalytics.averageAcceptRate}% average accept rate with {analytics.recommendationAnalytics.averageAcceptanceProbability}% predicted acceptance across surfaced recommendations.
+                    </p>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            <Tabs defaultValue="overview" className="space-y-6">
+              <div className="rounded-3xl border border-border/70 bg-background/80 p-4 shadow-sm sm:p-5">
+                <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+                  <div className="max-w-2xl">
+                    <p className="text-sm font-medium text-foreground">Focused admin workspaces</p>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      Switch between high-level performance, learner activity, predictive risk, and recommendation tooling so each admin task has a smaller surface area.
+                    </p>
+                  </div>
+                  <TabsList className="h-auto w-full flex-wrap justify-start gap-2 rounded-2xl bg-muted/60 p-1 xl:w-auto">
+                    <TabsTrigger value="overview" className="rounded-xl px-4 py-2.5">Overview</TabsTrigger>
+                    <TabsTrigger value="activity" className="rounded-xl px-4 py-2.5">Learner activity</TabsTrigger>
+                    <TabsTrigger value="risk" className="rounded-xl px-4 py-2.5">Predictive risk</TabsTrigger>
+                    <TabsTrigger value="recommendations" className="rounded-xl px-4 py-2.5">Recommendations & tools</TabsTrigger>
+                  </TabsList>
+                </div>
+              </div>
+
+              <TabsContent value="overview" className="space-y-4">
+                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                  {statCards.map((stat) => {
+                    const Icon = stat.icon;
+
+                    return (
+                      <Card key={stat.title} className="border-border/80">
+                        <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-3">
+                          <div className="space-y-1">
+                            <CardTitle className="text-sm font-medium text-muted-foreground">{stat.title}</CardTitle>
+                            <div className="text-3xl font-semibold tracking-tight">{stat.value}</div>
+                          </div>
+                          <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                            <Icon className="h-5 w-5" />
+                          </div>
+                        </CardHeader>
+                        <CardContent>
+                          <p className="text-sm text-muted-foreground">{stat.description}</p>
+                        </CardContent>
+                      </Card>
+                    );
+                  })}
                 </div>
 
-                {collaborativeDebug.targetCourseCount === 0 ? (
-                  <div className="rounded-2xl border border-dashed border-border/80 p-5 text-sm text-muted-foreground">
-                    This learner does not have enough enrollment history yet. Collaborative filtering starts once the learner has active or completed course history to compare against other trainees.
-                  </div>
-                ) : collaborativeDebug.candidates.length === 0 ? (
-                  <div className="rounded-2xl border border-dashed border-border/80 p-5 text-sm text-muted-foreground">
-                    No collaborative candidates were produced for this learner yet. The learner may have unique course history, or the current dataset may not have enough overlapping paths.
-                  </div>
-                ) : (
-                  <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
-                    <div className="space-y-3">
-                      <div>
-                        <h3 className="text-base font-semibold">Collaborative candidate courses</h3>
-                        <p className="text-sm text-muted-foreground">
-                          These are the courses contributed by similar-learner behavior before the full hybrid ranker blends them with profile, content, and performance signals.
-                        </p>
+                <div className="grid gap-4 xl:grid-cols-2">
+                  <Card className="border-border/80">
+                    <CardHeader>
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <CardTitle>Completion trends</CardTitle>
+                          <CardDescription>Monthly enrollment intake and completions across the platform.</CardDescription>
+                        </div>
+                        <Badge variant="outline" className="rounded-full px-3 py-1">
+                          {completionDelta >= 0 ? `+${completionDelta}` : completionDelta}% vs last month
+                        </Badge>
                       </div>
-                      {collaborativeDebug.candidates.map((candidate) => (
-                        <div key={candidate.courseId} className="rounded-2xl border border-border/70 p-4">
+                    </CardHeader>
+                    <CardContent>
+                      <div className="h-72 w-full">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={analytics.monthlyTrends}>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                            <XAxis dataKey="label" />
+                            <YAxis />
+                            <Tooltip />
+                            <Legend />
+                            <Bar dataKey="totalEnrollments" name="Enrollments" fill={chartPalette.accent} radius={[6, 6, 0, 0]} />
+                            <Bar dataKey="completedEnrollments" name="Completions" fill={chartPalette.primary} radius={[6, 6, 0, 0]} />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  <Card className="border-border/80">
+                    <CardHeader>
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <CardTitle>Certificate issuance</CardTitle>
+                          <CardDescription>Monthly certificate release volume across completed training.</CardDescription>
+                        </div>
+                        <Badge variant="outline" className="rounded-full px-3 py-1">
+                          {certificateDelta >= 0 ? `+${certificateDelta}` : certificateDelta} this month
+                        </Badge>
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="h-72 w-full">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <AreaChart data={analytics.monthlyTrends}>
+                            <defs>
+                              <linearGradient id="certificateTrend" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="5%" stopColor={chartPalette.warm} stopOpacity={0.35} />
+                                <stop offset="95%" stopColor={chartPalette.warm} stopOpacity={0.02} />
+                              </linearGradient>
+                            </defs>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                            <XAxis dataKey="label" />
+                            <YAxis allowDecimals={false} />
+                            <Tooltip />
+                            <Area
+                              type="monotone"
+                              dataKey="certificatesIssued"
+                              name="Certificates"
+                              stroke={chartPalette.warm}
+                              fill="url(#certificateTrend)"
+                              strokeWidth={3}
+                            />
+                          </AreaChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  <Card className="border-border/80">
+                    <CardHeader>
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <CardTitle>Trainee performance trends</CardTitle>
+                          <CardDescription>Average progress and assessment score trends across recent months.</CardDescription>
+                        </div>
+                        <Badge variant="outline" className="rounded-full px-3 py-1">
+                          Avg score {analytics.averageAssessmentScore}%
+                        </Badge>
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="h-72 w-full">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <LineChart data={analytics.monthlyTrends}>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                            <XAxis dataKey="label" />
+                            <YAxis domain={[0, 100]} />
+                            <Tooltip />
+                            <Legend />
+                            <Line type="monotone" dataKey="averageProgress" name="Avg progress" stroke={chartPalette.primary} strokeWidth={3} dot={{ r: 4 }} />
+                            <Line type="monotone" dataKey="averageAssessmentScore" name="Avg assessment score" stroke={chartPalette.rose} strokeWidth={3} dot={{ r: 4 }} />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  <Card className="border-border/80">
+                    <CardHeader>
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <CardTitle>System-wide engagement</CardTitle>
+                          <CardDescription>Recent activity and learning time trends across the platform.</CardDescription>
+                        </div>
+                        <Badge variant="outline" className="rounded-full px-3 py-1">
+                          {engagementDelta >= 0 ? `+${engagementDelta}` : engagementDelta} active learners
+                        </Badge>
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="h-72 w-full">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <LineChart data={analytics.monthlyTrends}>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                            <XAxis dataKey="label" />
+                            <YAxis />
+                            <Tooltip />
+                            <Legend />
+                            <Line type="monotone" dataKey="activeLearners" name="Active learners" stroke={chartPalette.accent} strokeWidth={3} dot={{ r: 4 }} />
+                            <Line type="monotone" dataKey="timeSpentHours" name="Learning hours" stroke={chartPalette.slate} strokeWidth={3} dot={{ r: 4 }} />
+                          </LineChart>
+                        </ResponsiveContainer>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+              </TabsContent>
+
+              <TabsContent value="activity" className="space-y-4">
+                <div className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
+                  <Card className="border-border/80">
+                    <CardHeader>
+                      <CardTitle>Engagement snapshot</CardTitle>
+                      <CardDescription>Key learning engagement indicators surfaced directly on the dashboard.</CardDescription>
+                    </CardHeader>
+                    <CardContent className="grid gap-4 sm:grid-cols-2">
+                      <div className="rounded-2xl border border-border/70 bg-muted/30 p-4">
+                        <p className="text-sm text-muted-foreground">Active learners, last 7 days</p>
+                        <p className="mt-2 text-3xl font-semibold tracking-tight">{analytics.activeLearners7Days}</p>
+                      </div>
+                      <div className="rounded-2xl border border-border/70 bg-muted/30 p-4">
+                        <p className="text-sm text-muted-foreground">Active learners, last 30 days</p>
+                        <p className="mt-2 text-3xl font-semibold tracking-tight">{analytics.activeLearners30Days}</p>
+                      </div>
+                      <div className="rounded-2xl border border-border/70 bg-muted/30 p-4">
+                        <p className="text-sm text-muted-foreground">Average progress</p>
+                        <p className="mt-2 text-3xl font-semibold tracking-tight">{analytics.averageProgress}%</p>
+                      </div>
+                      <div className="rounded-2xl border border-border/70 bg-muted/30 p-4">
+                        <p className="text-sm text-muted-foreground">Average assessment score</p>
+                        <p className="mt-2 text-3xl font-semibold tracking-tight">{analytics.averageAssessmentScore}%</p>
+                      </div>
+                      <div className="rounded-2xl border border-border/70 bg-muted/30 p-4 sm:col-span-2">
+                        <div className="flex items-start justify-between gap-4">
+                          <div>
+                            <p className="text-sm text-muted-foreground">Total learning time captured</p>
+                            <p className="mt-2 text-3xl font-semibold tracking-tight">{formatHours(analytics.totalLearningHours)}</p>
+                          </div>
+                          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                            <Gauge className="h-6 w-6" />
+                          </div>
+                        </div>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  <Card className="border-border/80">
+                    <CardHeader>
+                      <CardTitle>Top course insights</CardTitle>
+                      <CardDescription>Highest-volume courses with completion and certification context.</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      {topCourses.length > 0 ? (
+                        topCourses.map((course, index) => (
+                          <div key={course.courseId} className="rounded-2xl border border-border/70 p-4">
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <p className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">Top {index + 1}</p>
+                                <h3 className="mt-1 text-base font-semibold">{course.courseTitle}</h3>
+                              </div>
+                              <Badge variant="outline" className="rounded-full px-3 py-1">
+                                {course.completionRate}% complete
+                              </Badge>
+                            </div>
+                            <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                              <div>
+                                <p className="text-xs text-muted-foreground">Enrollments</p>
+                                <p className="mt-1 text-lg font-semibold">{course.enrollments}</p>
+                              </div>
+                              <div>
+                                <p className="text-xs text-muted-foreground">Certificates</p>
+                                <p className="mt-1 text-lg font-semibold">{course.certificatesIssued}</p>
+                              </div>
+                              <div>
+                                <p className="text-xs text-muted-foreground">Avg progress</p>
+                                <p className="mt-1 text-lg font-semibold">{course.averageProgress}%</p>
+                              </div>
+                            </div>
+                          </div>
+                        ))
+                      ) : (
+                        <p className="text-sm text-muted-foreground">No course analytics are available yet.</p>
+                      )}
+                    </CardContent>
+                  </Card>
+                </div>
+
+                <Card className="border-border/80">
+                  <CardHeader>
+                    <CardTitle>Recent session activity</CardTitle>
+                    <CardDescription>
+                      Platform-wide recent module sessions for learner monitoring, with quick flags for repeated short-session patterns.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    {recentSessions.length > 0 ? (
+                      recentSessions.map((session) => (
+                        <div key={`${session.learnerId}-${session.courseId}-${session.moduleId}`} className="rounded-2xl border border-border/70 p-4">
                           <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                             <div className="space-y-2">
                               <div>
-                                <p className="font-semibold">{candidate.courseTitle}</p>
-                                <p className="text-sm text-muted-foreground">{candidate.reason}</p>
+                                <p className="font-semibold">{session.learnerName || "Unknown learner"}</p>
+                                <p className="text-sm text-muted-foreground">{session.learnerEmail || session.learnerId}</p>
                               </div>
-                              <div className="flex flex-wrap gap-2">
-                                <Badge variant="secondary">{Math.round(candidate.normalizedScore * 100)}% collaborative score</Badge>
-                                <Badge variant="outline">Raw {candidate.rawScore.toFixed(2)}</Badge>
-                                <Badge variant="outline">{candidate.supportCount} similar learners</Badge>
-                                <Badge variant="outline">{candidate.completedBySimilarLearners} completions</Badge>
+                              <div>
+                                <p className="text-sm font-medium">{session.moduleTitle || "Untitled module"}</p>
+                                <p className="text-sm text-muted-foreground">{session.courseTitle || "Untitled course"}</p>
                               </div>
+                              <p className="text-xs text-muted-foreground">Last opened {formatRelativeActivity(session.lastSeenAt)}</p>
                             </div>
-                            <div className="rounded-xl bg-primary/10 px-3 py-2 text-right text-sm text-primary">
-                              <p className="font-semibold">{candidate.supportingLearnerIds.length}</p>
-                              <p className="text-xs uppercase tracking-[0.16em]">Supporters</p>
+
+                            <div className="flex flex-wrap gap-2">
+                              <Badge variant="secondary">{formatSessionDuration(session.totalDurationSeconds)}</Badge>
+                              <Badge variant="outline">{session.totalSessions} sessions</Badge>
+                              <Badge variant="outline">{formatSessionStatus(session.latestSessionStatus)}</Badge>
+                              {session.needsAttention ? <Badge className="bg-amber-50 text-amber-700 hover:bg-amber-50">Needs review</Badge> : null}
                             </div>
                           </div>
                         </div>
-                      ))}
-                    </div>
+                      ))
+                    ) : (
+                      <p className="text-sm text-muted-foreground">No recent session activity is available yet.</p>
+                    )}
+                  </CardContent>
+                </Card>
+              </TabsContent>
 
-                    <div className="space-y-3">
-                      <div>
-                        <h3 className="text-base font-semibold">Top similar learners</h3>
-                        <p className="text-sm text-muted-foreground">Similarity is based on shared course history, overlap completions, and progress closeness.</p>
+              <TabsContent value="risk" className="space-y-4">
+                <Card className="border-border/80">
+                  <CardHeader>
+                    <CardTitle>Predictive oversight</CardTitle>
+                    <CardDescription>Stored course-risk and learner-disengagement scores refreshed from current platform activity.</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                      <div className="rounded-2xl border border-border/70 bg-muted/30 p-4">
+                        <p className="text-sm text-muted-foreground">High-risk courses</p>
+                        <p className="mt-2 text-3xl font-semibold tracking-tight">{analytics.predictiveOverview.highRiskCourses}</p>
                       </div>
-                      {collaborativeDebug.neighbors.map((neighbor) => (
-                        <div key={neighbor.learnerId} className="rounded-2xl border border-border/70 p-4">
-                          <div className="flex items-start justify-between gap-3">
-                            <div>
-                              <p className="font-semibold">{neighbor.learnerName || "Unknown learner"}</p>
-                              <p className="text-sm text-muted-foreground">{neighbor.learnerEmail || neighbor.learnerId}</p>
+                      <div className="rounded-2xl border border-border/70 bg-muted/30 p-4">
+                        <p className="text-sm text-muted-foreground">High-risk learners</p>
+                        <p className="mt-2 text-3xl font-semibold tracking-tight">{analytics.predictiveOverview.highRiskLearners}</p>
+                      </div>
+                      <div className="rounded-2xl border border-border/70 bg-muted/30 p-4">
+                        <p className="text-sm text-muted-foreground">Avg course risk score</p>
+                        <p className="mt-2 text-3xl font-semibold tracking-tight">{analytics.predictiveOverview.averageCourseRiskScore}</p>
+                      </div>
+                      <div className="rounded-2xl border border-border/70 bg-muted/30 p-4">
+                        <p className="text-sm text-muted-foreground">Avg disengagement score</p>
+                        <p className="mt-2 text-3xl font-semibold tracking-tight">{analytics.predictiveOverview.averageDisengagementScore}</p>
+                      </div>
+                    </div>
+                    {courseRiskChartData.length > 0 ? (
+                      <div className="h-72 w-full">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <BarChart data={courseRiskChartData}>
+                            <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                            <XAxis dataKey="name" tickLine={false} axisLine={false} />
+                            <YAxis tickLine={false} axisLine={false} domain={[0, 100]} />
+                            <Tooltip />
+                            <Legend />
+                            <Bar dataKey="riskScore" name="Risk score" fill={chartPalette.rose} radius={[6, 6, 0, 0]} />
+                            <Bar dataKey="acceptanceRate" name="Rec accept rate" fill={chartPalette.accent} radius={[6, 6, 0, 0]} />
+                          </BarChart>
+                        </ResponsiveContainer>
+                      </div>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">Predictive course-risk scores will appear after analytics rollups populate the stored snapshots.</p>
+                    )}
+                  </CardContent>
+                </Card>
+
+                <div className="grid gap-4 xl:grid-cols-[1fr_1fr]">
+                  <Card className="border-border/80">
+                    <CardHeader>
+                      <CardTitle>Highest course risk</CardTitle>
+                      <CardDescription>Stored course-risk snapshots ordered by urgency.</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      {highestRiskCourses.length > 0 ? (
+                        highestRiskCourses.map((course) => (
+                          <div key={course.courseId} className="rounded-2xl border border-border/70 p-4">
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <p className="font-semibold">{course.courseTitle}</p>
+                                <p className="text-sm text-muted-foreground">{course.activeEnrollments} active enrollments • {course.completionRate}% completion</p>
+                              </div>
+                              <Badge
+                                variant="outline"
+                                className={course.riskLevel === "high" ? "border-red-200 text-red-700" : course.riskLevel === "medium" ? "border-amber-200 text-amber-700" : "border-emerald-200 text-emerald-700"}
+                              >
+                                {course.riskLevel} risk
+                              </Badge>
                             </div>
-                            <Badge variant="secondary">Similarity {neighbor.similarityScore.toFixed(2)}</Badge>
+                            <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                              <div>
+                                <p className="text-xs text-muted-foreground">Risk score</p>
+                                <p className="mt-1 text-lg font-semibold">{course.riskScore}</p>
+                              </div>
+                              <div>
+                                <p className="text-xs text-muted-foreground">Rec accept rate</p>
+                                <p className="mt-1 text-lg font-semibold">{course.recommendationAcceptanceRate}%</p>
+                              </div>
+                              <div>
+                                <p className="text-xs text-muted-foreground">Course link</p>
+                                <Link to="/admin/courses" className="mt-1 inline-flex text-sm font-medium text-primary">
+                                  Open library
+                                </Link>
+                              </div>
+                            </div>
                           </div>
-                          <div className="mt-3 flex flex-wrap gap-2">
-                            <Badge variant="outline">{neighbor.overlapCount} shared courses</Badge>
-                            <Badge variant="outline">{neighbor.completedOverlapCount} completed overlaps</Badge>
-                            <Badge variant="outline">{Math.round(neighbor.averageProgressCloseness * 100)}% progress match</Badge>
+                        ))
+                      ) : (
+                        <p className="text-sm text-muted-foreground">No stored course-risk insights are available yet.</p>
+                      )}
+                    </CardContent>
+                  </Card>
+
+                  <Card className="border-border/80">
+                    <CardHeader>
+                      <CardTitle>Learner disengagement watchlist</CardTitle>
+                      <CardDescription>Stored disengagement scores highlight learners with inactivity and short-session risk signals.</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      {disengagementWatchlist.length > 0 ? (
+                        disengagementWatchlist.map((learner) => (
+                          <div key={learner.userId} className="rounded-2xl border border-border/70 p-4">
+                            <div className="flex items-start justify-between gap-3">
+                              <div>
+                                <p className="font-semibold">{learner.userName || learner.userEmail || learner.userId}</p>
+                                <p className="text-sm text-muted-foreground">{learner.userEmail || "Learner record from predictive snapshot"}</p>
+                              </div>
+                              <Badge
+                                variant="outline"
+                                className={learner.riskLevel === "high" ? "border-red-200 text-red-700" : learner.riskLevel === "medium" ? "border-amber-200 text-amber-700" : "border-emerald-200 text-emerald-700"}
+                              >
+                                {learner.riskLevel} risk
+                              </Badge>
+                            </div>
+                            <div className="mt-4 grid gap-3 sm:grid-cols-4">
+                              <div>
+                                <p className="text-xs text-muted-foreground">Score</p>
+                                <p className="mt-1 text-lg font-semibold">{learner.disengagementScore}</p>
+                              </div>
+                              <div>
+                                <p className="text-xs text-muted-foreground">Inactive days</p>
+                                <p className="mt-1 text-lg font-semibold">{learner.inactiveDays}</p>
+                              </div>
+                              <div>
+                                <p className="text-xs text-muted-foreground">Incomplete enrollments</p>
+                                <p className="mt-1 text-lg font-semibold">{learner.incompleteEnrollments}</p>
+                              </div>
+                              <div>
+                                <p className="text-xs text-muted-foreground">Short sessions</p>
+                                <p className="mt-1 text-lg font-semibold">{learner.repeatedShortSessionCount}</p>
+                              </div>
+                            </div>
                           </div>
-                          <div className="mt-4 space-y-2">
-                            {neighbor.sharedCourses.map((course) => (
-                              <div key={`${neighbor.learnerId}-${course.courseId}`} className="rounded-xl bg-muted/30 p-3">
-                                <div className="flex items-start justify-between gap-3">
-                                  <div>
-                                    <p className="text-sm font-medium">{course.courseTitle}</p>
-                                    <p className="text-xs text-muted-foreground">Neighbor status: {formatEnrollmentStatus(course.neighborStatus)}</p>
-                                  </div>
-                                  <div className="text-right text-xs text-muted-foreground">
-                                    <p>Learner {Math.round(course.learnerProgress)}%</p>
-                                    <p>Neighbor {Math.round(course.neighborProgress)}%</p>
-                                  </div>
+                        ))
+                      ) : (
+                        <p className="text-sm text-muted-foreground">No disengagement watchlist entries are available yet.</p>
+                      )}
+                    </CardContent>
+                  </Card>
+                </div>
+              </TabsContent>
+
+              <TabsContent value="recommendations" className="space-y-4">
+                <div className="grid gap-4 xl:grid-cols-[0.9fr_1.1fr]">
+                  <Card className="border-border/80">
+                    <CardHeader>
+                      <CardTitle>Recommendation performance</CardTitle>
+                      <CardDescription>Acceptance probability, recommendation response, and downstream outcomes across the platform.</CardDescription>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        <div className="rounded-2xl border border-border/70 bg-muted/30 p-4">
+                          <p className="text-sm text-muted-foreground">Impressions</p>
+                          <p className="mt-2 text-3xl font-semibold tracking-tight">{analytics.recommendationAnalytics.totalImpressions}</p>
+                        </div>
+                        <div className="rounded-2xl border border-border/70 bg-muted/30 p-4">
+                          <p className="text-sm text-muted-foreground">Accept rate</p>
+                          <p className="mt-2 text-3xl font-semibold tracking-tight">{analytics.recommendationAnalytics.averageAcceptRate}%</p>
+                        </div>
+                        <div className="rounded-2xl border border-border/70 bg-muted/30 p-4">
+                          <p className="text-sm text-muted-foreground">Avg acceptance probability</p>
+                          <p className="mt-2 text-3xl font-semibold tracking-tight">{analytics.recommendationAnalytics.averageAcceptanceProbability}%</p>
+                        </div>
+                        <div className="rounded-2xl border border-border/70 bg-muted/30 p-4">
+                          <p className="text-sm text-muted-foreground">Recommended completion rate</p>
+                          <p className="mt-2 text-3xl font-semibold tracking-tight">{analytics.recommendationAnalytics.recommendedEnrollmentCompletionRate}%</p>
+                        </div>
+                      </div>
+                      {recommendationPerformanceData.length > 0 ? (
+                        <div className="h-72 w-full">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <LineChart data={recommendationPerformanceData}>
+                              <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                              <XAxis dataKey="name" tickLine={false} axisLine={false} />
+                              <YAxis tickLine={false} axisLine={false} domain={[0, 100]} />
+                              <Tooltip />
+                              <Legend />
+                              <Line type="monotone" dataKey="acceptRate" name="Accept rate" stroke={chartPalette.primary} strokeWidth={3} dot={{ r: 4 }} />
+                              <Line type="monotone" dataKey="acceptanceProbability" name="Predicted acceptance" stroke={chartPalette.warm} strokeWidth={3} dot={{ r: 4 }} />
+                            </LineChart>
+                          </ResponsiveContainer>
+                        </div>
+                      ) : (
+                        <p className="text-sm text-muted-foreground">Recommendation-performance charts will appear after learner recommendation rows accumulate interaction data.</p>
+                      )}
+                    </CardContent>
+                  </Card>
+
+                  <Card className="border-border/80">
+                    <CardHeader className="pb-4">
+                      <CardTitle className="text-lg">Quick links</CardTitle>
+                      <CardDescription>Use the core admin tools after reviewing the recommendation and analytics signals.</CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        {adminActions.map((action) => {
+                          const Icon = action.icon;
+
+                          return (
+                            <Link
+                              key={action.title}
+                              to={action.href}
+                              className="group flex min-h-[120px] flex-col justify-between rounded-2xl border border-border/80 bg-background px-4 py-4 transition-colors hover:border-primary/40 hover:bg-muted/40"
+                            >
+                              <div className="space-y-3">
+                                <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                                  <Icon className="h-5 w-5" />
+                                </div>
+                                <div className="space-y-1.5">
+                                  <h2 className="text-sm font-semibold text-foreground">{action.title}</h2>
+                                  <p className="text-xs leading-5 text-muted-foreground">{action.description}</p>
                                 </div>
                               </div>
+                              <div className="mt-3 flex items-center gap-2 text-sm font-medium text-primary">
+                                Open
+                                <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+                              </div>
+                            </Link>
+                          );
+                        })}
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                <Card className="border-border/80">
+                  <CardHeader className="gap-4">
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                      <div className="space-y-1.5">
+                        <div className="flex items-center gap-2">
+                          <Sparkles className="h-5 w-5 text-primary" />
+                          <CardTitle>Hybrid recommendation evidence</CardTitle>
+                        </div>
+                        <CardDescription>
+                          Inspect the collaborative-filtering evidence behind learner recommendations before the final hybrid scorer blends it with content and performance signals.
+                        </CardDescription>
+                      </div>
+                      <div className="flex w-full flex-col gap-2 sm:flex-row lg:w-auto">
+                        <Select value={selectedLearnerId} onValueChange={setSelectedLearnerId}>
+                          <SelectTrigger className="min-w-[260px]">
+                            <SelectValue placeholder="Select a learner" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {learnerOptions.map((learner) => (
+                              <SelectItem key={learner.id} value={learner.id}>
+                                {learner.name || learner.email || learner.id}
+                              </SelectItem>
                             ))}
+                          </SelectContent>
+                        </Select>
+                        <Button
+                          variant="outline"
+                          onClick={() => setCollaborativeRefreshKey((currentValue) => currentValue + 1)}
+                          disabled={!selectedLearnerId || collaborativeLoading}
+                        >
+                          <RefreshCw className={collaborativeLoading ? "animate-spin" : ""} />
+                          Refresh
+                        </Button>
+                      </div>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {learnerOptions.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">No learners are available for collaborative recommendation inspection yet.</p>
+                    ) : collaborativeLoading ? (
+                      <div className="flex items-center justify-center py-10 text-sm text-muted-foreground">
+                        <Loader2 className="mr-3 h-5 w-5 animate-spin" />
+                        Loading collaborative recommendation evidence...
+                      </div>
+                    ) : !collaborativeDebug ? (
+                      <p className="text-sm text-muted-foreground">Select a learner to inspect recommendation evidence.</p>
+                    ) : (
+                      <>
+                        <div className="grid gap-3 md:grid-cols-3">
+                          <div className="rounded-2xl border border-border/70 bg-muted/30 p-4">
+                            <p className="text-sm text-muted-foreground">Selected learner</p>
+                            <p className="mt-2 text-lg font-semibold">{selectedLearner?.name || selectedLearner?.email || selectedLearnerId}</p>
+                            <p className="mt-1 text-xs text-muted-foreground">{selectedLearner?.email || "Learner record loaded from the admin directory"}</p>
+                          </div>
+                          <div className="rounded-2xl border border-border/70 bg-muted/30 p-4">
+                            <p className="text-sm text-muted-foreground">Compared enrolled courses</p>
+                            <p className="mt-2 text-3xl font-semibold tracking-tight">{collaborativeDebug.targetCourseCount}</p>
+                          </div>
+                          <div className="rounded-2xl border border-border/70 bg-muted/30 p-4">
+                            <p className="text-sm text-muted-foreground">Similar learners / candidates</p>
+                            <p className="mt-2 text-3xl font-semibold tracking-tight">{collaborativeDebug.similarLearnerCount} / {collaborativeDebug.candidates.length}</p>
                           </div>
                         </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </>
-            )}
-          </CardContent>
-        </Card>
 
-        <Card className="border-border/80">
-          <CardHeader className="pb-4">
-            <CardTitle className="text-lg">Quick links</CardTitle>
-            <CardDescription>
-              Use the core admin tools after reviewing the analytics above.
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-              {adminActions.map((action) => {
-                const Icon = action.icon;
+                        {collaborativeDebug.targetCourseCount === 0 ? (
+                          <div className="rounded-2xl border border-dashed border-border/80 p-5 text-sm text-muted-foreground">
+                            This learner does not have enough enrollment history yet. Collaborative filtering starts once the learner has active or completed course history to compare against other trainees.
+                          </div>
+                        ) : collaborativeDebug.candidates.length === 0 ? (
+                          <div className="rounded-2xl border border-dashed border-border/80 p-5 text-sm text-muted-foreground">
+                            No collaborative candidates were produced for this learner yet. The learner may have unique course history, or the current dataset may not have enough overlapping paths.
+                          </div>
+                        ) : (
+                          <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+                            <div className="space-y-3">
+                              <div>
+                                <h3 className="text-base font-semibold">Collaborative candidate courses</h3>
+                                <p className="text-sm text-muted-foreground">
+                                  These are the courses contributed by similar-learner behavior before the full hybrid ranker blends them with profile, content, and performance signals.
+                                </p>
+                              </div>
+                              {collaborativeDebug.candidates.map((candidate) => (
+                                <div key={candidate.courseId} className="rounded-2xl border border-border/70 p-4">
+                                  <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                                    <div className="space-y-2">
+                                      <div>
+                                        <p className="font-semibold">{candidate.courseTitle}</p>
+                                        <p className="text-sm text-muted-foreground">{candidate.reason}</p>
+                                      </div>
+                                      <div className="flex flex-wrap gap-2">
+                                        <Badge variant="secondary">{Math.round(candidate.normalizedScore * 100)}% collaborative score</Badge>
+                                        <Badge variant="outline">Raw {candidate.rawScore.toFixed(2)}</Badge>
+                                        <Badge variant="outline">{candidate.supportCount} similar learners</Badge>
+                                        <Badge variant="outline">{candidate.completedBySimilarLearners} completions</Badge>
+                                      </div>
+                                    </div>
+                                    <div className="rounded-xl bg-primary/10 px-3 py-2 text-right text-sm text-primary">
+                                      <p className="font-semibold">{candidate.supportingLearnerIds.length}</p>
+                                      <p className="text-xs uppercase tracking-[0.16em]">Supporters</p>
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
 
-                return (
-                  <Link
-                    key={action.title}
-                    to={action.href}
-                    className="group flex min-h-[120px] flex-col justify-between rounded-2xl border border-border/80 bg-background px-4 py-4 transition-colors hover:border-primary/40 hover:bg-muted/40"
-                  >
-                    <div className="space-y-3">
-                      <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-                        <Icon className="h-5 w-5" />
-                      </div>
-                      <div className="space-y-1.5">
-                        <h2 className="text-sm font-semibold text-foreground">{action.title}</h2>
-                        <p className="text-xs leading-5 text-muted-foreground">{action.description}</p>
-                      </div>
-                    </div>
-                    <div className="mt-3 flex items-center gap-2 text-sm font-medium text-primary">
-                      Open
-                      <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
-                    </div>
-                  </Link>
-                );
-              })}
-            </div>
-          </CardContent>
-        </Card>
+                            <div className="space-y-3">
+                              <div>
+                                <h3 className="text-base font-semibold">Top similar learners</h3>
+                                <p className="text-sm text-muted-foreground">Similarity is based on shared course history, overlap completions, and progress closeness.</p>
+                              </div>
+                              {collaborativeDebug.neighbors.map((neighbor) => (
+                                <div key={neighbor.learnerId} className="rounded-2xl border border-border/70 p-4">
+                                  <div className="flex items-start justify-between gap-3">
+                                    <div>
+                                      <p className="font-semibold">{neighbor.learnerName || "Unknown learner"}</p>
+                                      <p className="text-sm text-muted-foreground">{neighbor.learnerEmail || neighbor.learnerId}</p>
+                                    </div>
+                                    <Badge variant="secondary">Similarity {neighbor.similarityScore.toFixed(2)}</Badge>
+                                  </div>
+                                  <div className="mt-3 flex flex-wrap gap-2">
+                                    <Badge variant="outline">{neighbor.overlapCount} shared courses</Badge>
+                                    <Badge variant="outline">{neighbor.completedOverlapCount} completed overlaps</Badge>
+                                    <Badge variant="outline">{Math.round(neighbor.averageProgressCloseness * 100)}% progress match</Badge>
+                                  </div>
+                                  <div className="mt-4 space-y-2">
+                                    {neighbor.sharedCourses.map((course) => (
+                                      <div key={`${neighbor.learnerId}-${course.courseId}`} className="rounded-xl bg-muted/30 p-3">
+                                        <div className="flex items-start justify-between gap-3">
+                                          <div>
+                                            <p className="text-sm font-medium">{course.courseTitle}</p>
+                                            <p className="text-xs text-muted-foreground">Neighbor status: {formatEnrollmentStatus(course.neighborStatus)}</p>
+                                          </div>
+                                          <div className="text-right text-xs text-muted-foreground">
+                                            <p>Learner {Math.round(course.learnerProgress)}%</p>
+                                            <p>Neighbor {Math.round(course.neighborProgress)}%</p>
+                                          </div>
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </CardContent>
+                </Card>
+              </TabsContent>
+            </Tabs>
           </>
         )}
       </div>

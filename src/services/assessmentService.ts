@@ -1,7 +1,13 @@
 import { supabase, handleSupabaseError } from "@/lib/supabase";
-import { getGradableQuizBlocks, type ContentBlock } from "@/lib/contentBlocks";
+import {
+  getGradableQuizBlocks,
+  parseModuleContentBlocks,
+  validateQuizAssessmentBlocks,
+  type ContentBlock,
+} from "@/lib/contentBlocks";
 import { analyticsService } from "@/services/analyticsService";
 import { notificationHelpers } from "@/services/notificationService";
+import { refreshEnrollmentProgress } from "@/services/supabaseDatabaseService";
 import { deriveSkillTags, deriveTopicTags } from "@/lib/taxonomy";
 
 export interface Assessment {
@@ -12,6 +18,7 @@ export interface Assessment {
   timeLimit?: number; // in minutes
   passingScore: number;
   maxAttempts: number;
+  allowRetryAfterPassing: boolean;
   isActive: boolean;
   skillTags?: string[];
   topicTags?: string[];
@@ -40,10 +47,130 @@ interface AssessmentSyncSettings {
   timeLimit?: number;
   passingScore?: number;
   maxAttempts?: number;
+  allowRetryAfterPassing?: boolean;
   isActive?: boolean;
   skillTags?: string[];
   topicTags?: string[];
 }
+
+const unsupportedAssessmentColumns = new Set<string>();
+const unsupportedAssessmentQuestionColumns = new Set<string>();
+const unsupportedAssessmentModuleColumns = new Set<string>();
+const unsupportedAssessmentAttemptColumns = new Set<string>();
+const unsupportedAssessmentAnswerColumns = new Set<string>();
+
+const normalizeMissingColumnName = (columnName: string | null | undefined): string | null => {
+  const normalized = String(columnName || "")
+    .trim()
+    .replace(/^"|"$/g, "")
+    .replace(/^'|'$/g, "");
+
+  if (!normalized) {
+    return null;
+  }
+
+  const segments = normalized.split(".").filter(Boolean);
+  return segments[segments.length - 1] || normalized;
+};
+
+const getMissingColumnName = (error: unknown, tableName: string): string | null => {
+  const message = typeof error === "object" && error !== null && "message" in error
+    ? String((error as { message?: string }).message || "")
+    : "";
+  const details = typeof error === "object" && error !== null && "details" in error
+    ? String((error as { details?: string }).details || "")
+    : "";
+  const haystack = `${message} ${details}`;
+
+  const schemaCacheMatch = haystack.match(new RegExp(`'([^']+)' column of '${tableName}'`, "i"));
+  if (schemaCacheMatch?.[1]) {
+    return normalizeMissingColumnName(schemaCacheMatch[1]);
+  }
+
+  const quotedPostgresMatch = haystack.match(/column\s+"([^"]+)"\s+does not exist/i);
+  if (quotedPostgresMatch?.[1]) {
+    return normalizeMissingColumnName(quotedPostgresMatch[1]);
+  }
+
+  const unquotedPostgresMatch = haystack.match(/column\s+([a-zA-Z0-9_.]+)\s+does not exist/i);
+  if (unquotedPostgresMatch?.[1]) {
+    return normalizeMissingColumnName(unquotedPostgresMatch[1]);
+  }
+
+  return null;
+};
+
+const buildSelectWithFallback = (baseSelect: string, unsupportedColumns: Set<string>) => {
+  const fields = baseSelect
+    .split(",")
+    .map((field) => field.trim())
+    .filter(Boolean)
+    .filter((field) => !unsupportedColumns.has(field));
+
+  return fields.length > 0 ? fields.join(", ") : "*";
+};
+
+const sanitizeWritePayload = (payload: Record<string, unknown>, unsupportedColumns: Set<string>) => {
+  const nextPayload = { ...payload };
+
+  for (const column of unsupportedColumns) {
+    delete nextPayload[column];
+  }
+
+  return nextPayload;
+};
+
+const executeReadWithFallback = async <T>(
+  execute: (selectClause: string) => Promise<{ data: T | null; error: any }>,
+  selectClause: string,
+  tableName: string,
+  unsupportedColumns: Set<string>,
+): Promise<{ data: T | null; error: any }> => {
+  let nextSelect = buildSelectWithFallback(selectClause, unsupportedColumns);
+
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const result = await execute(nextSelect);
+    if (!result.error) {
+      return result;
+    }
+
+    const missingColumn = getMissingColumnName(result.error, tableName);
+    if (!missingColumn) {
+      return result;
+    }
+
+    unsupportedColumns.add(missingColumn);
+    nextSelect = buildSelectWithFallback(selectClause, unsupportedColumns);
+  }
+
+  return execute("*");
+};
+
+const executeWriteWithFallback = async <T>(
+  execute: (payload: Record<string, unknown>) => Promise<{ data: T | null; error: any }>,
+  payload: Record<string, unknown>,
+  tableName: string,
+  unsupportedColumns: Set<string>,
+): Promise<{ data: T | null; error: any }> => {
+  let nextPayload = sanitizeWritePayload(payload, unsupportedColumns);
+
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const result = await execute(nextPayload);
+    if (!result.error) {
+      return result;
+    }
+
+    const missingColumn = getMissingColumnName(result.error, tableName);
+    if (!missingColumn || !(missingColumn in nextPayload)) {
+      return result;
+    }
+
+    unsupportedColumns.add(missingColumn);
+    delete nextPayload[missingColumn];
+  }
+
+  return execute(nextPayload);
+};
 
 const mapAssessmentRow = (data: any): Assessment => ({
   id: data.id,
@@ -53,6 +180,7 @@ const mapAssessmentRow = (data: any): Assessment => ({
   timeLimit: data.time_limit || undefined,
   passingScore: data.passing_score,
   maxAttempts: data.max_attempts,
+  allowRetryAfterPassing: data.allow_retry_after_passing ?? false,
   isActive: data.is_active,
   skillTags: data.skill_tags || [],
   topicTags: data.topic_tags || [],
@@ -81,6 +209,7 @@ const buildDerivedAssessmentDefaults = (moduleTitle: string, settings?: Assessme
   timeLimit: settings?.timeLimit,
   passingScore: settings?.passingScore ?? 70,
   maxAttempts: settings?.maxAttempts ?? 3,
+  allowRetryAfterPassing: settings?.allowRetryAfterPassing ?? false,
   isActive: settings?.isActive ?? true,
   skillTags: settings?.skillTags || [],
   topicTags: settings?.topicTags || [],
@@ -121,6 +250,117 @@ const toDerivedQuestionPayload = (block: ContentBlock, index: number) => ({
   explanation: block.explanation || null,
 });
 
+const deactivateDerivedAssessmentForModule = async (moduleId: string): Promise<void> => {
+  if (!supabase) {
+    throw new Error("Supabase not initialized");
+  }
+
+  const { data: assessmentRow, error: assessmentLookupError } = await supabase
+    .from("assessments")
+    .select("id")
+    .eq("module_id", moduleId)
+    .single();
+
+  if (assessmentLookupError) {
+    if (assessmentLookupError.code === "PGRST116") {
+      return;
+    }
+
+    handleSupabaseError(assessmentLookupError);
+    throw assessmentLookupError;
+  }
+
+  const { error: assessmentUpdateError } = await executeWriteWithFallback(
+    (payload) => supabase
+      .from("assessments")
+      .update(payload)
+      .eq("id", assessmentRow.id),
+    {
+      is_active: false,
+      derived_from_module_quiz: true,
+      updated_at: new Date().toISOString(),
+    },
+    "assessments",
+    unsupportedAssessmentColumns,
+  );
+
+  if (assessmentUpdateError) {
+    handleSupabaseError(assessmentUpdateError);
+    throw assessmentUpdateError;
+  }
+
+  const { error: questionUpdateError } = await executeWriteWithFallback(
+    (payload) => supabase
+      .from("assessment_questions")
+      .update(payload)
+      .eq("assessment_id", assessmentRow.id)
+      .neq("is_active", false),
+    {
+      is_active: false,
+      derived_from_module_quiz: true,
+    },
+    "assessment_questions",
+    unsupportedAssessmentQuestionColumns,
+  );
+
+  if (questionUpdateError) {
+    handleSupabaseError(questionUpdateError);
+    throw questionUpdateError;
+  }
+};
+
+const syncDerivedAssessmentFromModuleContent = async (
+  moduleId: string,
+  existingAssessment?: Assessment | null,
+): Promise<Assessment | null> => {
+  if (!supabase) {
+    return existingAssessment || null;
+  }
+
+  const { data: moduleRow, error: moduleError } = await executeReadWithFallback(
+    (selectClause) => supabase
+      .from("modules")
+      .select(selectClause)
+      .eq("id", moduleId)
+      .maybeSingle(),
+    "id, title, content, skill_tags, topic_tags",
+    "modules",
+    unsupportedAssessmentModuleColumns,
+  );
+
+  if (moduleError) {
+    handleSupabaseError(moduleError);
+    return existingAssessment || null;
+  }
+
+  if (!moduleRow) {
+    return existingAssessment || null;
+  }
+
+  const blocks = parseModuleContentBlocks(moduleRow.content);
+  const gradableQuizBlocks = getGradableQuizBlocks(blocks);
+
+  if (gradableQuizBlocks.length === 0) {
+    return existingAssessment || null;
+  }
+
+  if (validateQuizAssessmentBlocks(blocks).length > 0) {
+    return existingAssessment || null;
+  }
+
+  return assessmentService.syncDerivedAssessmentFromQuizBlocks(moduleRow.id, moduleRow.title, blocks, {
+    title: existingAssessment?.title,
+    description: existingAssessment?.description,
+    timeLimit: existingAssessment?.timeLimit,
+    passingScore: existingAssessment?.passingScore,
+    maxAttempts: existingAssessment?.maxAttempts,
+    allowRetryAfterPassing: existingAssessment?.allowRetryAfterPassing,
+    isActive: existingAssessment?.isActive,
+    skillTags: existingAssessment?.skillTags || moduleRow.skill_tags || [],
+    topicTags: existingAssessment?.topicTags || moduleRow.topic_tags || [],
+  });
+};
+
 export interface AssessmentAttempt {
   id: string;
   assessmentId: string;
@@ -144,23 +384,37 @@ export const assessmentService = {
       return null;
     }
 
-    const { data, error } = await supabase
-      .from("assessments")
-      .select("*")
-      .eq("module_id", moduleId)
-      .eq("is_active", true)
-      .single();
+    const { data, error } = await executeReadWithFallback(
+      (selectClause) => {
+        let query = supabase
+          .from("assessments")
+          .select(selectClause)
+          .eq("module_id", moduleId);
+
+        if (!unsupportedAssessmentColumns.has("is_active")) {
+          query = query.eq("is_active", true);
+        }
+
+        return query.maybeSingle();
+      },
+      "*",
+      "assessments",
+      unsupportedAssessmentColumns,
+    );
 
     if (error) {
-      if (error.code === "PGRST116") {
-        // No assessment found
-        return null;
-      }
       handleSupabaseError(error);
       return null;
     }
 
-    return mapAssessmentRow(data);
+    const mappedAssessment = data ? mapAssessmentRow(data) : null;
+
+    try {
+      return await syncDerivedAssessmentFromModuleContent(moduleId, mappedAssessment);
+    } catch (syncError) {
+      console.error("Error syncing derived assessment from module content:", syncError);
+      return mappedAssessment;
+    }
   },
 
   /**
@@ -172,12 +426,24 @@ export const assessmentService = {
       return [];
     }
 
-    const { data, error } = await supabase
-      .from("assessment_questions")
-      .select("*")
-      .eq("assessment_id", assessmentId)
-      .eq("is_active", true)
-      .order("order", { ascending: true });
+    const { data, error } = await executeReadWithFallback(
+      (selectClause) => {
+        let query = supabase
+          .from("assessment_questions")
+          .select(selectClause)
+          .eq("assessment_id", assessmentId)
+          .order("order", { ascending: true });
+
+        if (!unsupportedAssessmentQuestionColumns.has("is_active")) {
+          query = query.eq("is_active", true);
+        }
+
+        return query;
+      },
+      "*",
+      "assessment_questions",
+      unsupportedAssessmentQuestionColumns,
+    );
 
     if (error) {
       handleSupabaseError(error);
@@ -239,17 +505,22 @@ export const assessmentService = {
       throw new Error("Supabase not initialized");
     }
 
-    const { data, error } = await supabase
-      .from("assessment_attempts")
-      .insert({
+    const { data, error } = await executeWriteWithFallback(
+      (payload) => supabase
+        .from("assessment_attempts")
+        .insert(payload)
+        .select()
+        .single(),
+      {
         assessment_id: assessmentId,
         enrollment_id: enrollmentId,
         user_id: userId,
         started_at: new Date().toISOString(),
         answers: {},
-      })
-      .select()
-      .single();
+      },
+      "assessment_attempts",
+      unsupportedAssessmentAttemptColumns,
+    );
 
     if (error) {
       handleSupabaseError(error);
@@ -331,16 +602,21 @@ export const assessmentService = {
     const passed = score >= passingScore;
 
     // Update attempt
-    const { error: updateError } = await supabase
-      .from("assessment_attempts")
-      .update({
+    const { error: updateError } = await executeWriteWithFallback(
+      (payload) => supabase
+        .from("assessment_attempts")
+        .update(payload)
+        .eq("id", attemptId),
+      {
         submitted_at: new Date().toISOString(),
         answers,
         score,
         passed,
         time_spent: timeSpent,
-      })
-      .eq("id", attemptId);
+      },
+      "assessment_attempts",
+      unsupportedAssessmentAttemptColumns,
+    );
 
     if (updateError) {
       handleSupabaseError(updateError);
@@ -368,9 +644,24 @@ export const assessmentService = {
     });
 
     if (answerInserts.length > 0) {
-      const { error: insertError } = await supabase
-        .from("assessment_answers")
-        .insert(answerInserts);
+      const insertableAnswers = answerInserts.map((answer) => ({ ...answer })) as Array<Record<string, unknown>>;
+      let insertError: any = null;
+
+      for (const answerPayload of insertableAnswers) {
+        const result = await executeWriteWithFallback(
+          (payload) => supabase
+            .from("assessment_answers")
+            .insert(payload),
+          answerPayload,
+          "assessment_answers",
+          unsupportedAssessmentAnswerColumns,
+        );
+
+        if (result.error) {
+          insertError = result.error;
+          break;
+        }
+      }
 
       if (insertError) {
         console.error("Error saving answers:", insertError);
@@ -397,9 +688,13 @@ export const assessmentService = {
     }
 
     try {
+      const enrollmentId = (attemptData as any).enrollment_id;
       const courseId = (attemptData as any).enrollments?.course_id;
       const userId = (attemptData as any).user_id;
-      const enrollmentId = (attemptData as any).enrollment_id;
+
+      if (enrollmentId) {
+        await refreshEnrollmentProgress(enrollmentId);
+      }
 
       await analyticsService.trackEvent({
         eventName: "assessment_submit",
@@ -423,238 +718,6 @@ export const assessmentService = {
     return { score, passed };
   },
 
-  /**
-   * Create a new assessment
-   */
-  createAssessment: async (
-    moduleId: string,
-    assessment: {
-      title: string;
-      description?: string;
-      timeLimit?: number;
-      passingScore: number;
-      maxAttempts: number;
-      skillTags?: string[];
-      topicTags?: string[];
-    }
-  ): Promise<Assessment> => {
-    if (!supabase) {
-      throw new Error("Supabase not initialized");
-    }
-
-    const canonicalSkillTags = deriveSkillTags(undefined, assessment.skillTags);
-    const canonicalTopicTags = deriveTopicTags(undefined, canonicalSkillTags, assessment.topicTags);
-
-    const { data, error } = await supabase
-      .from("assessments")
-      .insert({
-        module_id: moduleId,
-        title: assessment.title,
-        description: assessment.description || null,
-        time_limit: assessment.timeLimit || null,
-        passing_score: assessment.passingScore,
-        max_attempts: assessment.maxAttempts,
-        is_active: true,
-        skill_tags: canonicalSkillTags,
-        topic_tags: canonicalTopicTags,
-        created_at: new Date().toISOString(),
-        updated_at: new Date().toISOString(),
-      } as any)
-      .select()
-      .single();
-
-    if (error) {
-      handleSupabaseError(error);
-      throw error;
-    }
-
-    return mapAssessmentRow(data);
-  },
-
-  /**
-   * Update an assessment
-   */
-  updateAssessment: async (
-    assessmentId: string,
-    updates: {
-      title?: string;
-      description?: string;
-      timeLimit?: number;
-      passingScore?: number;
-      maxAttempts?: number;
-      isActive?: boolean;
-      skillTags?: string[];
-      topicTags?: string[];
-    }
-  ): Promise<Assessment> => {
-    if (!supabase) {
-      throw new Error("Supabase not initialized");
-    }
-
-    const updateData: any = {
-      updated_at: new Date().toISOString(),
-    };
-
-    if (updates.title !== undefined) updateData.title = updates.title;
-    if (updates.description !== undefined) updateData.description = updates.description || null;
-    if (updates.timeLimit !== undefined) updateData.time_limit = updates.timeLimit || null;
-    if (updates.passingScore !== undefined) updateData.passing_score = updates.passingScore;
-    if (updates.maxAttempts !== undefined) updateData.max_attempts = updates.maxAttempts;
-    if (updates.isActive !== undefined) updateData.is_active = updates.isActive;
-    if (updates.skillTags !== undefined) updateData.skill_tags = deriveSkillTags(undefined, updates.skillTags);
-    if (updates.topicTags !== undefined) updateData.topic_tags = deriveTopicTags(undefined, updates.skillTags, updates.topicTags);
-
-    const { data, error } = await supabase
-      .from("assessments")
-      .update(updateData)
-      .eq("id", assessmentId)
-      .select()
-      .single();
-
-    if (error) {
-      handleSupabaseError(error);
-      throw error;
-    }
-
-    return mapAssessmentRow(data);
-  },
-
-  /**
-   * Delete an assessment
-   */
-  deleteAssessment: async (assessmentId: string): Promise<void> => {
-    if (!supabase) {
-      throw new Error("Supabase not initialized");
-    }
-
-    const { error } = await supabase.from("assessments").delete().eq("id", assessmentId);
-
-    if (error) {
-      handleSupabaseError(error);
-      throw error;
-    }
-  },
-
-  /**
-   * Create an assessment question
-   */
-  createQuestion: async (
-    assessmentId: string,
-    question: {
-      question: string;
-      questionType: "multiple_choice" | "true_false" | "short_answer" | "essay";
-      options?: string[];
-      correctAnswer?: string;
-      points: number;
-      order: number;
-      explanation?: string;
-    }
-  ): Promise<AssessmentQuestion> => {
-    if (!supabase) {
-      throw new Error("Supabase not initialized");
-    }
-
-    const { data, error } = await supabase
-      .from("assessment_questions")
-      .insert({
-        assessment_id: assessmentId,
-        question: question.question,
-        question_type: question.questionType,
-        options: question.options ? JSON.stringify(question.options) : null,
-        correct_answer: question.correctAnswer || null,
-        points: question.points,
-        order: question.order,
-        explanation: question.explanation || null,
-        created_at: new Date().toISOString(),
-      })
-      .select()
-      .single();
-
-    if (error) {
-      handleSupabaseError(error);
-      throw error;
-    }
-
-    return mapAssessmentQuestionRow(data);
-  },
-
-  /**
-   * Update an assessment question
-   */
-  updateQuestion: async (
-    questionId: string,
-    updates: {
-      question?: string;
-      questionType?: "multiple_choice" | "true_false" | "short_answer" | "essay";
-      options?: string[];
-      correctAnswer?: string;
-      points?: number;
-      order?: number;
-      explanation?: string;
-    }
-  ): Promise<AssessmentQuestion> => {
-    if (!supabase) {
-      throw new Error("Supabase not initialized");
-    }
-
-    const updateData: any = {};
-    if (updates.question !== undefined) updateData.question = updates.question;
-    if (updates.questionType !== undefined) updateData.question_type = updates.questionType;
-    if (updates.options !== undefined) updateData.options = updates.options ? JSON.stringify(updates.options) : null;
-    if (updates.correctAnswer !== undefined) updateData.correct_answer = updates.correctAnswer || null;
-    if (updates.points !== undefined) updateData.points = updates.points;
-    if (updates.order !== undefined) updateData.order = updates.order;
-    if (updates.explanation !== undefined) updateData.explanation = updates.explanation || null;
-
-    const { data, error } = await supabase
-      .from("assessment_questions")
-      .update(updateData)
-      .eq("id", questionId)
-      .select()
-      .single();
-
-    if (error) {
-      handleSupabaseError(error);
-      throw error;
-    }
-
-    return mapAssessmentQuestionRow(data);
-  },
-
-  /**
-   * Delete an assessment question
-   */
-  deleteQuestion: async (questionId: string): Promise<void> => {
-    if (!supabase) {
-      throw new Error("Supabase not initialized");
-    }
-
-    const { error } = await supabase.from("assessment_questions").delete().eq("id", questionId);
-
-    if (error) {
-      handleSupabaseError(error);
-      throw error;
-    }
-  },
-
-  /**
-   * Reorder questions
-   */
-  reorderQuestions: async (questionOrders: { id: string; order: number }[]): Promise<void> => {
-    if (!supabase) {
-      throw new Error("Supabase not initialized");
-    }
-
-    for (const { id, order } of questionOrders) {
-      const { error } = await supabase.from("assessment_questions").update({ order }).eq("id", id);
-
-      if (error) {
-        handleSupabaseError(error);
-        throw error;
-      }
-    }
-  },
-
   syncDerivedAssessmentFromQuizBlocks: async (
     moduleId: string,
     moduleTitle: string,
@@ -667,6 +730,7 @@ export const assessmentService = {
 
     const gradableQuizBlocks = getGradableQuizBlocks(blocks);
     if (gradableQuizBlocks.length === 0) {
+      await deactivateDerivedAssessmentForModule(moduleId);
       return null;
     }
 
@@ -688,24 +752,30 @@ export const assessmentService = {
     let assessmentRow = existingAssessmentRow;
 
     if (!assessmentRow) {
-      const { data: insertedAssessment, error: insertAssessmentError } = await supabase
-        .from("assessments")
-        .insert({
+      const { data: insertedAssessment, error: insertAssessmentError } = await executeWriteWithFallback(
+        (payload) => supabase
+          .from("assessments")
+          .insert(payload)
+          .select("*")
+          .single(),
+        {
           module_id: moduleId,
           title: defaults.title,
           description: defaults.description || null,
           time_limit: defaults.timeLimit || null,
           passing_score: defaults.passingScore,
           max_attempts: defaults.maxAttempts,
+          allow_retry_after_passing: defaults.allowRetryAfterPassing,
           is_active: defaults.isActive,
           derived_from_module_quiz: true,
           skill_tags: canonicalSkillTags,
           topic_tags: canonicalTopicTags,
           created_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
-        })
-        .select("*")
-        .single();
+        },
+        "assessments",
+        unsupportedAssessmentColumns,
+      );
 
       if (insertAssessmentError) {
         handleSupabaseError(insertAssessmentError);
@@ -714,23 +784,29 @@ export const assessmentService = {
 
       assessmentRow = insertedAssessment;
     } else {
-      const { data: updatedAssessment, error: updateAssessmentError } = await supabase
-        .from("assessments")
-        .update({
+      const { data: updatedAssessment, error: updateAssessmentError } = await executeWriteWithFallback(
+        (payload) => supabase
+          .from("assessments")
+          .update(payload)
+          .eq("id", existingAssessmentRow.id)
+          .select("*")
+          .single(),
+        {
           title: defaults.title,
           description: defaults.description || null,
           time_limit: defaults.timeLimit || null,
           passing_score: defaults.passingScore,
           max_attempts: defaults.maxAttempts,
+          allow_retry_after_passing: defaults.allowRetryAfterPassing,
           is_active: defaults.isActive,
           derived_from_module_quiz: true,
           skill_tags: canonicalSkillTags,
           topic_tags: canonicalTopicTags,
           updated_at: new Date().toISOString(),
-        })
-        .eq("id", existingAssessmentRow.id)
-        .select("*")
-        .single();
+        },
+        "assessments",
+        unsupportedAssessmentColumns,
+      );
 
       if (updateAssessmentError) {
         handleSupabaseError(updateAssessmentError);
@@ -765,9 +841,12 @@ export const assessmentService = {
 
       if (matchedRow) {
         matchedQuestionIds.add(matchedRow.id);
-        const { error: updateQuestionError } = await supabase
-          .from("assessment_questions")
-          .update({
+        const { error: updateQuestionError } = await executeWriteWithFallback(
+          (questionPayload) => supabase
+            .from("assessment_questions")
+            .update(questionPayload)
+            .eq("id", matchedRow.id),
+          {
             question: payload.question,
             question_type: payload.questionType,
             options: JSON.stringify(payload.options),
@@ -778,17 +857,21 @@ export const assessmentService = {
             source_question_key: payload.sourceQuestionKey,
             derived_from_module_quiz: true,
             is_active: true,
-          })
-          .eq("id", matchedRow.id);
+          },
+          "assessment_questions",
+          unsupportedAssessmentQuestionColumns,
+        );
 
         if (updateQuestionError) {
           handleSupabaseError(updateQuestionError);
           throw updateQuestionError;
         }
       } else {
-        const { error: insertQuestionError } = await supabase
-          .from("assessment_questions")
-          .insert({
+        const { error: insertQuestionError } = await executeWriteWithFallback(
+          (questionPayload) => supabase
+            .from("assessment_questions")
+            .insert(questionPayload),
+          {
             assessment_id: assessmentRow.id,
             question: payload.question,
             question_type: payload.questionType,
@@ -801,7 +884,10 @@ export const assessmentService = {
             derived_from_module_quiz: true,
             is_active: true,
             created_at: new Date().toISOString(),
-          });
+          },
+          "assessment_questions",
+          unsupportedAssessmentQuestionColumns,
+        );
 
         if (insertQuestionError) {
           handleSupabaseError(insertQuestionError);
@@ -815,10 +901,15 @@ export const assessmentService = {
       .map((row) => row.id);
 
     if (staleQuestionIds.length > 0) {
-      const { error: deactivateQuestionsError } = await supabase
-        .from("assessment_questions")
-        .update({ is_active: false })
-        .in("id", staleQuestionIds);
+      const { error: deactivateQuestionsError } = await executeWriteWithFallback(
+        (payload) => supabase
+          .from("assessment_questions")
+          .update(payload)
+          .in("id", staleQuestionIds),
+        { is_active: false },
+        "assessment_questions",
+        unsupportedAssessmentQuestionColumns,
+      );
 
       if (deactivateQuestionsError) {
         handleSupabaseError(deactivateQuestionsError);

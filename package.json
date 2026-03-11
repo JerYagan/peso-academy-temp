@@ -13,7 +13,8 @@
     "seed:courses": "tsx scripts/seed-course-content.ts",
     "seed:analytics": "tsx scripts/seed-analytics-demo.ts",
     "audit:derived-assessments": "tsx scripts/audit-derived-assessments.ts",
-    "backfill:derived-assessments": "tsx scripts/audit-derived-assessments.ts --apply-backfill"
+    "backfill:derived-assessments": "tsx scripts/audit-derived-assessments.ts --apply-backfill",
+    "check:assessment-reporting": "tsx scripts/check-assessment-reporting-regressions.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

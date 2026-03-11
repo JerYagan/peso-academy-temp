@@ -62,9 +62,15 @@ export const TAXONOMY_TOPIC_TAGS = [
   "Creative Design",
 ] as const;
 
-export type TaxonomyCourseCategory = (typeof TAXONOMY_COURSE_CATEGORIES)[number];
-export type TaxonomySkillTag = (typeof TAXONOMY_SKILL_TAGS)[number];
-export type TaxonomyTopicTag = (typeof TAXONOMY_TOPIC_TAGS)[number];
+export type TaxonomyCourseCategory = string;
+export type TaxonomySkillTag = string;
+export type TaxonomyTopicTag = string;
+
+type RuntimeTaxonomyConfig = {
+  courseCategories: string[];
+  skillTags: string[];
+  topicTags: string[];
+};
 
 export const TAXONOMY_EDITOR_RULES = {
   owners: ["admin", "trainer"],
@@ -80,6 +86,51 @@ const normalizeToken = (value: string) =>
     .replace(/\s+/g, " ")
     .trim();
 
+const normalizeDisplayValue = (value: string | null | undefined) =>
+  value
+    ?.trim()
+    .replace(/\s+/g, " ") || "";
+
+const dedupeByToken = <T extends string>(values: readonly T[]) => {
+  const seen = new Set<string>();
+
+  return values.reduce<T[]>((result, value) => {
+    const displayValue = normalizeDisplayValue(value) as T;
+    if (!displayValue) {
+      return result;
+    }
+
+    const token = normalizeToken(displayValue);
+    if (!token || seen.has(token)) {
+      return result;
+    }
+
+    seen.add(token);
+    result.push(displayValue);
+    return result;
+  }, []);
+};
+
+let runtimeTaxonomyConfig: RuntimeTaxonomyConfig = {
+  courseCategories: dedupeByToken([...TAXONOMY_COURSE_CATEGORIES]),
+  skillTags: dedupeByToken([...TAXONOMY_SKILL_TAGS]),
+  topicTags: dedupeByToken([...TAXONOMY_TOPIC_TAGS]),
+};
+
+export const getRuntimeTaxonomyConfig = (): RuntimeTaxonomyConfig => ({
+  courseCategories: [...runtimeTaxonomyConfig.courseCategories],
+  skillTags: [...runtimeTaxonomyConfig.skillTags],
+  topicTags: [...runtimeTaxonomyConfig.topicTags],
+});
+
+export const setRuntimeTaxonomyConfig = (config: Partial<RuntimeTaxonomyConfig>) => {
+  runtimeTaxonomyConfig = {
+    courseCategories: config.courseCategories ? dedupeByToken(config.courseCategories) : runtimeTaxonomyConfig.courseCategories,
+    skillTags: config.skillTags ? dedupeByToken(config.skillTags) : runtimeTaxonomyConfig.skillTags,
+    topicTags: config.topicTags ? dedupeByToken(config.topicTags) : runtimeTaxonomyConfig.topicTags,
+  };
+};
+
 const buildCanonicalLookup = <T extends readonly string[]>(values: T) => {
   return values.reduce<Record<string, T[number]>>((lookup, value) => {
     lookup[normalizeToken(value)] = value;
@@ -87,9 +138,9 @@ const buildCanonicalLookup = <T extends readonly string[]>(values: T) => {
   }, {});
 };
 
-const CATEGORY_LOOKUP = buildCanonicalLookup(TAXONOMY_COURSE_CATEGORIES);
-const SKILL_LOOKUP = buildCanonicalLookup(TAXONOMY_SKILL_TAGS);
-const TOPIC_LOOKUP = buildCanonicalLookup(TAXONOMY_TOPIC_TAGS);
+const getCategoryLookup = () => buildCanonicalLookup(runtimeTaxonomyConfig.courseCategories);
+const getSkillLookup = () => buildCanonicalLookup(runtimeTaxonomyConfig.skillTags);
+const getTopicLookup = () => buildCanonicalLookup(runtimeTaxonomyConfig.topicTags);
 
 const CATEGORY_ALIASES: Record<string, TaxonomyCourseCategory> = {
   "soft skills": "Employability Skills",
@@ -148,7 +199,7 @@ const TOPIC_ALIASES: Record<string, TaxonomyTopicTag> = {
   "graphic design": "Creative Design",
 };
 
-const CATEGORY_SKILL_MAP: Record<TaxonomyCourseCategory, readonly TaxonomySkillTag[]> = {
+const CATEGORY_SKILL_MAP: Record<string, readonly string[]> = {
   "Digital Skills": ["Computer Basics", "Digital Literacy", "Internet Navigation", "Microsoft Office", "Email Etiquette", "Online Collaboration"],
   "Technical Skills": ["HTML", "CSS", "JavaScript", "Web Development", "Mobile Development", "React Native", "API Integration", "Construction Safety"],
   "Employability Skills": ["Communication", "Customer Service", "Problem Solving", "Professional Communication", "Resume Writing", "Interview Skills", "Work Ethics"],
@@ -161,7 +212,7 @@ const CATEGORY_SKILL_MAP: Record<TaxonomyCourseCategory, readonly TaxonomySkillT
   Others: [...TAXONOMY_SKILL_TAGS],
 };
 
-const CATEGORY_TOPIC_MAP: Record<TaxonomyCourseCategory, readonly TaxonomyTopicTag[]> = {
+const CATEGORY_TOPIC_MAP: Record<string, readonly string[]> = {
   "Digital Skills": ["Digital Literacy", "Office Productivity", "Data Management"],
   "Technical Skills": ["Web Development", "Mobile Development", "Construction Safety"],
   "Employability Skills": ["Career Readiness", "Professional Communication", "Customer Relations"],
@@ -174,7 +225,7 @@ const CATEGORY_TOPIC_MAP: Record<TaxonomyCourseCategory, readonly TaxonomyTopicT
   Others: [...TAXONOMY_TOPIC_TAGS],
 };
 
-const SKILL_TO_TOPICS: Partial<Record<TaxonomySkillTag, readonly TaxonomyTopicTag[]>> = {
+const SKILL_TO_TOPICS: Partial<Record<string, readonly string[]>> = {
   "Computer Basics": ["Digital Literacy"],
   "Digital Literacy": ["Digital Literacy"],
   "Internet Navigation": ["Digital Literacy"],
@@ -207,7 +258,7 @@ const SKILL_TO_TOPICS: Partial<Record<TaxonomySkillTag, readonly TaxonomyTopicTa
   "Construction Safety": ["Construction Safety"],
 };
 
-const dedupe = <T extends string>(values: T[]) => Array.from(new Set(values));
+const dedupe = <T extends string>(values: T[]) => dedupeByToken(values);
 
 const canonicalizeWithLookup = <T extends string>(
   value: string | null | undefined,
@@ -220,7 +271,7 @@ const canonicalizeWithLookup = <T extends string>(
 };
 
 export const canonicalizeCourseCategory = (value: string | null | undefined): TaxonomyCourseCategory | null => {
-  const direct = canonicalizeWithLookup(value, CATEGORY_LOOKUP, CATEGORY_ALIASES);
+  const direct = canonicalizeWithLookup(value, getCategoryLookup(), CATEGORY_ALIASES);
   if (direct) return direct;
 
   const normalized = normalizeToken(value || "");
@@ -235,14 +286,14 @@ export const canonicalizeCourseCategory = (value: string | null | undefined): Ta
   if (normalized.includes("construction") || normalized.includes("safety")) return "Construction & Trades";
   if (normalized.includes("creative") || normalized.includes("design")) return "Creative & Design";
   if (normalized === "other" || normalized === "others") return "Others";
-  return null;
+  return normalizeDisplayValue(value) || null;
 };
 
 export const canonicalizeSkillTag = (value: string | null | undefined): TaxonomySkillTag | null =>
-  canonicalizeWithLookup(value, SKILL_LOOKUP, SKILL_ALIASES);
+  canonicalizeWithLookup(value, getSkillLookup(), SKILL_ALIASES) || normalizeDisplayValue(value) || null;
 
 export const canonicalizeTopicTag = (value: string | null | undefined): TaxonomyTopicTag | null =>
-  canonicalizeWithLookup(value, TOPIC_LOOKUP, TOPIC_ALIASES);
+  canonicalizeWithLookup(value, getTopicLookup(), TOPIC_ALIASES) || normalizeDisplayValue(value) || null;
 
 export const normalizeSkillTags = (values?: readonly string[] | null): TaxonomySkillTag[] =>
   dedupe((values || []).map((value) => canonicalizeSkillTag(value)).filter(Boolean) as TaxonomySkillTag[]);
@@ -255,12 +306,20 @@ export const normalizeCourseCategories = (values?: readonly string[] | null): Ta
 
 export const getAllowedSkillTagsForCategory = (category?: string | null): TaxonomySkillTag[] => {
   const canonicalCategory = canonicalizeCourseCategory(category);
-  return canonicalCategory ? [...CATEGORY_SKILL_MAP[canonicalCategory]] : [...TAXONOMY_SKILL_TAGS];
+  if (canonicalCategory && CATEGORY_SKILL_MAP[canonicalCategory]) {
+    return dedupe([...CATEGORY_SKILL_MAP[canonicalCategory]]);
+  }
+
+  return [...runtimeTaxonomyConfig.skillTags];
 };
 
 export const getAllowedTopicTagsForCategory = (category?: string | null): TaxonomyTopicTag[] => {
   const canonicalCategory = canonicalizeCourseCategory(category);
-  return canonicalCategory ? [...CATEGORY_TOPIC_MAP[canonicalCategory]] : [...TAXONOMY_TOPIC_TAGS];
+  if (canonicalCategory && CATEGORY_TOPIC_MAP[canonicalCategory]) {
+    return dedupe([...CATEGORY_TOPIC_MAP[canonicalCategory]]);
+  }
+
+  return [...runtimeTaxonomyConfig.topicTags];
 };
 
 export const deriveTopicTags = (category?: string | null, skillTags?: readonly string[] | null, explicitTopicTags?: readonly string[] | null): TaxonomyTopicTag[] => {

@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -52,8 +53,6 @@ import { DerivedAssessmentSummary } from "./DerivedAssessmentSummary";
 import { ModulePreview } from "./ModulePreview";
 import { TaxonomyTagField } from "./TaxonomyTagField";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
 import { createDefaultContentBlock, getQuizAssessmentSummary, parseModuleContentBlocks } from "@/lib/contentBlocks";
 import { getAllowedSkillTagsForCategory, getAllowedTopicTagsForCategory } from "@/lib/taxonomy";
 
@@ -195,6 +194,11 @@ export const ModuleManagementDialog = ({
   course,
   onSuccess,
 }: ModuleManagementDialogProps) => {
+  const DEFAULT_ASSESSMENT_CONFIG = {
+    passingScore: 70,
+    maxAttempts: 3,
+    allowRetryAfterPassing: false,
+  };
   const [modules, setModules] = useState<Module[]>([]);
   const [loading, setLoading] = useState(false);
   const [editingModule, setEditingModule] = useState<Module | null>(null);
@@ -214,21 +218,10 @@ export const ModuleManagementDialog = ({
   const [newMaterial, setNewMaterial] = useState("");
   const [loadingModules, setLoadingModules] = useState(false);
   const [previewMode, setPreviewMode] = useState(false);
-  const [activeTab, setActiveTab] = useState<"edit" | "preview" | "assessment">("edit");
+  const [activeTab, setActiveTab] = useState<"edit" | "preview">("edit");
   
-  // Assessment management state
   const [currentAssessment, setCurrentAssessment] = useState<Assessment | null>(null);
-  const [loadingAssessment, setLoadingAssessment] = useState(false);
-  const [assessmentFormData, setAssessmentFormData] = useState({
-    title: "",
-    description: "",
-    timeLimit: undefined as number | undefined,
-    passingScore: 70,
-    maxAttempts: 3,
-    isActive: true,
-    skillTags: [] as string[],
-    topicTags: [] as string[],
-  });
+  const [assessmentConfig, setAssessmentConfig] = useState(DEFAULT_ASSESSMENT_CONFIG);
   const allowedSkillOptions = getAllowedSkillTagsForCategory(course.category);
   const allowedTopicOptions = getAllowedTopicTagsForCategory(course.category);
   const derivedAssessmentSummary = useMemo(() => getQuizAssessmentSummary(contentBlocks), [contentBlocks]);
@@ -284,16 +277,7 @@ export const ModuleManagementDialog = ({
     setUseContentBlocks(false);
     setActiveTab("edit");
     setCurrentAssessment(null);
-    setAssessmentFormData({
-      title: "",
-      description: "",
-      timeLimit: undefined,
-      passingScore: 70,
-      maxAttempts: 3,
-      isActive: true,
-      skillTags: [],
-      topicTags: [],
-    });
+    setAssessmentConfig(DEFAULT_ASSESSMENT_CONFIG);
   };
 
   const handleCreateModule = () => {
@@ -332,29 +316,18 @@ export const ModuleManagementDialog = ({
   };
 
   const loadModuleAssessment = async (moduleId: string) => {
-    setLoadingAssessment(true);
     try {
       const assessment = await assessmentService.getAssessmentByModule(moduleId);
-      if (assessment) {
-        setCurrentAssessment(assessment);
-        setAssessmentFormData({
-          title: assessment.title,
-          description: assessment.description || "",
-          timeLimit: assessment.timeLimit,
-          passingScore: assessment.passingScore,
-          maxAttempts: assessment.maxAttempts,
-          isActive: assessment.isActive,
-          skillTags: assessment.skillTags || [],
-          topicTags: assessment.topicTags || [],
-        });
-      } else {
-        setCurrentAssessment(null);
-      }
+      setCurrentAssessment(assessment);
+      setAssessmentConfig({
+        passingScore: assessment?.passingScore ?? DEFAULT_ASSESSMENT_CONFIG.passingScore,
+        maxAttempts: assessment?.maxAttempts ?? DEFAULT_ASSESSMENT_CONFIG.maxAttempts,
+        allowRetryAfterPassing: assessment?.allowRetryAfterPassing ?? DEFAULT_ASSESSMENT_CONFIG.allowRetryAfterPassing,
+      });
     } catch (error) {
       console.error("Error loading assessment:", error);
       // Don't show error if no assessment exists
-    } finally {
-      setLoadingAssessment(false);
+      setAssessmentConfig(DEFAULT_ASSESSMENT_CONFIG);
     }
   };
 
@@ -414,21 +387,27 @@ export const ModuleManagementDialog = ({
           skillTags: formData.skillTags,
           topicTags: formData.topicTags,
         });
-        if (derivedAssessmentSummary.readyForAssessment) {
+        if (derivedAssessmentSummary.readyForAssessment || derivedAssessmentSummary.gradableQuizBlockCount === 0) {
           try {
             await assessmentService.syncDerivedAssessmentFromQuizBlocks(
               editingModule.id,
               formData.title,
               contentBlocks,
               {
-                ...assessmentFormData,
-                skillTags: assessmentFormData.skillTags.length > 0 ? assessmentFormData.skillTags : formData.skillTags,
-                topicTags: assessmentFormData.topicTags.length > 0 ? assessmentFormData.topicTags : formData.topicTags,
+                title: currentAssessment?.title,
+                description: currentAssessment?.description,
+                timeLimit: currentAssessment?.timeLimit,
+                passingScore: assessmentConfig.passingScore,
+                maxAttempts: assessmentConfig.maxAttempts,
+                allowRetryAfterPassing: assessmentConfig.allowRetryAfterPassing,
+                isActive: currentAssessment?.isActive,
+                skillTags: formData.skillTags,
+                topicTags: formData.topicTags,
               },
             );
           } catch (error) {
             console.error("Assessment sync failed after module update:", error);
-            assessmentSyncWarning = "Module updated, but the derived assessment could not be synced. Open the module assessment tab to retry.";
+            assessmentSyncWarning = "Module updated, but the quiz-derived assessment could not be synced. Review the quiz blocks and save again.";
           }
         }
         toast.success("Module updated successfully");
@@ -444,21 +423,27 @@ export const ModuleManagementDialog = ({
           topicTags: formData.topicTags,
           order: nextModuleOrder,
         });
-        if (derivedAssessmentSummary.readyForAssessment) {
+        if (derivedAssessmentSummary.readyForAssessment || derivedAssessmentSummary.gradableQuizBlockCount === 0) {
           try {
             await assessmentService.syncDerivedAssessmentFromQuizBlocks(
               createdModule.id,
               formData.title,
               contentBlocks,
               {
-                ...assessmentFormData,
-                skillTags: assessmentFormData.skillTags.length > 0 ? assessmentFormData.skillTags : formData.skillTags,
-                topicTags: assessmentFormData.topicTags.length > 0 ? assessmentFormData.topicTags : formData.topicTags,
+                title: currentAssessment?.title,
+                description: currentAssessment?.description,
+                timeLimit: currentAssessment?.timeLimit,
+                passingScore: assessmentConfig.passingScore,
+                maxAttempts: assessmentConfig.maxAttempts,
+                allowRetryAfterPassing: assessmentConfig.allowRetryAfterPassing,
+                isActive: currentAssessment?.isActive,
+                skillTags: formData.skillTags,
+                topicTags: formData.topicTags,
               },
             );
           } catch (error) {
             console.error("Assessment sync failed after module creation:", error);
-            assessmentSyncWarning = "Module created, but the derived assessment could not be synced yet. Open the module assessment tab to retry.";
+            assessmentSyncWarning = "Module created, but the quiz-derived assessment could not be synced yet. Review the quiz blocks and save again.";
           }
         }
         toast.success("Module created successfully");
@@ -579,67 +564,6 @@ export const ModuleManagementDialog = ({
     }
   };
 
-  // Assessment management functions
-  const handleSaveAssessment = async () => {
-    if (!editingModule) return;
-    if (!assessmentFormData.title.trim()) {
-      toast.error("Please enter an assessment title");
-      return;
-    }
-    if (assessmentFormData.topicTags.length === 0) {
-      toast.error("Please assign at least one approved topic tag to the assessment");
-      return;
-    }
-    if (!derivedAssessmentSummary.readyForAssessment) {
-      toast.error(derivedAssessmentSummary.invalidIssues[0]?.message || "Add at least one valid quiz block before saving assessment settings.");
-      return;
-    }
-
-    setLoading(true);
-    try {
-      const syncedAssessment = await assessmentService.syncDerivedAssessmentFromQuizBlocks(
-        editingModule.id,
-        formData.title || editingModule.title,
-        contentBlocks,
-        assessmentFormData,
-      );
-      setCurrentAssessment(syncedAssessment);
-      toast.success(currentAssessment ? "Assessment updated successfully" : "Assessment created successfully");
-      await loadModuleAssessment(editingModule.id);
-    } catch (error) {
-      console.error("Error saving assessment:", error);
-      toast.error("Failed to save assessment");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleDeleteAssessment = async () => {
-    if (!currentAssessment) return;
-
-    setLoading(true);
-    try {
-      await assessmentService.deleteAssessment(currentAssessment.id);
-      toast.success("Assessment deleted successfully");
-      setCurrentAssessment(null);
-      setAssessmentFormData({
-        title: "",
-        description: "",
-        timeLimit: undefined,
-        passingScore: 70,
-        maxAttempts: 3,
-        isActive: true,
-        skillTags: [],
-        topicTags: [],
-      });
-    } catch (error) {
-      console.error("Error deleting assessment:", error);
-      toast.error("Failed to delete assessment");
-    } finally {
-      setLoading(false);
-    }
-  };
-
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
@@ -724,8 +648,8 @@ export const ModuleManagementDialog = ({
               </div>
 
               <ScrollArea className="flex-1">
-                <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "edit" | "preview" | "assessment")}>
-                  <TabsList className={cn("grid w-full mb-4", editingModule ? "grid-cols-3" : "grid-cols-2")}>
+                <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as "edit" | "preview")}>
+                  <TabsList className="grid w-full mb-4 grid-cols-2">
                     <TabsTrigger value="edit">
                       <FileText className="w-4 h-4 mr-2" />
                       Edit
@@ -734,12 +658,6 @@ export const ModuleManagementDialog = ({
                       <Eye className="w-4 h-4 mr-2" />
                       Preview
                     </TabsTrigger>
-                    {editingModule && (
-                      <TabsTrigger value="assessment">
-                        <FileQuestion className="w-4 h-4 mr-2" />
-                        Assessment
-                      </TabsTrigger>
-                    )}
                   </TabsList>
 
                   <TabsContent value="edit" className="space-y-4 pr-4 mt-0">
@@ -771,6 +689,7 @@ export const ModuleManagementDialog = ({
                       onChange={(skillTags) => setFormData({ ...formData, skillTags })}
                       placeholder="Select approved skill tags"
                       description="Use only approved skill tags so module analytics stay consistent across courses."
+                      termType="skill_tag"
                     />
 
                     <TaxonomyTagField
@@ -780,6 +699,7 @@ export const ModuleManagementDialog = ({
                       onChange={(topicTags) => setFormData({ ...formData, topicTags })}
                       placeholder="Select approved topic tags"
                       description="Topic-level learner performance depends on these tags, not on free-text titles."
+                      termType="topic_tag"
                     />
 
                     {/* Content Mode Toggle */}
@@ -875,6 +795,76 @@ export const ModuleManagementDialog = ({
                               <p>No content blocks yet. Add one above to get started.</p>
                             </div>
                           )}
+
+                          <DerivedAssessmentSummary
+                            contentBlocks={contentBlocks}
+                            emptyMessage="Add graded quiz blocks here to generate the module assessment automatically."
+                          />
+
+                          <Card>
+                            <CardHeader>
+                              <CardTitle className="text-base">Assessment Configuration</CardTitle>
+                            </CardHeader>
+                            <CardContent className="space-y-4">
+                              <p className="text-sm text-muted-foreground">
+                                Trainers and admins can control the passing threshold, how many attempts trainees get, and whether a passed trainee may retry.
+                              </p>
+                              <div className="grid gap-4 md:grid-cols-2">
+                                <div className="space-y-2">
+                                  <Label htmlFor="dialog-assessment-passing-score">Passing Score (%)</Label>
+                                  <Input
+                                    id="dialog-assessment-passing-score"
+                                    type="number"
+                                    min={1}
+                                    max={100}
+                                    value={assessmentConfig.passingScore}
+                                    onChange={(event) => {
+                                      const nextValue = Number.parseInt(event.target.value, 10);
+                                      setAssessmentConfig((current) => ({
+                                        ...current,
+                                        passingScore: Number.isFinite(nextValue) ? Math.min(100, Math.max(1, nextValue)) : DEFAULT_ASSESSMENT_CONFIG.passingScore,
+                                      }));
+                                    }}
+                                  />
+                                </div>
+                                <div className="space-y-2">
+                                  <Label htmlFor="dialog-assessment-max-attempts">Allowed Attempts</Label>
+                                  <Input
+                                    id="dialog-assessment-max-attempts"
+                                    type="number"
+                                    min={1}
+                                    max={20}
+                                    value={assessmentConfig.maxAttempts}
+                                    onChange={(event) => {
+                                      const nextValue = Number.parseInt(event.target.value, 10);
+                                      setAssessmentConfig((current) => ({
+                                        ...current,
+                                        maxAttempts: Number.isFinite(nextValue) ? Math.min(20, Math.max(1, nextValue)) : DEFAULT_ASSESSMENT_CONFIG.maxAttempts,
+                                      }));
+                                    }}
+                                  />
+                                </div>
+                              </div>
+                              <div className="flex items-start gap-3 rounded-lg border p-4">
+                                <Checkbox
+                                  id="dialog-assessment-allow-retry-after-pass"
+                                  checked={assessmentConfig.allowRetryAfterPassing}
+                                  onCheckedChange={(checked) => {
+                                    setAssessmentConfig((current) => ({
+                                      ...current,
+                                      allowRetryAfterPassing: checked === true,
+                                    }));
+                                  }}
+                                />
+                                <div className="space-y-1">
+                                  <Label htmlFor="dialog-assessment-allow-retry-after-pass">Allow retry after passing</Label>
+                                  <p className="text-sm text-muted-foreground">
+                                    If enabled, trainees can keep retrying after a pass until they use all allowed attempts.
+                                  </p>
+                                </div>
+                              </div>
+                            </CardContent>
+                          </Card>
                         </div>
                       ) : (
                         <RichTextEditor
@@ -967,148 +957,6 @@ export const ModuleManagementDialog = ({
                     />
                   </TabsContent>
 
-                  {editingModule && (
-                    <TabsContent value="assessment" className="pr-4 mt-0 space-y-4">
-                      {/* Assessment Settings */}
-                      <Card>
-                        <CardHeader>
-                          <div className="flex items-center justify-between">
-                            <CardTitle className="text-lg">Assessment Settings</CardTitle>
-                            {currentAssessment && (
-                              <Button
-                                variant="destructive"
-                                size="sm"
-                                onClick={handleDeleteAssessment}
-                                disabled={loading}
-                              >
-                                <Trash2 className="w-4 h-4 mr-2" />
-                                Delete Assessment
-                              </Button>
-                            )}
-                          </div>
-                        </CardHeader>
-                        <CardContent className="space-y-4">
-                          <DerivedAssessmentSummary contentBlocks={contentBlocks} />
-
-                          <div className="space-y-2">
-                            <Label htmlFor="assessment-title">Assessment Title *</Label>
-                            <Input
-                              id="assessment-title"
-                              value={assessmentFormData.title}
-                              onChange={(e) =>
-                                setAssessmentFormData({ ...assessmentFormData, title: e.target.value })
-                              }
-                              placeholder="e.g., Module 1 Quiz"
-                            />
-                          </div>
-
-                          <div className="space-y-2">
-                            <Label htmlFor="assessment-description">Description</Label>
-                            <Textarea
-                              id="assessment-description"
-                              value={assessmentFormData.description}
-                              onChange={(e) =>
-                                setAssessmentFormData({ ...assessmentFormData, description: e.target.value })
-                              }
-                              placeholder="Assessment description..."
-                              rows={2}
-                            />
-                          </div>
-
-                          <TaxonomyTagField
-                            label="Assessment Skill Tags"
-                            options={allowedSkillOptions}
-                            values={assessmentFormData.skillTags}
-                            onChange={(skillTags) => setAssessmentFormData({ ...assessmentFormData, skillTags })}
-                            placeholder="Select approved skill tags"
-                            description="Keep assessment skill tags aligned with the approved course taxonomy."
-                          />
-
-                          <TaxonomyTagField
-                            label="Assessment Topic Tags"
-                            options={allowedTopicOptions}
-                            values={assessmentFormData.topicTags}
-                            onChange={(topicTags) => setAssessmentFormData({ ...assessmentFormData, topicTags })}
-                            placeholder="Select approved topic tags"
-                            description="Assessment topic tags are required for stable topic-performance analytics."
-                          />
-
-                          <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-2">
-                              <Label htmlFor="time-limit">Time Limit (minutes)</Label>
-                              <Input
-                                id="time-limit"
-                                type="number"
-                                min="0"
-                                value={assessmentFormData.timeLimit || ""}
-                                onChange={(e) =>
-                                  setAssessmentFormData({
-                                    ...assessmentFormData,
-                                    timeLimit: e.target.value ? parseInt(e.target.value) : undefined,
-                                  })
-                                }
-                                placeholder="No limit"
-                              />
-                            </div>
-
-                            <div className="space-y-2">
-                              <Label htmlFor="passing-score">Passing Score (%)</Label>
-                              <Input
-                                id="passing-score"
-                                type="number"
-                                min="0"
-                                max="100"
-                                value={assessmentFormData.passingScore}
-                                onChange={(e) =>
-                                  setAssessmentFormData({
-                                    ...assessmentFormData,
-                                    passingScore: parseInt(e.target.value) || 70,
-                                  })
-                                }
-                              />
-                            </div>
-                          </div>
-
-                          <div className="space-y-2">
-                            <Label htmlFor="max-attempts">Max Attempts</Label>
-                            <Input
-                              id="max-attempts"
-                              type="number"
-                              min="1"
-                              value={assessmentFormData.maxAttempts}
-                              onChange={(e) =>
-                                setAssessmentFormData({
-                                  ...assessmentFormData,
-                                  maxAttempts: parseInt(e.target.value) || 3,
-                                })
-                              }
-                            />
-                          </div>
-
-                          <div className="flex items-center space-x-2">
-                            <Switch
-                              id="is-active"
-                              checked={assessmentFormData.isActive}
-                              onCheckedChange={(checked) =>
-                                setAssessmentFormData({ ...assessmentFormData, isActive: checked })
-                              }
-                            />
-                            <Label htmlFor="is-active" className="cursor-pointer">
-                              Active (visible to students)
-                            </Label>
-                          </div>
-
-                          <Button onClick={handleSaveAssessment} disabled={loading} className="w-full">
-                            {currentAssessment ? "Update Assessment" : "Create Assessment"}
-                          </Button>
-
-                          <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-                            Quiz blocks in the Edit tab are now the source of assessment questions. This panel only stores assessment metadata such as passing score, time limit, attempts, active state, and taxonomy tags.
-                          </div>
-                        </CardContent>
-                      </Card>
-                    </TabsContent>
-                  )}
                 </Tabs>
               </ScrollArea>
             </div>

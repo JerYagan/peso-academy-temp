@@ -2,7 +2,7 @@ import { ReactNode } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
-import { GraduationCap, LogOut, User, BookOpen, Settings, BarChart3, Users, FileText, FileSpreadsheet, Award, TrendingUp, ClipboardList } from "lucide-react";
+import { GraduationCap, LogOut, User, BookOpen, Settings, BarChart3, Users, FileText, FileSpreadsheet, Award, TrendingUp, ClipboardList, Tags } from "lucide-react";
 import { useTheme } from "next-themes";
 import NotificationCenter from "./NotificationCenter";
 import {
@@ -46,6 +46,7 @@ const DashboardLayout = ({ children }: DashboardLayoutProps) => {
         return [
           { path: "/admin/dashboard", label: "Admin Dashboard", icon: BarChart3 },
           { path: "/admin/users", label: "Users", icon: Users },
+          { path: "/admin/taxonomy", label: "Taxonomy", icon: Tags },
           { path: "/admin/enrollments", label: "Enrollments", icon: ClipboardList },
           { path: "/admin/reports", label: "Reports", icon: FileSpreadsheet },
           // { path: "/admin/jobs", label: "Jobs", icon: Briefcase }, // Hidden - Future Phase
@@ -59,6 +60,7 @@ const DashboardLayout = ({ children }: DashboardLayoutProps) => {
             icon: BarChart3,
           },
           { path: "/trainer/courses", label: "My Courses", icon: BookOpen },
+          { path: "/trainer/taxonomy", label: "Taxonomy", icon: Tags },
           { path: "/trainer/learners", label: "Learners", icon: Users },
           { path: "/profile", label: "Profile", icon: User },
         ];
