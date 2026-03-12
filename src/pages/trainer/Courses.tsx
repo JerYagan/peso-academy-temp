@@ -100,7 +100,8 @@ const TrainerCourses = () => {
       void refreshProgramsAndCourses();
     } catch (error) {
       console.error("Error deleting course:", error);
-      toast.error("Failed to delete course");
+      const message = error instanceof Error ? error.message : "Failed to delete course";
+      toast.error(message);
     }
   };
 

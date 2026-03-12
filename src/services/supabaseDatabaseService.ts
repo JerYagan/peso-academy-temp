@@ -297,6 +297,35 @@ const resolveCurrentProfileId = async (): Promise<string | null> => {
   }
 };
 
+const isMissingRpcDefinitionError = (error: { code?: string; message?: string } | null | undefined): boolean => {
+  if (!error) {
+    return false;
+  }
+
+  const message = error.message?.toLowerCase() || "";
+
+  return error.code === "PGRST202"
+    || error.code === "42883"
+    || message.includes("could not find the function")
+    || message.includes("function public.delete_course")
+    || message.includes("undefined function");
+};
+
+const isPermissionPolicyError = (error: { code?: string; message?: string } | null | undefined): boolean => {
+  if (!error) {
+    return false;
+  }
+
+  const message = error.message?.toLowerCase() || "";
+
+  return error.code === "42501"
+    || message.includes("row-level security")
+    || message.includes("permission")
+    || message.includes("policy")
+    || message.includes("forbidden")
+    || message.includes("unauthorized");
+};
+
 const loadProgramsById = async (programIds: string[]): Promise<Map<string, Program>> => {
   if (!supabase || programIds.length === 0) {
     return new Map();
@@ -891,11 +920,30 @@ export const courseService = {
    * Delete a course
    */
   deleteCourse: async (id: string): Promise<void> => {
-    const { error } = await supabase.from("courses").delete().eq("id", id);
+    if (!supabase) {
+      throw new Error("Supabase not initialized");
+    }
 
-    if (error) {
-      handleSupabaseError(error);
-      throw error;
+    const { error: rpcError } = await supabase.rpc("delete_course", {
+      p_course_id: id,
+    });
+
+    if (rpcError && !isMissingRpcDefinitionError(rpcError)) {
+      handleSupabaseError(rpcError);
+      throw rpcError;
+    }
+
+    if (rpcError) {
+      const { error } = await supabase.from("courses").delete().eq("id", id);
+
+      if (error) {
+        if (isPermissionPolicyError(error)) {
+          throw new Error("Course deletion is blocked by Supabase policies. Apply supabase/manual_fixes/055_add_delete_course_rpc.sql in the Supabase SQL Editor, then try again.");
+        }
+
+        handleSupabaseError(error);
+        throw error;
+      }
     }
 
     invalidateCourseCaches(id);
