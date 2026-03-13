@@ -23,7 +23,6 @@ Based on the requirements extracted from `PESO ACADEMY USER DASHBOARDS-1.pdf`, t
   - Topic-level performance and content recommendations will stay inconsistent until the taxonomy is standardized.
 
 ## Phase 1: Event Capture and Schema Support
-
 - [x] Add analytics and recommendation schema support tables such as `analytics_events`, `analytics_user_daily`, `analytics_recommendation_daily`, `learner_recommendations`, `module_quality_signals`, and `course_risk_scores`
   - Add raw analytics event storage for learner activity, recommendation delivery, and downstream conversion.
   - Add daily rollup tables for user, course, module, recommendation, and admin analytics.

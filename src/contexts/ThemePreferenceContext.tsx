@@ -3,6 +3,8 @@ import { useTheme } from "next-themes";
 import { useAuth } from "@/contexts/AuthContext";
 import type { AppThemePreference } from "@/types/auth";
 
+const THEME_PREFERENCE_STORAGE_KEY = "peso-theme-preference";
+
 type ThemePreferenceContextValue = {
   themePreference: AppThemePreference;
   resolvedTheme: "light" | "dark" | undefined;
@@ -16,39 +18,82 @@ const isSupportedThemePreference = (value: unknown): value is AppThemePreference
   return value === "system" || value === "light" || value === "dark";
 };
 
+const getStoredThemePreference = (): AppThemePreference | null => {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const storedValue = window.localStorage.getItem(THEME_PREFERENCE_STORAGE_KEY);
+  return isSupportedThemePreference(storedValue) ? storedValue : null;
+};
+
+const storeThemePreference = (themePreference: AppThemePreference) => {
+  if (typeof window !== "undefined") {
+    window.localStorage.setItem(THEME_PREFERENCE_STORAGE_KEY, themePreference);
+  }
+};
+
 export function ThemePreferenceProvider({ children }: { children: ReactNode }) {
   const { user, updateUser } = useAuth();
   const { theme, resolvedTheme, setTheme } = useTheme();
+  const [themePreference, setThemePreferenceState] = useState<AppThemePreference>(() => {
+    const storedThemePreference = getStoredThemePreference();
+    return storedThemePreference || (isSupportedThemePreference(theme) ? theme : "system");
+  });
   const [isPersisting, setIsPersisting] = useState(false);
   const lastResolvedUserIdRef = useRef<string | null>(null);
-  const lastResolvedUserThemeRef = useRef<AppThemePreference | null>(null);
+  const pendingThemePreferenceRef = useRef<AppThemePreference | null>(null);
 
   useEffect(() => {
     const nextUserId = user?.id ?? null;
     const nextUserTheme = isSupportedThemePreference(user?.themePreference) ? user.themePreference : null;
     const userChanged = nextUserId !== lastResolvedUserIdRef.current;
-    const userThemeChanged = nextUserTheme !== lastResolvedUserThemeRef.current;
 
-    if (!userChanged && !userThemeChanged) {
+    if (userChanged) {
+      lastResolvedUserIdRef.current = nextUserId;
+      pendingThemePreferenceRef.current = null;
+
+      const nextThemePreference = nextUserTheme || getStoredThemePreference() || (isSupportedThemePreference(theme) ? theme : "system");
+      setThemePreferenceState(nextThemePreference);
       return;
     }
 
-    lastResolvedUserIdRef.current = nextUserId;
-    lastResolvedUserThemeRef.current = nextUserTheme;
-
-    if (nextUserTheme && nextUserTheme !== theme) {
-      setTheme(nextUserTheme);
+    if (!nextUserTheme) {
+      return;
     }
-  }, [setTheme, theme, user?.id, user?.themePreference]);
+
+    if (pendingThemePreferenceRef.current && nextUserTheme !== pendingThemePreferenceRef.current) {
+      return;
+    }
+
+    if (pendingThemePreferenceRef.current === nextUserTheme) {
+      pendingThemePreferenceRef.current = null;
+    }
+
+    if (nextUserTheme !== themePreference) {
+      setThemePreferenceState(nextUserTheme);
+    }
+  }, [theme, themePreference, user?.id, user?.themePreference]);
+
+  useEffect(() => {
+    storeThemePreference(themePreference);
+
+    if (themePreference !== theme) {
+      setTheme(themePreference);
+    }
+  }, [setTheme, theme, themePreference]);
 
   const setThemePreference = useCallback(async (nextTheme: AppThemePreference) => {
-    if (!isSupportedThemePreference(nextTheme)) {
+    if (!isSupportedThemePreference(nextTheme) || nextTheme === themePreference) {
       return;
     }
 
-    setTheme(nextTheme);
+    pendingThemePreferenceRef.current = user ? nextTheme : null;
+    setThemePreferenceState(nextTheme);
+    storeThemePreference(nextTheme);
 
     if (!user || user.themePreference === nextTheme) {
+      pendingThemePreferenceRef.current = null;
       return;
     }
 
@@ -58,16 +103,19 @@ export function ThemePreferenceProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       console.warn("Failed to persist theme preference:", error);
     } finally {
+      if (user.themePreference === nextTheme) {
+        pendingThemePreferenceRef.current = null;
+      }
       setIsPersisting(false);
     }
-  }, [setTheme, updateUser, user]);
+  }, [themePreference, updateUser, user]);
 
   const value = useMemo<ThemePreferenceContextValue>(() => ({
-    themePreference: isSupportedThemePreference(theme) ? theme : "system",
+    themePreference,
     resolvedTheme: resolvedTheme === "light" || resolvedTheme === "dark" ? resolvedTheme : undefined,
     setThemePreference,
     isPersisting,
-  }), [isPersisting, resolvedTheme, setThemePreference, theme]);
+  }), [isPersisting, resolvedTheme, setThemePreference, themePreference]);
 
   return <ThemePreferenceContext.Provider value={value}>{children}</ThemePreferenceContext.Provider>;
 }

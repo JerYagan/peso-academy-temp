@@ -20,7 +20,6 @@ import {
   Clock3,
   GraduationCap,
   Loader2,
-  Lock,
   Mail,
   MapPin,
   PencilLine,
@@ -33,8 +32,6 @@ import {
   User,
 } from "lucide-react";
 import { enrollmentService, certificateService } from "@/services/supabaseDatabaseService";
-import { supabaseAuthService } from "@/services/supabaseAuthService";
-import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
 import { Certificate, Enrollment } from "@/types";
 import { User as AuthUser } from "@/types/auth";
@@ -205,12 +202,6 @@ const Profile = () => {
     onboardingSkillLevel: "" as AuthUser["onboardingSkillLevel"] | "",
     skillsInput: "",
   });
-  const [passwordForm, setPasswordForm] = useState({
-    currentPassword: "",
-    newPassword: "",
-    confirmPassword: "",
-  });
-  const [changingPassword, setChangingPassword] = useState(false);
   const copy = language === "tl"
     ? {
         recommendationProfile: "Recommendation profile",
@@ -538,53 +529,6 @@ const Profile = () => {
     }
   };
 
-  const handleChangePassword = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!user?.email) return;
-
-    const { currentPassword, newPassword, confirmPassword } = passwordForm;
-    if (!currentPassword || !newPassword || !confirmPassword) {
-      toast.error("Please fill in all password fields");
-      return;
-    }
-    if (newPassword.length < 6) {
-      toast.error("New password must be at least 6 characters");
-      return;
-    }
-    if (newPassword !== confirmPassword) {
-      toast.error("New password and confirmation do not match");
-      return;
-    }
-
-    setChangingPassword(true);
-    try {
-      if (supabase) {
-        const { error: signInError } = await supabase.auth.signInWithPassword({
-          email: user.email,
-          password: currentPassword,
-        });
-        if (signInError) {
-          toast.error("Current password is incorrect");
-          return;
-        }
-      }
-
-      const { error } = await supabaseAuthService.updatePassword(newPassword);
-      if (error) {
-        toast.error(error.message || "Failed to update password");
-        return;
-      }
-
-      toast.success("Password updated successfully");
-      setPasswordForm({ currentPassword: "", newPassword: "", confirmPassword: "" });
-    } catch (err) {
-      console.error("Change password error:", err);
-      toast.error("Failed to update password");
-    } finally {
-      setChangingPassword(false);
-    }
-  };
-
   if (!user) return null;
 
   const completedEnrollments = enrollments.filter((enrollment) => enrollment.status === "completed").length;
@@ -730,29 +674,31 @@ const Profile = () => {
           )}
         </div>
 
-        {isLearner && (
-          <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
-            <Card className="border-primary/15 bg-card">
-              <CardContent className="space-y-4 p-6">
-                <div>
-                  <p className="text-xs font-medium uppercase tracking-[0.18em] text-primary">Next profile action</p>
-                  <h2 className="mt-3 text-2xl font-semibold tracking-[-0.03em]">{profilePrimaryAction.title}</h2>
-                  <p className="mt-2 max-w-2xl text-sm leading-7 text-muted-foreground">{profilePrimaryAction.description}</p>
-                </div>
+        {isLearner && profileCompletion < 100 ? (
+          <Card className="border-primary/15 bg-card">
+            <CardContent className="flex flex-col gap-5 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6">
+              <div className="max-w-2xl">
+                <p className="text-xs font-medium uppercase tracking-[0.18em] text-primary">Next profile action</p>
+                <h2 className="mt-2 text-xl font-semibold tracking-[-0.03em]">{profilePrimaryAction.title}</h2>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">{profilePrimaryAction.description}</p>
+              </div>
+
+              <div className="flex w-full flex-col gap-4 sm:w-auto sm:min-w-[320px]">
                 <div className="grid gap-3 sm:grid-cols-3">
-                  <div className="rounded-2xl border border-border/60 bg-background/70 p-4">
-                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Profile completion</p>
-                    <p className="mt-2 text-3xl font-semibold">{profileCompletion}%</p>
+                  <div className="rounded-2xl border border-border/60 bg-background/70 p-3.5">
+                    <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Profile</p>
+                    <p className="mt-1.5 text-2xl font-semibold">{profileCompletion}%</p>
                   </div>
-                  <div className="rounded-2xl border border-border/60 bg-background/70 p-4">
-                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Recommendation signals</p>
-                    <p className="mt-2 text-3xl font-semibold">{recommendationSignalCoverage}%</p>
+                  <div className="rounded-2xl border border-border/60 bg-background/70 p-3.5">
+                    <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Signals</p>
+                    <p className="mt-1.5 text-2xl font-semibold">{recommendationSignalCoverage}%</p>
                   </div>
-                  <div className="rounded-2xl border border-border/60 bg-background/70 p-4">
-                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Predictive readiness</p>
-                    <p className="mt-2 text-3xl font-semibold">{predictiveReadiness}%</p>
+                  <div className="rounded-2xl border border-border/60 bg-background/70 p-3.5">
+                    <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Readiness</p>
+                    <p className="mt-1.5 text-2xl font-semibold">{predictiveReadiness}%</p>
                   </div>
                 </div>
+
                 <div className="flex flex-wrap gap-2">
                   {profilePrimaryAction.href.startsWith("#") ? (
                     <Button onClick={() => setIsEditing(true)}>{profilePrimaryAction.label}</Button>
@@ -767,31 +713,10 @@ const Profile = () => {
                     </Link>
                   </Button>
                 </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Profile routing</CardTitle>
-                <CardDescription>Use the profile page for data quality, then switch surfaces for learning or review.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="rounded-2xl border border-border/70 p-4">
-                  <p className="font-medium">Edit here</p>
-                  <p className="mt-2 text-sm leading-6 text-muted-foreground">Identity details, location, interests, categories, skill level, and skills all belong on this page.</p>
-                </div>
-                <div className="rounded-2xl border border-border/70 p-4">
-                  <p className="font-medium">Learn from dashboard</p>
-                  <p className="mt-2 text-sm leading-6 text-muted-foreground">Use the dashboard when you want the fastest route back into a course or recommendation.</p>
-                </div>
-                <div className="rounded-2xl border border-border/70 p-4">
-                  <p className="font-medium">Review from progress</p>
-                  <p className="mt-2 text-sm leading-6 text-muted-foreground">Open the progress page for session history, completion trends, and course-by-course detail.</p>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-        )}
+              </div>
+            </CardContent>
+          </Card>
+        ) : null}
 
         <div className="grid gap-6 xl:grid-cols-[1.45fr_0.85fr]">
           <div className="space-y-6">
@@ -1196,70 +1121,6 @@ const Profile = () => {
               </CardContent>
             </Card>
 
-            <Card className="border-border/70">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2 text-xl">
-                  <ShieldCheck className="h-5 w-5 text-primary" />
-                  {copy.security}
-                </CardTitle>
-                <CardDescription>{copy.securityBody}</CardDescription>
-              </CardHeader>
-              <CardContent>
-                <form onSubmit={handleChangePassword} className="grid gap-4 lg:grid-cols-[1fr_1.35fr_auto] lg:items-end">
-                  <div className="space-y-2">
-                    <Label htmlFor="current-password">{copy.currentPassword}</Label>
-                    <Input
-                      id="current-password"
-                      type="password"
-                      placeholder={copy.currentPasswordPlaceholder}
-                      value={passwordForm.currentPassword}
-                      onChange={(e) => setPasswordForm({ ...passwordForm, currentPassword: e.target.value })}
-                      autoComplete="current-password"
-                    />
-                  </div>
-
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <div className="space-y-2">
-                      <Label htmlFor="new-password">{copy.newPassword}</Label>
-                      <Input
-                        id="new-password"
-                        type="password"
-                        placeholder={copy.newPasswordPlaceholder}
-                        value={passwordForm.newPassword}
-                        onChange={(e) => setPasswordForm({ ...passwordForm, newPassword: e.target.value })}
-                        autoComplete="new-password"
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="confirm-password">{copy.confirmPassword}</Label>
-                      <Input
-                        id="confirm-password"
-                        type="password"
-                        placeholder={copy.confirmPasswordPlaceholder}
-                        value={passwordForm.confirmPassword}
-                        onChange={(e) => setPasswordForm({ ...passwordForm, confirmPassword: e.target.value })}
-                        autoComplete="new-password"
-                      />
-                    </div>
-                  </div>
-
-                  <Button type="submit" className="gap-2" disabled={changingPassword}>
-                    {changingPassword ? (
-                      <>
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        {copy.updating}
-                      </>
-                    ) : (
-                      <>
-                        <Lock className="h-4 w-4" />
-                        {copy.changePassword}
-                      </>
-                    )}
-                  </Button>
-                </form>
-              </CardContent>
-            </Card>
           </div>
 
           <div className="space-y-6">

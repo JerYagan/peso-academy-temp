@@ -376,7 +376,7 @@ const SignUp = () => {
               </div>
 
               {isEmployeeTrainee(formData) ? (
-                <div className="grid gap-4 rounded-2xl border border-amber-200 bg-amber-50/70 p-4 md:grid-cols-2">
+                <div className="grid gap-4 rounded-2xl border border-amber-200 bg-amber-50/70 p-4 md:grid-cols-2 dark:border-amber-900/40 dark:bg-amber-950/20">
                   <div className="space-y-2">
                     <Label htmlFor="employee-id">{t("signup.employeeId")}</Label>
                     <Input
@@ -385,7 +385,7 @@ const SignUp = () => {
                       placeholder={t("signup.employeeIdPlaceholder")}
                       value={formData.employeeId}
                       onChange={(event) => setField("employeeId", event.target.value)}
-                      className="h-12 rounded-xl border-border/80 bg-background px-4"
+                      className="h-12 rounded-xl border-amber-200 bg-white/90 px-4 text-foreground shadow-sm dark:border-amber-800/60 dark:bg-slate-950/70 dark:text-amber-50"
                       required
                     />
                   </div>
@@ -397,26 +397,26 @@ const SignUp = () => {
                       type="file"
                       accept="image/jpeg,image/png,image/webp"
                       onChange={handlePhysicalIdFileChange}
-                      className="h-12 rounded-xl border-border/80 bg-background px-4 file:mr-4 file:border-0 file:bg-transparent file:text-sm file:font-medium"
+                      className="h-12 rounded-xl border-amber-200 bg-white/90 px-4 text-foreground shadow-sm file:mr-4 file:rounded-md file:border-0 file:bg-amber-100 file:px-3 file:py-2 file:text-sm file:font-medium file:text-amber-900 dark:border-amber-800/60 dark:bg-slate-950/70 dark:text-amber-50 dark:file:bg-amber-500/20 dark:file:text-amber-100"
                       required
                     />
-                    <p className="text-sm text-muted-foreground">
+                    <p className="text-sm text-amber-900/75 dark:text-amber-100/80">
                       {t("signup.physicalIdHelp")}
                     </p>
                     {physicalIdFile ? (
-                      <div className="rounded-2xl border border-border/70 bg-background/90 p-4">
+                      <div className="rounded-2xl border border-amber-200/80 bg-white/90 p-4 dark:border-amber-800/50 dark:bg-slate-950/70">
                         <div className="flex flex-col gap-4 md:flex-row md:items-start">
                           {physicalIdPreviewUrl ? (
                             <img
                               src={physicalIdPreviewUrl}
                               alt={t("signup.physicalIdPreview")}
-                              className="h-40 w-full rounded-xl border border-border/60 object-cover md:w-64"
+                              className="h-40 w-full rounded-xl border border-amber-200/80 object-cover md:w-64 dark:border-amber-800/50"
                             />
                           ) : null}
                           <div className="space-y-2 text-sm text-muted-foreground">
                             <p className="font-medium text-foreground">{physicalIdFile.name}</p>
-                            <p>{(physicalIdFile.size / (1024 * 1024)).toFixed(2)} MB</p>
-                            <p>{t("signup.physicalIdStoredForVerification")}</p>
+                            <p className="text-amber-900/75 dark:text-amber-100/80">{(physicalIdFile.size / (1024 * 1024)).toFixed(2)} MB</p>
+                            <p className="text-amber-900/75 dark:text-amber-100/80">{t("signup.physicalIdStoredForVerification")}</p>
                           </div>
                         </div>
                       </div>

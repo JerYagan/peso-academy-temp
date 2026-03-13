@@ -22,14 +22,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -155,6 +147,23 @@ const AdminEnrollments = () => {
     const matchesStatus = statusFilter === "all" || enrollment.status === statusFilter;
     return matchesSearch && matchesCourse && matchesStatus;
   });
+
+  const enrollmentStatusSummary = useMemo(() => {
+    return filteredEnrollments.reduce(
+      (summary, enrollment) => {
+        summary.total += 1;
+        summary[enrollment.status] += 1;
+        return summary;
+      },
+      {
+        total: 0,
+        enrolled: 0,
+        "in-progress": 0,
+        completed: 0,
+        dropped: 0,
+      } as Record<"total" | Enrollment["status"], number>,
+    );
+  }, [filteredEnrollments]);
 
   const moduleLookup = useMemo(() => {
     return new Map(progressDetail?.modules.map((entry) => [entry.module.id, entry.module]) || []);
@@ -460,12 +469,12 @@ const AdminEnrollments = () => {
           </CardContent>
         </Card>
 
-        {/* Enrollments Table */}
+        {/* Enrollments List */}
         <Card>
           <CardHeader>
             <CardTitle>Enrollments ({filteredEnrollments.length})</CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="space-y-4">
             {loading ? (
               <div className="text-center py-8 text-muted-foreground">Loading enrollments...</div>
             ) : filteredEnrollments.length === 0 ? (
@@ -474,79 +483,101 @@ const AdminEnrollments = () => {
                 <p className="text-muted-foreground">No enrollments found</p>
               </div>
             ) : (
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>User</TableHead>
-                    <TableHead>Course</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Progress</TableHead>
-                        <TableHead>Workflow</TableHead>
-                    <TableHead>Last Active</TableHead>
-                    <TableHead>Enrolled</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
+              <>
+                <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                  <div className="rounded-2xl border border-border/70 bg-muted/20 p-4">
+                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Shown</p>
+                    <p className="mt-2 text-2xl font-semibold">{enrollmentStatusSummary.total}</p>
+                  </div>
+                  <div className="rounded-2xl border border-border/70 bg-muted/20 p-4">
+                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Enrolled</p>
+                    <p className="mt-2 text-2xl font-semibold">{enrollmentStatusSummary.enrolled}</p>
+                  </div>
+                  <div className="rounded-2xl border border-border/70 bg-muted/20 p-4">
+                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">In progress</p>
+                    <p className="mt-2 text-2xl font-semibold">{enrollmentStatusSummary["in-progress"]}</p>
+                  </div>
+                  <div className="rounded-2xl border border-border/70 bg-muted/20 p-4">
+                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Completed</p>
+                    <p className="mt-2 text-2xl font-semibold">{enrollmentStatusSummary.completed}</p>
+                  </div>
+                </div>
+
+                <div className="space-y-4">
                   {filteredEnrollments.map((enrollment) => {
                     const lastActive = getLastActiveLabel(enrollment.lastActivityAt || enrollment.enrolledAt);
+
                     return (
-                      <TableRow key={enrollment.id}>
-                        <TableCell>
-                          <div>
-                            <div className="font-medium">{enrollment.userName || "Unknown"}</div>
-                            <div className="text-sm text-muted-foreground">{enrollment.userEmail}</div>
-                          </div>
-                        </TableCell>
-                        <TableCell>{enrollment.courseTitle || "Unknown Course"}</TableCell>
-                        <TableCell>{getStatusBadge(enrollment.status)}</TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-2">
-                            <div className="w-24 bg-muted rounded-full h-2">
-                              <div
-                                className="bg-primary h-2 rounded-full"
-                                style={{ width: `${enrollment.progress}%` }}
-                              />
+                      <div key={enrollment.id} className="grid gap-4 rounded-2xl border border-border/70 bg-card p-4 shadow-sm xl:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_auto]">
+                        <div className="space-y-4">
+                          <div className="space-y-1">
+                            <div className="flex flex-wrap items-start justify-between gap-3">
+                              <div>
+                                <p className="text-lg font-semibold leading-tight">{enrollment.userName || "Unknown"}</p>
+                                <p className="text-sm text-muted-foreground">{enrollment.userEmail || "No email available"}</p>
+                              </div>
+                              {getStatusBadge(enrollment.status)}
                             </div>
-                            <span className="text-sm">{enrollment.progress}%</span>
+                            <p className="text-sm font-medium text-foreground">{enrollment.courseTitle || "Unknown Course"}</p>
                           </div>
-                        </TableCell>
-                        <TableCell>
+
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between text-sm">
+                              <span className="text-muted-foreground">Progress</span>
+                              <span className="font-medium text-foreground">{enrollment.progress}%</span>
+                            </div>
+                            <Progress value={enrollment.progress} />
+                          </div>
+
                           <div className="flex flex-wrap gap-2">
                             {getCompletionBadge(enrollment)}
                             {enrollment.certificateId ? <Badge variant="secondary">Certificate released</Badge> : null}
                           </div>
-                        </TableCell>
-                        <TableCell>
-                          <span className={lastActive.color}>{lastActive.text}</span>
-                        </TableCell>
-                        <TableCell>
-                          {new Date(enrollment.enrolledAt).toLocaleDateString()}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <div className="flex justify-end gap-2">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => void handleViewProgress(enrollment)}
-                            >
-                              <Eye className="w-4 h-4 mr-2" />
-                              View Progress
-                            </Button>
-                            <Button
-                              variant="destructive"
-                              size="sm"
-                              onClick={() => setUnenrollId(enrollment.id)}
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </Button>
+                        </div>
+
+                        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
+                          <div className="rounded-xl border border-border/60 bg-background/50 p-3">
+                            <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Last active</p>
+                            <p className={`mt-2 text-sm ${lastActive.color}`}>{lastActive.text}</p>
                           </div>
-                        </TableCell>
-                      </TableRow>
+                          <div className="rounded-xl border border-border/60 bg-background/50 p-3">
+                            <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Enrolled</p>
+                            <p className="mt-2 text-sm font-medium text-foreground">{new Date(enrollment.enrolledAt).toLocaleDateString()}</p>
+                          </div>
+                          <div className="rounded-xl border border-border/60 bg-background/50 p-3 sm:col-span-2 xl:col-span-1">
+                            <p className="text-xs uppercase tracking-[0.14em] text-muted-foreground">Workflow</p>
+                            <div className="mt-2 flex flex-wrap gap-2">
+                              {getCompletionBadge(enrollment)}
+                              {enrollment.certificateId ? <Badge variant="secondary">Certificate released</Badge> : <Badge variant="outline">Certificate pending</Badge>}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex flex-col gap-2 xl:items-end">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="w-full xl:w-auto"
+                            onClick={() => void handleViewProgress(enrollment)}
+                          >
+                            <Eye className="w-4 h-4 mr-2" />
+                            View Progress
+                          </Button>
+                          <Button
+                            variant="destructive"
+                            size="sm"
+                            className="w-full xl:w-auto"
+                            onClick={() => setUnenrollId(enrollment.id)}
+                          >
+                            <Trash2 className="w-4 h-4 mr-2" />
+                            Unenroll
+                          </Button>
+                        </div>
+                      </div>
                     );
                   })}
-                </TableBody>
-              </Table>
+                </div>
+              </>
             )}
           </CardContent>
         </Card>

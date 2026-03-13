@@ -63,6 +63,62 @@ User credentials:
 - [ ] Change the on boarding assessment from registration to after registration, once they're in the dashboard a modal should pop up to guide them through the onboarding process and also to encourage them to complete their profile and start taking courses. This will help to improve the user experience and also increase the engagement of the users with the platform. The only thing that is in the registration process is the basic information needed for the account creation and the categorization of the users (PESO Client or PESO Employee) and the verification of the PESO Employees. This will help to streamline the registration process and also to ensure that only valid users can access the platform.
 - [ ] Verify if all the texts in the system uses varchar and the phone should limit to 11 digits, standardize using 09 for the phone number format
 
+
+---
+
+## UI Changes
+- [x] Home page: the header logo should use logo_dark.png including the login and register page
+- [x] Change the "Account" link to "Register" label
+- [x] Register page: The Employee ID and Physical ID looks off in dark mode
+
+### All users:
+- [x] Move the security section in the profile to settings page.
+
+### Admin & Trainee
+- [x] Verification page: Verify modal is too large vertically
+- [x] Verification page: Physical ID still fails to load
+- [x] Verification page: Remove Reviewer notes both in modal and in table column
+
+### Admin
+- [x] Improve Enrollment table layout, make sure it doesn't have a horizontal scroll and also make it more organized and visually appealing
+
+### Courses/Modules population
+- [ ] Via browser interaction, populate courses and modules with a variety of content and assessment types to ensure the system can handle different scenarios and to provide a rich dataset for testing and demonstration purposes. This will also help to identify any issues or bugs in the course and module creation process and also to ensure that the courses and modules are properly displayed and accessible to the trainees. Use generic youtube videos, image links, and reference materials for the content blocks, and create a variety of quiz questions (multiple choice, true or false, short answer, essay) to test the different assessment functionalities of the platform.
+- [ ] Make at least 10 courses with at least 5 modules each, and populate them with content and assessments to create a comprehensive dataset for testing and demonstration purposes.
+
+### Trainee
+- [x] Revert back the decision to move the recommendation section to the browse courses page, it should be in the dashboard because it's more personalized and relevant to the trainees based on their progress and profile. Also fix the layout of the Browse Courses page. View Certificates at the bottom doesn't have texts. Verification Pending message should be above the Search Section
+- [x] Learner Top Navigation: Remove the dropdown, move the Progress and Certifications to the top navigation.
+- [x] Onboarding modal: the whole modal should be scrollable except the buttons at the bottom
+- [x] Onboarding modal: bring back the header but don't make it too large, also add a progress bar to indicate the progress of the onboarding process. This will help to improve the user experience and also make the onboarding process more engaging for the trainees.
+- [x] Move course recommendations from dashboard to browse courses page and make it more prominent, this will help the trainees to easily find the relevant courses and also to encourage them to take more courses. Also, verify if the recommendation algorithm is working properly and providing relevant course recommendations to the trainees based on their profile and progress.
+- [x] Trainees should be able to see the list of recommended course after onboarding process
+- [x] Dashboard & Browse Course: Remove the "Primary next-step section"
+- [x] Browse Course: Remove the duplicate filters and move the search bar above the course cards
+- [x] Home page: Change the "Account" link to "Register" label
+- [x] Footer: Remove the Contact and the details below it
+- [x] Onboarding modal: Completely remove the header section, remove the recommendation signal coverage, recommendation unlock section, Make the tabs more prominent (make them full width)
+- [x] You brought back the large onboarding header, can we adjust it to be smaller and more concise? There's only a little room for the content and it looks off when the header takes up too much space to the point that I cannot see the submit button. Also make sure that the buttons at the bottom are always visible and not cut off by the header. This will help to improve the user experience and also make the onboarding process more engaging for the trainees.
+- [x] Remove the languages option in the top navigation
+- [x] Dashboard: Declutter the dashboard or at least make it more organized. Move the statistics section below or in another tab and prioritize the "Continue Learning" section and other necessary actions for the trainees.
+- [x] Dashboard: Remove the Next-step shortcuts and add a tab that organizes and categorizes the different sections in the dashboard
+
+- [x] Onboarding modal: Declutter onboarding modal remoce the unecessary helper or at least make it more concise and organized. Improve the selection UI in the Readiness section. In skill section, make the skills searchable based on the existing tags (taxonomy) in the system and also allow the trainees to add new skills if they cannot find the relevant skills in the existing tags.
+- [ ] QA pass later: run a focused trainee UI/regression pass after this implementation batch for onboarding, dashboard, profile, browse courses, progress, certificates, module navigation, and theme/language switching.
+- [x] Onboarding modal: Adjust the very large header section to be smaller and more concise. There's only a little room for the content and it looks off when the header takes up too much space to the point that I cannot see the submit button. This will help to improve the user experience and also make the onboarding process more engaging for the trainees.
+- [x] Onboarding modal: Fix the tab section, the layout gets messed up when selecting a different tab. Also, fix the dark mode issue (See photo). Also increase the contrast of the texts.
+- [x] Onboarding module: Onboarding is a necessary process for the trainees to understand how to use the platform and also to encourage them to complete their profile and start taking courses. Trainees should not be able to skip the onboarding process because it contains important information and guidance for the trainees to navigate the platform and also to understand the benefits of completing their profile and taking courses.
+- [x] Profile page: Improve the layout of the profile page to make it more organized and visually appealing. Remove the profile routing section. Decrease the size of the "Next Profile Action" section (and completely remove it once the trainee has completed all the profile actions).
+- [x] Browse courses page: Add a search and filter functionality to help the trainees to find the relevant courses easily. Also, improve the layout of the courses page to make it more organized and visually appealing.
+- [x] Browse courses page: Remove Course Catalog, Recommendation Readiness, When to use this page sections. But keep the "View Progress" button and make it more prominent.
+- [x] Dashboard: Declutter the dashboard or at least make it more organized. Move the statistics section below or in another tab and prioritize the "Continue Learning" section and other necessary actions for the trainees.
+- [x] Certifications page: Remove Excellent badge
+- [x] Module page: Make the modules list on the left side sticky so that the trainees can easily navigate between modules without having to scroll back up to the top of the page.
+- [x] Top navigation: Add Progress page in the top navigation for easy access to the progress page where the trainees can see their.
+- [x] Progress page: View Details button doesn't lead to the Detailed Views tab, also Detailed View should be a modal rather than a separate section so remove the Detailed Views tab and make it a modal that pops up when the trainee clicks the "View Details" button. This will help to improve the user experience and also make it easier for the trainees to access their progress details without having to navigate to a different page.
+- [x] Progress page: Verify if the total time accounts for the actual time spent or just the stated hours in the course, it should be the stated hours in the course to help the trainees to not feel pressured to complete the course within a certain time frame and also to help the trainers to assess the average time completed for each course.
+- [x] There's a delay in switching language/theme, use a loader or make it instant to improve the user experience.
+
 <!-- 
 
 Trainer's Section:

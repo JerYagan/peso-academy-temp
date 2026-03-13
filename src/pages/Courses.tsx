@@ -9,6 +9,9 @@ import Footer from "@/components/Footer";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Dialog,
@@ -25,6 +28,7 @@ import {
   BriefcaseBusiness,
   CalendarDays,
   Clock3,
+  Eye,
   GraduationCap,
   ImageIcon,
   Laptop2,
@@ -47,6 +51,7 @@ import { Course, Enrollment } from "@/types";
 import { toast } from "sonner";
 
 type CourseTab = "all" | "technical" | "business" | "personal";
+type EnrollmentFilter = "all" | "available" | "enrolled" | "completed";
 
 const matchesTab = (course: Course, activeTab: CourseTab) => {
   if (activeTab === "all") return true;
@@ -110,6 +115,8 @@ const Courses = () => {
   const navigate = useNavigate();
   const [courses, setCourses] = useState<Course[]>([]);
   const [activeTab, setActiveTab] = useState<CourseTab>("all");
+  const [enrollmentFilter, setEnrollmentFilter] = useState<EnrollmentFilter>("all");
+  const [searchQuery, setSearchQuery] = useState("");
   const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
   const [loading, setLoading] = useState(true);
   const [enrolling, setEnrolling] = useState<string | null>(null);
@@ -120,7 +127,6 @@ const Courses = () => {
     courseTitle: string;
     feedback: ReturnType<typeof getEnrollmentErrorFeedback>;
   } | null>(null);
-
   const copy = language === "tl"
     ? {
         tabs: {
@@ -139,6 +145,7 @@ const Courses = () => {
           enrollNow: "Mag-enroll Ngayon",
           enrolling: "Nag-e-enroll...",
           close: "Isara",
+          preview: "Preview",
           viewProgress: "Tingnan ang progreso",
           openDashboard: "Buksan ang dashboard",
           updateProfile: "I-update ang profile",
@@ -163,20 +170,23 @@ const Courses = () => {
           ctaButton: "Alamin ang Certification",
         },
         dashboardPage: {
-          badge: "Course catalog",
           title: "Training Courses",
-          subtitle: "Tingnan ang mga available na training program, ikumpara ang mga opsyon ayon sa category, at panatilihing malinaw ang susunod mong hakbang.",
+          subtitle: "Tingnan ang mga available na training program, maghanap ng tamang kurso, at pumili ng susunod mong learning move nang hindi magulo ang screen.",
           primaryNextStep: "Pangunahing susunod na hakbang",
           browseTitle: "Pumili ng kursong bubuo sa susunod mong hakbang",
           browseDescription: "Mag-browse ayon sa category, i-preview ang course details, at mag-enroll kapag may nakita kang tugma sa iyong kasalukuyang goals.",
           browseLabel: "Buksan ang dashboard",
-          readinessTitle: "Recommendation readiness",
-          readinessReady: (coverage: number) => `Kumpleto na nang ${coverage}% ang iyong profile signals kaya mas target ang course discovery.`,
-          readinessNeedsWork: (coverage: number) => `Kumpleto na nang ${coverage}% ang iyong profile signals. Magdagdag ng interests, categories, at skills para mas tumalas ang recommendations.`,
-          whenToUseTitle: "Kailan gagamitin ang page na ito",
-          whenToUseBody: "Manatili rito kapag naghahambing ka ng options. Bumalik sa dashboard kapag alam mo na kung aling course o module ang kailangan mong ipagpatuloy.",
-          certificatesTitle: "Makakuha ng Kinikilalang Certificates",
-          certificatesBody: "Tapusin ang mga kurso at idagdag ang PESO Academy certificates sa iyong portfolio.",
+          searchLabel: "Maghanap ng kurso",
+          searchPlaceholder: "Maghanap ayon sa title, category, o description",
+          filtersLabel: "I-filter ayon sa status",
+          filters: {
+            all: "Lahat",
+            available: "Available",
+            enrolled: "Enrolled",
+            completed: "Completed",
+          },
+          certificatesTitle: "Subaybayan ang natapos mong kurso at certificates",
+          certificatesBody: "Kapag na-release na ang certificate mo, makikita mo ito sa certifications page kasama ng completion records mo para hindi mo na kailangang bumalik sa bawat course card.",
         },
         states: {
           noCourses: "Wala pang kurso sa category na ito.",
@@ -201,6 +211,7 @@ const Courses = () => {
           enrollNow: "Enroll Now",
           enrolling: "Enrolling...",
           close: "Close",
+          preview: "Preview",
           viewProgress: "View progress",
           openDashboard: "Open dashboard",
           updateProfile: "Update profile",
@@ -225,20 +236,23 @@ const Courses = () => {
           ctaButton: "Learn More About Certification",
         },
         dashboardPage: {
-          badge: "Course catalog",
           title: "Training Courses",
-          subtitle: "Browse available training programs, compare options by category, and keep your next move explicit: resume a current course or intentionally start a new one.",
+          subtitle: "Browse available training programs, search for the right fit, and choose your next learning move without extra dashboard filler.",
           primaryNextStep: "Primary next step",
           browseTitle: "Pick a course that creates your next step",
           browseDescription: "Browse by category, preview the course details, then enroll when you find a fit for your current skill goals.",
           browseLabel: "Open dashboard",
-          readinessTitle: "Recommendation readiness",
-          readinessReady: (coverage: number) => `Your profile signals are ${coverage}% complete, so course discovery can stay more targeted.`,
-          readinessNeedsWork: (coverage: number) => `Your profile signals are ${coverage}% complete. Add interests, categories, and skills for sharper recommendations.`,
-          whenToUseTitle: "When to use this page",
-          whenToUseBody: "Stay here when you are comparing options. Switch back to the dashboard when you already know which course or module you need to continue.",
-          certificatesTitle: "Earn Recognized Certificates",
-          certificatesBody: "Complete courses and add PESO Academy certificates to your portfolio.",
+          searchLabel: "Search courses",
+          searchPlaceholder: "Search by title, category, or description",
+          filtersLabel: "Filter by status",
+          filters: {
+            all: "All",
+            available: "Available",
+            enrolled: "Enrolled",
+            completed: "Completed",
+          },
+          certificatesTitle: "Track your completed courses and certificates",
+          certificatesBody: "Once your certificate is released, you can find it on the certifications page together with your completion records instead of going back through each course card.",
         },
         states: {
           noCourses: "No courses found for this category yet.",
@@ -309,15 +323,21 @@ const Courses = () => {
     }
   };
 
-  const handleEnrollClick = (course: Course) => {
+  const handleEnrollClick = (
+    course: Course,
+    sourceSurface: "course_catalog" | "browse_recommendations" = "course_catalog",
+  ) => {
     if (!user) {
       navigate(`/signup?redirect=${encodeURIComponent(`/courses/${course.id}`)}`);
       return;
     }
-    void handleEnroll(course);
+    void handleEnroll(course, sourceSurface);
   };
 
-  const handleEnroll = async (course: Course) => {
+  const handleEnroll = async (
+    course: Course,
+    sourceSurface: "course_catalog" | "browse_recommendations" = "course_catalog",
+  ) => {
     if (!user) return;
 
     if (enrollments.some((enrollment) => enrollment.courseId === course.id)) {
@@ -328,7 +348,11 @@ const Courses = () => {
     setEnrolling(course.id);
     setEnrollmentRecovery(null);
     try {
-      await enrollmentService.enrollInCourse(user.id, course.id, { sourceSurface: "course_catalog" });
+      await enrollmentService.enrollInCourse(
+        user.id,
+        course.id,
+        { sourceSurface },
+      );
       await loadEnrollments();
       await loadCourses();
       toast.success(copy.toasts.enrolledSuccess);
@@ -357,10 +381,36 @@ const Courses = () => {
     return map;
   }, [enrollments]);
 
-  const displayedCourses = useMemo(
-    () => courses.filter((course) => matchesTab(course, activeTab)),
-    [courses, activeTab],
-  );
+  const displayedCourses = useMemo(() => {
+    const query = searchQuery.trim().toLowerCase();
+
+    return courses.filter((course) => {
+      if (!matchesTab(course, activeTab)) {
+        return false;
+      }
+
+      const enrollment = enrollmentByCourseId[course.id];
+      if (enrollmentFilter === "available" && enrollment) {
+        return false;
+      }
+      if (enrollmentFilter === "enrolled" && (!enrollment || enrollment.status === "completed")) {
+        return false;
+      }
+      if (enrollmentFilter === "completed" && enrollment?.status !== "completed") {
+        return false;
+      }
+
+      if (!query) {
+        return true;
+      }
+
+      return [course.title, course.category, course.description]
+        .join(" ")
+        .toLowerCase()
+        .includes(query);
+    });
+  }, [activeTab, courses, enrollmentByCourseId, enrollmentFilter, searchQuery]);
+
   const verificationBlocked = isTraineeEnrollmentBlocked(user);
   const verificationFeedback = verificationBlocked
     ? getTraineeEnrollmentVerificationFeedback(user?.verificationStatus)
@@ -369,14 +419,6 @@ const Courses = () => {
     ? copy.states.blockedRejected
     : copy.states.blockedPending;
 
-  const profileSignalCoverage = Math.round(
-    ([
-      Boolean(user?.onboardingSkillLevel),
-      Boolean(user?.industryInterests && user.industryInterests.length > 0),
-      Boolean(user?.preferredCategories && user.preferredCategories.length > 0),
-      Boolean(user?.skills && user.skills.length > 0),
-    ].filter(Boolean).length / 4) * 100,
-  );
   const activeEnrollment = enrollments.find((enrollment) => enrollment.status !== "completed") || enrollments[0] || null;
   const browsePrimaryAction = activeEnrollment
     ? {
@@ -406,7 +448,10 @@ const Courses = () => {
       >
         <button
           type="button"
-          onClick={() => setPreviewCourse(course)}
+          onClick={() => {
+            setPreviewCourse(course);
+            setPreviewRecommendation(null);
+          }}
           className="block w-full text-left"
         >
           <div className="relative aspect-[16/10] overflow-hidden border-b border-border bg-muted">
@@ -470,7 +515,7 @@ const Courses = () => {
               </Button>
             ) : (
               <Button
-                onClick={() => handleEnrollClick(course)}
+                  onClick={() => handleEnrollClick(course)}
                 className="h-12 w-full rounded-xl text-base font-semibold"
                 disabled={isEnrolling || verificationBlocked}
               >
@@ -581,7 +626,7 @@ const Courses = () => {
                   className="w-full sm:w-auto"
                   disabled={enrolling === previewCourse.id || verificationBlocked}
                   onClick={() => {
-                    handleEnrollClick(previewCourse);
+                    handleEnrollClick(previewCourse, "course_catalog");
                     setPreviewCourse(null);
                   }}
                 >
@@ -707,50 +752,89 @@ const Courses = () => {
   return (
     <DashboardLayout>
       <div className="space-y-8">
-        <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
-          <div className="rounded-[1.8rem] border border-primary/15 bg-card p-6 sm:p-7">
-            <p className="text-xs font-medium uppercase tracking-[0.18em] text-primary">{copy.dashboardPage.badge}</p>
-            <h1 className="mt-3 text-3xl font-bold tracking-tight">{copy.dashboardPage.title}</h1>
-            <p className="mt-3 max-w-2xl text-sm leading-7 text-muted-foreground sm:text-base">
-              {copy.dashboardPage.subtitle}
-            </p>
+        <div className="rounded-[1.8rem] border border-primary/15 bg-card p-6 sm:p-7">
+          <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
+            <div>
+              <h1 className="text-3xl font-bold tracking-tight">{copy.dashboardPage.title}</h1>
+              <p className="mt-3 max-w-2xl text-sm leading-7 text-muted-foreground sm:text-base">
+                {copy.dashboardPage.subtitle}
+              </p>
+            </div>
 
-            <div className="mt-5 rounded-3xl border border-primary/15 bg-background/80 p-5">
-              <p className="text-xs font-medium uppercase tracking-[0.18em] text-primary">{copy.dashboardPage.primaryNextStep}</p>
-              <h2 className="mt-3 text-2xl font-semibold tracking-[-0.03em]">{browsePrimaryAction.title}</h2>
-              <p className="mt-2 text-sm leading-7 text-muted-foreground">{browsePrimaryAction.description}</p>
-              <div className="mt-5 flex flex-wrap gap-2">
-                <Button asChild>
-                  <Link to={browsePrimaryAction.href}>{browsePrimaryAction.label}</Link>
-                </Button>
-                <Button asChild variant="outline">
-                  <Link to="/progress">{copy.actions.viewProgress}</Link>
-                </Button>
+            <Button asChild size="lg" className="h-12 rounded-xl px-6 text-base font-semibold">
+              <Link to="/progress">{copy.actions.viewProgress}</Link>
+            </Button>
+          </div>
+
+        </div>
+
+        {verificationFeedback ? (
+          <Alert>
+            <AlertCircle className="h-4 w-4" />
+            <AlertTitle className="flex items-center gap-2">
+              {verificationFeedback.title}
+              <TraineeVerificationBadge status={user?.verificationStatus} />
+            </AlertTitle>
+            <AlertDescription>
+              <div className="space-y-3">
+                <p>{verificationFeedback.description}</p>
+                <div className="flex flex-wrap gap-2">
+                  <Button asChild size="sm" variant="outline">
+                    <Link to="/profile">{copy.actions.reviewProfile}</Link>
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => setActiveTab("all")}>
+                    {copy.actions.browseAllCourses}
+                  </Button>
+                </div>
               </div>
+            </AlertDescription>
+          </Alert>
+        ) : null}
+
+        <div className="flex flex-col gap-4 rounded-[1.6rem] border border-border bg-card p-5 sm:p-6">
+          <div className="space-y-3">
+            <Label htmlFor="course-search" className="text-sm font-medium">{copy.dashboardPage.searchLabel}</Label>
+            <Input
+              id="course-search"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder={copy.dashboardPage.searchPlaceholder}
+              className="h-12 rounded-xl"
+            />
+          </div>
+
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <p className="text-sm font-medium">{copy.dashboardPage.filtersLabel}</p>
+              <p className="mt-1 text-sm text-muted-foreground">{displayedCourses.length} course{displayedCourses.length === 1 ? "" : "s"} match your current filters.</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {(["all", "available", "enrolled", "completed"] as EnrollmentFilter[]).map((filterValue) => (
+                <Button
+                  key={filterValue}
+                  type="button"
+                  variant={enrollmentFilter === filterValue ? "default" : "outline"}
+                  className="rounded-full"
+                  onClick={() => setEnrollmentFilter(filterValue)}
+                >
+                  {copy.dashboardPage.filters[filterValue]}
+                </Button>
+              ))}
             </div>
           </div>
 
-          <div className="grid gap-3">
-            <div className="rounded-[1.5rem] border border-border bg-card p-5">
-              <p className="font-medium">{copy.dashboardPage.readinessTitle}</p>
-              <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                {profileSignalCoverage >= 75
-                  ? copy.dashboardPage.readinessReady(profileSignalCoverage)
-                  : copy.dashboardPage.readinessNeedsWork(profileSignalCoverage)}
-              </p>
-              <Button asChild size="sm" variant="outline" className="mt-4">
-                <Link to="/profile">{copy.actions.updateProfile}</Link>
+          <div className="flex flex-wrap gap-3">
+            {courseTabs.map((tab) => (
+              <Button
+                key={tab.key}
+                type="button"
+                variant={activeTab === tab.key ? "default" : "secondary"}
+                className="rounded-xl px-5 text-sm font-medium"
+                onClick={() => setActiveTab(tab.key)}
+              >
+                {tab.label}
               </Button>
-            </div>
-            <div className="rounded-[1.5rem] border border-border bg-card p-5">
-              <p className="font-medium">{copy.dashboardPage.whenToUseTitle}</p>
-              <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                {copy.dashboardPage.whenToUseBody}
-              </p>
-              <Button asChild size="sm" variant="outline" className="mt-4">
-                <Link to="/dashboard">{copy.actions.openDashboard}</Link>
-              </Button>
-            </div>
+            ))}
           </div>
         </div>
 
@@ -788,43 +872,6 @@ const Courses = () => {
             </AlertDescription>
           </Alert>
         ) : null}
-
-        {verificationFeedback ? (
-          <Alert>
-            <AlertCircle className="h-4 w-4" />
-            <AlertTitle className="flex items-center gap-2">
-              {verificationFeedback.title}
-              <TraineeVerificationBadge status={user?.verificationStatus} />
-            </AlertTitle>
-            <AlertDescription>
-              <div className="space-y-3">
-                <p>{verificationFeedback.description}</p>
-                <div className="flex flex-wrap gap-2">
-                  <Button asChild size="sm" variant="outline">
-                    <Link to="/profile">{copy.actions.reviewProfile}</Link>
-                  </Button>
-                  <Button size="sm" variant="ghost" onClick={() => setActiveTab("all")}>
-                    {copy.actions.browseAllCourses}
-                  </Button>
-                </div>
-              </div>
-            </AlertDescription>
-          </Alert>
-        ) : null}
-
-        <div className="flex flex-wrap gap-3">
-          {courseTabs.map((tab) => (
-            <Button
-              key={tab.key}
-              type="button"
-              variant={activeTab === tab.key ? "default" : "secondary"}
-              className="rounded-xl px-5 text-sm font-medium"
-              onClick={() => setActiveTab(tab.key)}
-            >
-              {tab.label}
-            </Button>
-          ))}
-        </div>
 
         {renderCourseGrid()}
 

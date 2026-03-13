@@ -3,8 +3,6 @@ import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
   DialogContent,
@@ -50,7 +48,6 @@ export default function TraineeVerification() {
   const [verificationStatusFilter, setVerificationStatusFilter] = useState("all");
   const [selectedTrainee, setSelectedTrainee] = useState<User | null>(null);
   const [nextStatus, setNextStatus] = useState<VerificationStatus>("verified");
-  const [reviewerNote, setReviewerNote] = useState("");
   const [saving, setSaving] = useState(false);
   const [physicalIdPreviewUrl, setPhysicalIdPreviewUrl] = useState<string | null>(null);
   const [physicalIdPreviewLoading, setPhysicalIdPreviewLoading] = useState(false);
@@ -77,6 +74,7 @@ export default function TraineeVerification() {
       const matchesSearch =
         trainee.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         trainee.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        trainee.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
         (trainee.employeeId || "").toLowerCase().includes(searchTerm.toLowerCase());
 
       const matchesTraineeType = traineeTypeFilter === "all" || trainee.traineeType === traineeTypeFilter;
@@ -103,7 +101,6 @@ export default function TraineeVerification() {
   const openStatusDialog = (trainee: User, status: VerificationStatus) => {
     setSelectedTrainee(trainee);
     setNextStatus(status);
-    setReviewerNote(trainee.verificationNotes || "");
     setPhysicalIdPreviewUrl((currentUrl) => {
       if (currentUrl) {
         URL.revokeObjectURL(currentUrl);
@@ -115,7 +112,6 @@ export default function TraineeVerification() {
 
   const closeStatusDialog = () => {
     setSelectedTrainee(null);
-    setReviewerNote("");
     setNextStatus("verified");
     setPhysicalIdPreviewUrl((currentUrl) => {
       if (currentUrl) {
@@ -137,6 +133,13 @@ export default function TraineeVerification() {
 
       try {
         setPhysicalIdPreviewLoading(true);
+        setPhysicalIdPreviewUrl((currentUrl) => {
+          if (currentUrl) {
+            URL.revokeObjectURL(currentUrl);
+          }
+
+          return null;
+        });
         const fileBlob = await downloadPhysicalIdDocument(selectedTrainee.physicalId, selectedTrainee.id);
 
         if (!isActive) {
@@ -175,7 +178,7 @@ export default function TraineeVerification() {
 
     try {
       setSaving(true);
-      await userService.updateTraineeVerification(selectedTrainee.id, nextStatus, reviewerNote, currentUser?.id);
+      await userService.updateTraineeVerification(selectedTrainee.id, nextStatus, undefined, currentUser?.id);
       toast.success(`Trainee marked as ${nextStatus}.`);
       closeStatusDialog();
       await loadTrainees();
@@ -250,7 +253,7 @@ export default function TraineeVerification() {
                   value={searchTerm}
                   onChange={(event) => setSearchTerm(event.target.value)}
                   className="pl-10"
-                  placeholder="Search by name, email, or employee ID"
+                  placeholder="Search by name, email, learner ID, or employee ID"
                 />
               </div>
 
@@ -289,10 +292,9 @@ export default function TraineeVerification() {
                     <TableRow>
                       <TableHead>Trainee</TableHead>
                       <TableHead>Type</TableHead>
-                      <TableHead>Employee details</TableHead>
+                      <TableHead>Identifiers</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>Submitted</TableHead>
-                      <TableHead>Reviewer note</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
@@ -303,17 +305,22 @@ export default function TraineeVerification() {
                           <div className="space-y-1">
                             <p className="font-medium">{trainee.name}</p>
                             <p className="text-sm text-muted-foreground">{trainee.email}</p>
+                            <p className="text-xs text-muted-foreground">Learner ID: <span className="font-mono text-foreground">{trainee.id}</span></p>
                           </div>
                         </TableCell>
                         <TableCell>{trainee.traineeType ? traineeTypeLabel[trainee.traineeType] : "Not set"}</TableCell>
                         <TableCell>
                           {trainee.traineeType === "peso_employee" ? (
                             <div className="space-y-1 text-sm">
+                              <p><span className="text-muted-foreground">Learner ID:</span> <span className="font-mono text-foreground">{trainee.id}</span></p>
                               <p><span className="text-muted-foreground">Employee ID:</span> {trainee.employeeId || "Not provided"}</p>
                               <p><span className="text-muted-foreground">Physical ID:</span> {trainee.physicalId ? "Available" : "Not uploaded"}</p>
                             </div>
                           ) : (
-                            <span className="text-sm text-muted-foreground">Not required</span>
+                            <div className="space-y-1 text-sm">
+                              <p><span className="text-muted-foreground">Learner ID:</span> <span className="font-mono text-foreground">{trainee.id}</span></p>
+                              <p className="text-muted-foreground">Employee details not required</p>
+                            </div>
                           )}
                         </TableCell>
                         <TableCell>
@@ -325,11 +332,6 @@ export default function TraineeVerification() {
                               ? new Date(trainee.verificationSubmittedAt).toLocaleDateString()
                               : new Date(trainee.createdAt).toLocaleDateString()}
                           </span>
-                        </TableCell>
-                        <TableCell>
-                          <p className="max-w-[240px] truncate text-sm text-muted-foreground">
-                            {trainee.verificationNotes || "No note added"}
-                          </p>
                         </TableCell>
                         <TableCell className="text-right">
                           <div className="flex justify-end gap-2">
@@ -353,7 +355,7 @@ export default function TraineeVerification() {
         </Card>
 
         <Dialog open={Boolean(selectedTrainee)} onOpenChange={(open) => !open && closeStatusDialog()}>
-          <DialogContent className="max-w-3xl">
+          <DialogContent className="max-h-[88vh] max-w-2xl overflow-y-auto">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
                 <ShieldCheck className="h-5 w-5" />
@@ -370,6 +372,10 @@ export default function TraineeVerification() {
               {selectedTrainee ? (
                 <div className="space-y-3 rounded-2xl border border-border/60 bg-muted/20 p-4">
                   <div className="grid gap-3 md:grid-cols-2">
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Learner ID</p>
+                      <p className="mt-1 font-mono text-sm text-foreground">{selectedTrainee.id}</p>
+                    </div>
                     <div>
                       <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Trainee</p>
                       <p className="mt-1 font-medium text-foreground">{selectedTrainee.name}</p>
@@ -400,7 +406,7 @@ export default function TraineeVerification() {
                         <img
                           src={physicalIdPreviewUrl}
                           alt={`Uploaded physical ID for ${selectedTrainee.name}`}
-                          className="max-h-[22rem] w-full rounded-lg object-contain"
+                          className="max-h-[18rem] w-full rounded-lg object-contain"
                         />
                       </div>
                     ) : (
@@ -413,7 +419,6 @@ export default function TraineeVerification() {
               ) : null}
 
               <div className="space-y-2">
-                <Label htmlFor="verification-status">Status</Label>
                 <Select value={nextStatus} onValueChange={(value) => setNextStatus(value as VerificationStatus)}>
                   <SelectTrigger id="verification-status">
                     <SelectValue />
@@ -424,17 +429,6 @@ export default function TraineeVerification() {
                     <SelectItem value="pending">Pending</SelectItem>
                   </SelectContent>
                 </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="reviewer-note">Reviewer note</Label>
-                <Textarea
-                  id="reviewer-note"
-                  value={reviewerNote}
-                  onChange={(event) => setReviewerNote(event.target.value)}
-                  placeholder="Optional note for the trainee or internal review context"
-                  className="min-h-28"
-                />
               </div>
             </div>
 

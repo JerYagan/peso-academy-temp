@@ -7,7 +7,8 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { BookOpen, Users, Award, TrendingUp, ArrowRight, Shield, FileText, FileSpreadsheet, Loader2, CheckCircle2, ArrowUpRight, ArrowDownRight, Brain, Clock3, Target, BarChart3, Sparkles, Eye, AlertCircle, ImageIcon } from "lucide-react";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { BookOpen, Users, Award, TrendingUp, ArrowRight, Shield, FileText, FileSpreadsheet, Loader2, CheckCircle2, ArrowUpRight, ArrowDownRight, Brain, Clock3, Target, BarChart3, Sparkles, AlertCircle } from "lucide-react";
 import { Link, Navigate } from "react-router-dom";
 import {
   enrollmentService,
@@ -24,8 +25,14 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { User } from "@/types/auth";
 import { formatDistanceToNow, startOfMonth, endOfMonth, isWithinInterval } from "date-fns";
-import { buildAssessmentOnlyCourseRecommendations, buildLearnerCourseRecommendations, deriveAssessmentOnlyRecommendationEvidence, reportingService, type AssessmentOnlyRecommendationEvidence, type CollaborativeRecommendationSignal, type LearnerCourseRecommendation, type LearnerPerformanceSummary, type LearnerPerformanceTopicResult } from "@/services/reportingService";
-import { analyticsService, type PersistedLearnerRecommendation } from "@/services/analyticsService";
+import {
+  buildLearnerCourseRecommendations,
+  reportingService,
+  type CollaborativeRecommendationSignal,
+  type LearnerCourseRecommendation,
+  type LearnerPerformanceSummary,
+  type LearnerPerformanceTopicResult,
+} from "@/services/reportingService";
 import { moduleSessionService, type EnrichedModuleSession, type ModuleSessionAggregate } from "@/services/moduleSessionService";
 import { getDashboardRoute } from "@/lib/roles";
 import { getOfficialHoursCreditLabel } from "@/lib/courseDuration";
@@ -40,30 +47,23 @@ interface TraineeDashboardProps {
   };
 }
 
+type DashboardTab = "continue" | "discover" | "review";
+
 const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
-  const { updateUser } = useAuth();
   const { language } = useLocale();
   const [allCourses, setAllCourses] = useState<Course[]>([]);
   const [completedCourses, setCompletedCourses] = useState<Array<Course & { enrollment: Enrollment }>>([]);
   const [myCourses, setMyCourses] = useState<Array<Course & { enrollment: Enrollment }>>([]);
   const [allEnrollments, setAllEnrollments] = useState<Enrollment[]>([]);
   const [performanceSummary, setPerformanceSummary] = useState<LearnerPerformanceSummary | null>(null);
-  const [persistedRecommendations, setPersistedRecommendations] = useState<PersistedLearnerRecommendation[]>([]);
-  const [persistedAssessmentOnlyRecommendations, setPersistedAssessmentOnlyRecommendations] = useState<PersistedLearnerRecommendation[]>([]);
   const [lastAccessedModule, setLastAccessedModule] = useState<EnrichedModuleSession | null>(null);
   const [sessionAggregates, setSessionAggregates] = useState<ModuleSessionAggregate[]>([]);
   const [collaborativeSignals, setCollaborativeSignals] = useState<Record<string, CollaborativeRecommendationSignal>>({});
   const [loadingCourses, setLoadingCourses] = useState(true);
   const [loadingPerformance, setLoadingPerformance] = useState(true);
   const [loadingSessionHistory, setLoadingSessionHistory] = useState(true);
-  const [enrollingRecommendationCourseId, setEnrollingRecommendationCourseId] = useState<string | null>(null);
-  const [recommendationRecovery, setRecommendationRecovery] = useState<{
-    courseId: string;
-    courseTitle: string;
-    feedback: ReturnType<typeof getEnrollmentErrorFeedback>;
-  } | null>(null);
+  const [dashboardTab, setDashboardTab] = useState<DashboardTab>("continue");
   const [showOnboardingModal, setShowOnboardingModal] = useState(false);
-  const [savingOnboardingModal, setSavingOnboardingModal] = useState(false);
   const [latestOnboardingSummary, setLatestOnboardingSummary] = useState<TraineeOnboardingSummary | null>(null);
   const hasCompletedOnboarding = Boolean(user.onboardingCompletedAt);
   const copy = language === "tl"
@@ -91,9 +91,9 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
         blockedPending: "Naghihintay ng verification",
         blockedRejected: "Tinanggihan ang verification",
         postLoginTitle: "Kailangan ang post-login onboarding para sa recommendations",
-        postLoginBody: "Mas maikli na ngayon ang registration. Tapusin ang dashboard onboarding para ma-unlock ang recommendation cards, starter guidance, at profile-driven analytics context.",
+        postLoginBody: "Mas maikli na ngayon ang registration. Tapusin ang dashboard onboarding para ma-unlock ang personalized course picks sa iyong dashboard at mas relevant na guidance.",
         onboardingCompletedTitle: "Tapos na ang onboarding",
-        onboardingCompletedBody: (count: number) => `Mayroon na ngayong ${count} starter recommendation${count === 1 ? "" : "s"} ang iyong dashboard batay sa onboarding profile mo.`,
+        onboardingCompletedBody: (count: number) => `Mayroon ka nang ${count} starter recommendation${count === 1 ? "" : "s"} sa iyong dashboard batay sa onboarding profile mo.`,
         workspaceBadge: "Trainee workspace",
         welcome: (name: string) => `Maligayang pagbabalik, ${name}!`,
         welcomeBody: "Magpatuloy sa iisang malinaw na susunod na hakbang: ipagpatuloy ang pag-aaral, patibayin ang iyong profile signals, o suriin nang detalyado ang iyong progreso.",
@@ -104,8 +104,19 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
         profileSignals: "Profile signals",
         profileSignalsBody: "Mga natapos na recommendation inputs",
         primaryNextStep: "Pangunahing susunod na hakbang",
-        shortcutsTitle: "Mga next-step shortcut",
-        shortcutsBody: "Panatilihing hiwalay ang iyong susunod na aksyon para hindi magsabay ang pag-aaral, pagba-browse, at profile updates.",
+        tabs: {
+          continue: "Magpatuloy",
+          discover: "Recommendations",
+          review: "Review",
+        },
+        discoverTitle: "Personalized recommendations para sa susunod mong kurso",
+        discoverBody: "Nakabase ang listahang ito sa iyong onboarding profile, progreso, at learning activity para manatiling relevant ang susunod mong learning step.",
+        discoverReadyTitle: "Nakahanda na ang iyong personalized course list.",
+        discoverReadyBody: "Suriin ang mga rekomendasyong naka-rank batay sa iyong onboarding answers, progreso, at recent learning activity.",
+        discoverLockedTitle: "Tapusin muna ang onboarding para ma-unlock ang personalized recommendations.",
+        discoverLockedBody: "Kapag natapos mo ang onboarding, lalabas dito sa dashboard ang iyong recommended courses.",
+        reviewActionsTitle: "Review at records",
+        reviewActionsBody: "Buksan ang progress at certificates kapag review mode ang pakay mo, hindi kapag gusto mo lang mabilis na magpatuloy.",
         lastAccessedTitle: "Huling Binuksang Module",
         lastAccessedBody: "Magpatuloy mula sa pinakahuling module session na na-save sa iyong learning history.",
         lastOpened: "Huling binuksan",
@@ -166,7 +177,7 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
         blockedPending: "Awaiting verification",
         blockedRejected: "Verification rejected",
         postLoginTitle: "Post-login onboarding required for recommendations",
-        postLoginBody: "Registration is intentionally shorter now. Finish your dashboard onboarding to unlock recommendation cards, starter guidance, and profile-driven analytics context.",
+        postLoginBody: "Registration is intentionally shorter now. Finish your dashboard onboarding to unlock personalized course picks on your dashboard and more relevant guidance.",
         onboardingCompletedTitle: "Onboarding completed",
         onboardingCompletedBody: (count: number) => `Your dashboard now has ${count} starter recommendation${count === 1 ? "" : "s"} based on your onboarding profile.`,
         workspaceBadge: "Trainee workspace",
@@ -179,8 +190,19 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
         profileSignals: "Profile signals",
         profileSignalsBody: "Recommendation inputs completed",
         primaryNextStep: "Primary next step",
-        shortcutsTitle: "Next-step shortcuts",
-        shortcutsBody: "Keep your next action distinct so learning, browsing, and profile updates do not compete.",
+        tabs: {
+          continue: "Continue Learning",
+          discover: "Recommendations",
+          review: "Review",
+        },
+        discoverTitle: "Personalized recommendations for your next course",
+        discoverBody: "This list is ranked from your onboarding profile, progress, and learning activity so the next step stays relevant to you.",
+        discoverReadyTitle: "Your personalized course list is ready.",
+        discoverReadyBody: "Review the recommendations ranked from your onboarding answers, progress, and recent learning activity.",
+        discoverLockedTitle: "Complete onboarding first to unlock your personalized recommendations.",
+        discoverLockedBody: "Once onboarding is complete, your recommended courses appear here on the dashboard.",
+        reviewActionsTitle: "Review and records",
+        reviewActionsBody: "Use progress and certificates when you are reviewing outcomes, not when you just need the fastest path back into learning.",
         lastAccessedTitle: "Last Accessed Module",
         lastAccessedBody: "Resume from the most recent module session stored in your learning history.",
         lastOpened: "Last opened",
@@ -247,34 +269,6 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
     }
   }, [hasCompletedOnboarding, user.onboardingModalSeenAt, user.role]);
 
-  const handleDismissOnboardingModal = async () => {
-    if (savingOnboardingModal) {
-      return;
-    }
-
-    setShowOnboardingModal(false);
-
-    if (user.onboardingModalSeenAt) {
-      if (typeof window !== "undefined") {
-        window.sessionStorage.removeItem(TRAINEE_ONBOARDING_MODAL_PENDING_KEY);
-      }
-      return;
-    }
-
-    try {
-      setSavingOnboardingModal(true);
-      await updateUser({ onboardingModalSeenAt: new Date().toISOString() });
-      if (typeof window !== "undefined") {
-        window.sessionStorage.removeItem(TRAINEE_ONBOARDING_MODAL_PENDING_KEY);
-      }
-    } catch (error) {
-      console.error("Failed to persist trainee onboarding modal state:", error);
-      toast.error("We could not save your onboarding modal state. It may appear again until that save succeeds.");
-    } finally {
-      setSavingOnboardingModal(false);
-    }
-  };
-
   const handleOnboardingCompleted = async (summary: TraineeOnboardingSummary) => {
     setLatestOnboardingSummary(summary);
     setShowOnboardingModal(false);
@@ -327,6 +321,7 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
         setCollaborativeSignals(collaborative);
       } catch (error) {
         console.error("Error loading learner performance summary:", error);
+        setCollaborativeSignals({});
         toast.error("Failed to load learner performance summary");
       } finally {
         setLoadingPerformance(false);
@@ -398,212 +393,6 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
     }
   };
 
-  const handleRecommendationEnroll = async (
-    course: Course,
-    recommendation?: PersistedLearnerRecommendation,
-    sourceSurface: "dashboard_recommendations" | "dashboard_assessment_recommendations" = "dashboard_recommendations",
-  ) => {
-    const resolvedRecommendation = recommendation?.id
-      ? recommendation
-      : (sourceSurface === "dashboard_assessment_recommendations"
-          ? persistedAssessmentOnlyRecommendations
-          : persistedRecommendations
-        ).find((item) => item.courseId === course.id);
-
-    setEnrollingRecommendationCourseId(course.id);
-    setRecommendationRecovery(null);
-
-    try {
-      await enrollmentService.enrollInCourse(
-        user.id,
-        course.id,
-        analyticsService.getOriginatingRecommendationOptions(resolvedRecommendation, sourceSurface),
-      );
-      toast.success("Successfully enrolled in course!");
-      await loadDashboardData();
-    } catch (error) {
-      console.error("Failed to enroll from dashboard recommendation:", error);
-      const feedback = getEnrollmentErrorFeedback(error, course.title);
-      if (feedback.code === "already_enrolled") {
-        await loadDashboardData();
-      }
-      setRecommendationRecovery({
-        courseId: course.id,
-        courseTitle: course.title,
-        feedback,
-      });
-      toast.error(feedback.toastMessage);
-    } finally {
-      setEnrollingRecommendationCourseId(null);
-    }
-  };
-
-  const recommendedCourses = useMemo<LearnerCourseRecommendation[]>(() => {
-    return buildLearnerCourseRecommendations(
-      user,
-      allCourses,
-      allEnrollments,
-      performanceSummary,
-      3,
-      sessionAggregates,
-      collaborativeSignals,
-    );
-  }, [allCourses, allEnrollments, collaborativeSignals, performanceSummary, sessionAggregates, user]);
-
-  const assessmentOnlyEvidence = useMemo<AssessmentOnlyRecommendationEvidence | null>(
-    () => deriveAssessmentOnlyRecommendationEvidence(performanceSummary),
-    [performanceSummary],
-  );
-
-  const assessmentOnlyRecommendedCourses = useMemo<LearnerCourseRecommendation[]>(() => {
-    return buildAssessmentOnlyCourseRecommendations(
-      allCourses,
-      allEnrollments,
-      performanceSummary,
-      3,
-    );
-  }, [allCourses, allEnrollments, performanceSummary]);
-
-  const recommendationCards = useMemo(
-    () => analyticsService.hydrateRecommendationCards(recommendedCourses, persistedRecommendations),
-    [persistedRecommendations, recommendedCourses],
-  );
-
-  const assessmentOnlyRecommendationCards = useMemo(
-    () => analyticsService.hydrateRecommendationCards(assessmentOnlyRecommendedCourses, persistedAssessmentOnlyRecommendations),
-    [assessmentOnlyRecommendedCourses, persistedAssessmentOnlyRecommendations],
-  );
-
-  useEffect(() => {
-    if (user.role !== "trainee" || !hasCompletedOnboarding || recommendedCourses.length === 0) {
-      setPersistedRecommendations([]);
-      return;
-    }
-
-    let cancelled = false;
-
-    const syncRecommendations = async () => {
-      try {
-        const syncedRecommendations = await analyticsService.syncLearnerRecommendations(
-          user.id,
-          recommendedCourses,
-          "dashboard_recommendations",
-          {
-            hasPerformanceSummary: Boolean(performanceSummary),
-            modulesCompleted: performanceSummary?.modulesCompleted || 0,
-            assessmentsTaken: performanceSummary?.assessmentsTaken || 0,
-            completedCourses: completedCourses.length,
-            industryInterestCount: user.industryInterests?.length || 0,
-            preferredCategoryCount: user.preferredCategories?.length || 0,
-            onboardingSkillLevel: user.onboardingSkillLevel || null,
-            onboardingConfidenceLevel: user.onboardingConfidenceLevel || null,
-            onboardingWeeklyCommitment: user.onboardingWeeklyCommitment || null,
-            onboardingDigitalComfort: user.onboardingDigitalComfort || null,
-            onboardingCompletedAt: user.onboardingCompletedAt || null,
-            hasProfileSkills: Boolean(user.skills && user.skills.length > 0),
-            recentSessionCount: sessionAggregates.reduce((sum, aggregate) => sum + aggregate.sessionCount, 0),
-            repeatedIncompleteModules: sessionAggregates.filter((aggregate) => aggregate.lastSessionStatus !== "completed" && aggregate.sessionCount >= 2).length,
-            collaborativeCandidateCount: Object.keys(collaborativeSignals).length,
-            hybridRecommendationEngine: true,
-          },
-        );
-
-        if (cancelled) {
-          return;
-        }
-
-        setPersistedRecommendations(syncedRecommendations);
-        await analyticsService.logRecommendationImpressions(
-          user.id,
-          syncedRecommendations,
-          "dashboard_recommendations",
-        );
-      } catch (error) {
-        console.error("Failed to sync dashboard recommendations:", error);
-      }
-    };
-
-    void syncRecommendations();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [collaborativeSignals, completedCourses.length, hasCompletedOnboarding, performanceSummary, recommendedCourses, sessionAggregates, user.id, user.role]);
-
-  useEffect(() => {
-    if (user.role !== "trainee" || !hasCompletedOnboarding || assessmentOnlyRecommendedCourses.length === 0 || !assessmentOnlyEvidence) {
-      setPersistedAssessmentOnlyRecommendations([]);
-      return;
-    }
-
-    let cancelled = false;
-
-    const syncAssessmentOnlyRecommendations = async () => {
-      try {
-        const syncedRecommendations = await analyticsService.syncLearnerRecommendations(
-          user.id,
-          assessmentOnlyRecommendedCourses,
-          "dashboard_assessment_recommendations",
-          {
-            recommendationMode: "assessment_only",
-            excludesOnboardingSignals: true,
-            excludesCollaborativeSignals: true,
-            excludesSessionSignals: true,
-            scoredAssessments: assessmentOnlyEvidence.scoredAssessments,
-            scoreBand: assessmentOnlyEvidence.scoreBand,
-            strongestTopic: assessmentOnlyEvidence.strongestTopic?.topic || null,
-            weakestTopic: assessmentOnlyEvidence.weakestTopic?.topic || null,
-            failedCompetencies: assessmentOnlyEvidence.failedCompetencies.map((topic) => topic.topic),
-            assessedTopics: assessmentOnlyEvidence.assessedTopics,
-          },
-        );
-
-        if (cancelled) {
-          return;
-        }
-
-        setPersistedAssessmentOnlyRecommendations(syncedRecommendations);
-        await analyticsService.logRecommendationImpressions(
-          user.id,
-          syncedRecommendations,
-          "dashboard_assessment_recommendations",
-        );
-      } catch (error) {
-        console.error("Failed to sync assessment-only recommendations:", error);
-      }
-    };
-
-    void syncAssessmentOnlyRecommendations();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [assessmentOnlyEvidence, assessmentOnlyRecommendedCourses, hasCompletedOnboarding, user.id, user.role]);
-
-  useEffect(() => {
-    if (user.role !== "trainee" || !hasCompletedOnboarding || recommendedCourses.length === 0 || assessmentOnlyRecommendedCourses.length === 0) {
-      return;
-    }
-
-    void analyticsService.trackEvent({
-      eventName: "recommendation_mode_compare_view",
-      userId: user.id,
-      surface: "dashboard_recommendation_modes",
-      metadata: {
-        hybridRecommendationCount: recommendedCourses.length,
-        assessmentOnlyRecommendationCount: assessmentOnlyRecommendedCourses.length,
-        hybridModelVersion: recommendedCourses[0]?.modelVersion || null,
-        assessmentOnlyModelVersion: assessmentOnlyRecommendedCourses[0]?.modelVersion || null,
-      },
-    });
-  }, [assessmentOnlyRecommendedCourses, hasCompletedOnboarding, recommendedCourses, user.id, user.role]);
-
-  const hasRecommendationContext = Boolean(hasCompletedOnboarding && recommendedCourses.length > 0);
-
-  const hasAssessmentOnlyRecommendationContext = Boolean(
-    hasCompletedOnboarding && assessmentOnlyRecommendedCourses.length > 0 && assessmentOnlyEvidence,
-  );
-
   const hasLearningHistory = Boolean(
     performanceSummary &&
       (performanceSummary.modulesCompleted > 0 ||
@@ -619,15 +408,23 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
       (user.skills && user.skills.length > 0),
   );
 
-  const recommendationHeadline = (() => {
-    if (!hasLearningHistory) {
-      return hasOnboardingSignals
-        ? "Starter courses based on your onboarding profile"
-        : "Starter courses for new trainees";
-    }
+  const recommendedCourses = useMemo<LearnerCourseRecommendation[]>(() => {
+    return buildLearnerCourseRecommendations(
+      user,
+      allCourses,
+      allEnrollments,
+      performanceSummary,
+      3,
+      sessionAggregates,
+      collaborativeSignals,
+    );
+  }, [allCourses, allEnrollments, collaborativeSignals, performanceSummary, sessionAggregates, user]);
 
+  const hasRecommendationContext = hasOnboardingSignals || hasLearningHistory;
+
+  const recommendationHeadline = (() => {
     if (!performanceSummary) {
-      return "Courses picked from your profile and learning path";
+      return copy.discoverTitle;
     }
 
     if (performanceSummary.recentAssessments.length > 0) {
@@ -642,18 +439,12 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
       return `Recommended next steps after ${performanceSummary.recentModules[0].moduleTitle}`;
     }
 
-    return "Courses picked from your profile and learning path";
+    return copy.discoverTitle;
   })();
 
   const recommendationDescription = (() => {
-    if (!hasLearningHistory) {
-      return hasOnboardingSignals
-        ? "These starter picks use the interests, preferred categories, starting level, existing skills, and onboarding readiness answers you shared before entering the dashboard."
-        : "These starter picks use beginner-friendly defaults, curated entry pathways, and popular trainee choices so you can begin immediately.";
-    }
-
     if (!performanceSummary) {
-      return "We blend your profile skills and platform demand signals to suggest relevant courses.";
+      return copy.discoverBody;
     }
 
     if (performanceSummary.needsImprovementTopic?.topic && performanceSummary.strongestTopic?.topic) {
@@ -664,38 +455,7 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
       return `These picks extend the momentum you are building in ${performanceSummary.strongestTopic.topic}.`;
     }
 
-    return "These picks use your profile skills, completed courses, and popular trainee pathways.";
-  })();
-
-  const assessmentOnlyHeadline = (() => {
-    if (!assessmentOnlyEvidence) {
-      return "Assessment-only recommendations unlock after scored assessments";
-    }
-
-    if (assessmentOnlyEvidence.weakestTopic?.topic) {
-      return `Assessment-only support for ${assessmentOnlyEvidence.weakestTopic.topic}`;
-    }
-
-    if (assessmentOnlyEvidence.strongestTopic?.topic) {
-      return `Assessment-only next steps after ${assessmentOnlyEvidence.strongestTopic.topic}`;
-    }
-
-    return "Recommendations based only on your assessment evidence";
-  })();
-
-  const assessmentOnlyDescription = (() => {
-    if (!assessmentOnlyEvidence) {
-      return "Complete at least one scored assessment to unlock a recommendation view that ignores onboarding, collaborative, and session-behavior signals.";
-    }
-
-    const weakestTopic = assessmentOnlyEvidence.weakestTopic?.topic;
-    const strongestTopic = assessmentOnlyEvidence.strongestTopic?.topic;
-
-    if (weakestTopic && strongestTopic) {
-      return `This advisory mode uses only your assessment score band, strongest topic (${strongestTopic}), weakest topic (${weakestTopic}), and failed competencies. It excludes onboarding answers, collaborative behavior, and session activity.`;
-    }
-
-    return "This advisory mode uses only scored assessment outcomes, assessed topics, and score bands. It excludes onboarding answers, collaborative behavior, and session activity.";
+    return copy.discoverBody;
   })();
 
   const progressIndicators = useMemo(() => {
@@ -801,99 +561,28 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
           state: undefined,
         };
 
-  const nextStepCards = [
-    !hasCompletedOnboarding
-      ? {
-          title: language === "tl" ? "Kumpletuhin ang iyong onboarding profile" : "Complete your onboarding profile",
-          description:
-            language === "tl"
-              ? "Tapusin ang dashboard onboarding flow para ma-unlock ang recommendation cards, starter course pathways, at mas malinaw na cold-start guidance."
-              : "Finish the dashboard onboarding flow to unlock recommendation cards, starter course pathways, and stronger cold-start guidance.",
-          href: "#",
-          label: copy.openOnboarding,
-          onClick: () => setShowOnboardingModal(true),
-        }
-      : verificationBlocked
-      ? {
-          title: user.verificationStatus === "rejected" ? "Review rejected verification details" : "Prepare while approval is pending",
-          description: verificationFeedback?.description || "Keep your profile accurate while the training team reviews your account.",
-          href: "/profile",
-          label: user.verificationStatus === "rejected" ? copy.updateProfile : copy.openProfile,
-        }
-      : {
-          title: profileSignalCoverage < 100 ? "Complete your learner profile" : "Profile is recommendation-ready",
-          description:
-            profileSignalCoverage < 100
-              ? "Add interests, preferred categories, stage, and skills so recommendations stay aligned with your goals."
-              : "Your profile has the core signals needed for stronger recommendation and predictive insights.",
-          href: "/profile",
-          label: profileSignalCoverage < 100 ? copy.updateProfile : copy.reviewProfile,
-        },
-    {
-      title: stats.enrolledCourses > 0 ? "Review progress details" : "See how progress will appear",
-      description:
-        stats.enrolledCourses > 0
-          ? "Open the progress dashboard for course-by-course history, recent sessions, and completion detail."
-          : "Your progress dashboard becomes more useful after you enroll and begin module activity.",
-      href: "/progress",
-      label: stats.enrolledCourses > 0 ? copy.viewProgress : copy.openProgressDashboard,
-    },
-    {
-      title: completedCourses.length > 0 ? "Claim your completed work" : "Explore another course",
-      description:
-        completedCourses.length > 0
-          ? "Review your certificates and completed training records whenever you need proof of completion."
-          : "Browse the course library to find another starting point or a follow-on course.",
-      href: completedCourses.length > 0 ? "/certificates" : "/courses",
-      label: completedCourses.length > 0 ? copy.viewCertificates : copy.browseCourses,
-    },
-  ];
-
   const renderRecommendedCourses = () => {
     if (loadingCourses || loadingPerformance) {
       return (
-        <section className="space-y-4 rounded-[1.5rem] border border-border bg-muted/40 p-5 sm:p-6 dark:bg-muted/25">
-          <div className="space-y-3">
-            <Skeleton className="h-4 w-40" />
-            <Skeleton className="h-8 w-80 max-w-full" />
-            <Skeleton className="h-4 w-full" />
-            <Skeleton className="h-4 w-5/6" />
-          </div>
-          <div className="grid gap-4 lg:grid-cols-3">
-            {Array.from({ length: 3 }).map((_, index) => (
-              <Card key={index} className="overflow-hidden border-border/80 bg-background/95">
-                <Skeleton className="aspect-[16/10] w-full rounded-none" />
-                <CardHeader className="space-y-3">
-                  <Skeleton className="h-6 w-2/3" />
-                  <Skeleton className="h-4 w-full" />
-                  <Skeleton className="h-4 w-5/6" />
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <Skeleton className="h-4 w-1/2" />
-                  <Skeleton className="h-4 w-2/3" />
-                  <Skeleton className="h-10 w-full" />
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        </section>
+        <Card>
+          <CardContent className="flex items-center justify-center py-10">
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          </CardContent>
+        </Card>
       );
     }
 
     if (!hasCompletedOnboarding) {
       return (
-        <Card>
-          <CardContent className="py-8 text-center space-y-3">
-            <Sparkles className="h-10 w-10 text-primary/70 mx-auto" />
-            <div>
-              <p className="font-medium">{copy.recommendationGateTitle}</p>
-              <p className="text-sm text-muted-foreground">
-                {copy.recommendationGateBody}
-              </p>
+        <Card className="border-primary/20 bg-primary/5">
+          <CardContent className="flex flex-col gap-4 p-6 sm:flex-row sm:items-center sm:justify-between">
+            <div className="space-y-2">
+              <p className="text-lg font-semibold text-foreground">{copy.discoverLockedTitle}</p>
+              <p className="max-w-2xl text-sm leading-7 text-muted-foreground">{copy.recommendationGateBody}</p>
             </div>
-            <div className="flex justify-center">
-              <Button onClick={() => setShowOnboardingModal(true)}>{copy.completeOnboarding}</Button>
-            </div>
+            <Button onClick={() => setShowOnboardingModal(true)} className="h-12 rounded-xl px-6 text-base font-semibold">
+              {copy.completeOnboarding}
+            </Button>
           </CardContent>
         </Card>
       );
@@ -906,9 +595,7 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
             <Sparkles className="h-10 w-10 text-primary/70 mx-auto" />
             <div>
               <p className="font-medium">{copy.recommendationActivityTitle}</p>
-              <p className="text-sm text-muted-foreground">
-                {copy.recommendationActivityBody}
-              </p>
+              <p className="text-sm text-muted-foreground">{copy.recommendationActivityBody}</p>
             </div>
             <Button asChild>
               <Link to="/courses">{copy.browseCourses}</Link>
@@ -919,11 +606,24 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
     }
 
     if (recommendedCourses.length === 0) {
-      return null;
+      return (
+        <Card>
+          <CardContent className="py-8 text-center space-y-3">
+            <Sparkles className="h-10 w-10 text-primary/70 mx-auto" />
+            <div>
+              <p className="font-medium">{copy.notEnoughEvidence}</p>
+              <p className="text-sm text-muted-foreground">{copy.assessmentNeedEvidenceBody}</p>
+            </div>
+            <Button asChild>
+              <Link to="/courses">{copy.browseCourses}</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      );
     }
 
     return (
-      <section className="space-y-4 rounded-[1.5rem] border border-border bg-muted/40 p-5 sm:p-6 dark:bg-muted/25">
+      <section className="space-y-4 rounded-[1.5rem] border border-border bg-[linear-gradient(135deg,rgba(15,118,110,0.06)_0%,rgba(29,78,216,0.06)_100%)] p-5 sm:p-6">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <div className="flex items-center gap-2 text-primary">
@@ -934,77 +634,25 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
             <p className="mt-2 max-w-3xl text-sm leading-7 text-muted-foreground">{recommendationDescription}</p>
           </div>
           <Badge variant="outline" className="w-fit rounded-full bg-background/80 px-3 py-1 text-xs font-semibold">
-            {hasLearningHistory ? copy.triggeredByActivity : hasOnboardingSignals ? copy.drivenByProfile : copy.beginnerDefaults}
+            {hasLearningHistory ? copy.triggeredByActivity : copy.drivenByProfile}
           </Badge>
         </div>
 
-        {recommendationRecovery ? (
-          <Alert variant={recommendationRecovery.feedback.code === "unknown" ? "destructive" : "default"}>
-            <AlertCircle className="h-4 w-4" />
-            <AlertTitle>{recommendationRecovery.feedback.title}</AlertTitle>
-            <AlertDescription>
-              <div className="space-y-3">
-                <p>{recommendationRecovery.feedback.description}</p>
-                <div className="flex flex-wrap gap-2">
-                  {recommendationRecovery.feedback.canRetry ? (
-                    <Button
-                      size="sm"
-                      onClick={() => {
-                        const card = [...recommendationCards, ...assessmentOnlyRecommendationCards].find(
-                          (item) => item.course.id === recommendationRecovery.courseId,
-                        );
-                        if (card) {
-                          void handleRecommendationEnroll(
-                            card.course,
-                            card.persisted,
-                            assessmentOnlyRecommendationCards.some((item) => item.course.id === card.course.id)
-                              ? "dashboard_assessment_recommendations"
-                              : "dashboard_recommendations",
-                          );
-                        }
-                      }}
-                    >
-                      {copy.retryEnrollment}
-                    </Button>
-                  ) : null}
-                  {recommendationRecovery.feedback.suggestedActions.includes("profile") ? (
-                    <Button asChild size="sm" variant="outline">
-                      <Link to="/profile">{copy.updateProfile}</Link>
-                    </Button>
-                  ) : null}
-                  <Button size="sm" variant="ghost" onClick={() => setRecommendationRecovery(null)}>
-                    {copy.dismiss}
-                  </Button>
-                </div>
-              </div>
-            </AlertDescription>
-          </Alert>
-        ) : null}
-
         <div className="grid gap-4 lg:grid-cols-3">
-          {recommendationCards.map(({ course, reasons, persisted }) => (
+          {recommendedCourses.map(({ course, reasons }) => (
             <Card key={course.id} className="overflow-hidden border-border/80 bg-background/95 shadow-[0_18px_40px_-30px_rgba(15,23,42,0.4)]">
-              <div className="relative aspect-[16/10] overflow-hidden border-b border-border bg-muted">
-                {course.thumbnail ? (
-                  <img src={course.thumbnail} alt={course.title} className="h-full w-full object-cover" />
-                ) : (
-                  <div className="flex h-full items-center justify-center bg-muted">
-                    <ImageIcon className="h-10 w-10 text-slate-500" />
-                  </div>
-                )}
-                <div className="absolute left-4 top-4 flex items-center gap-2">
+              <CardHeader className="space-y-3">
+                <div className="flex items-center justify-between gap-2">
                   <Badge className="rounded-full bg-primary px-3 py-1 text-[11px] font-semibold text-primary-foreground hover:bg-primary">
                     {course.level}
                   </Badge>
                   {course.isTESDAAccredited ? (
-                    <Badge variant="outline" className="rounded-full bg-background/90 px-3 py-1 text-[11px] font-semibold backdrop-blur">
+                    <Badge variant="outline" className="rounded-full px-3 py-1 text-[11px] font-semibold">
                       <Award className="mr-1 h-3 w-3" />
                       TESDA
                     </Badge>
                   ) : null}
                 </div>
-              </div>
-              <CardHeader className="space-y-3">
                 <div>
                   <CardTitle className="line-clamp-2 text-xl">{course.title}</CardTitle>
                   <CardDescription className="mt-2 line-clamp-3">{course.description}</CardDescription>
@@ -1018,15 +666,11 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
                   </div>
                   <div className="flex items-center gap-2">
                     <Users className="h-4 w-4" />
-                    <span>{copy.learnersEnrolled(course.enrolledCount || 0)}</span>
+                    <span>{copy.learnersEnrolled(course.enrolledCount)}</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <BookOpen className="h-4 w-4" />
                     <span>{course.category}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Users className="h-4 w-4" />
-                    <span>{copy.assignedTrainer(course.assignedTrainer?.displayName || course.instructor || copy.defaultTrainer)}</span>
                   </div>
                 </div>
 
@@ -1039,204 +683,11 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
                 </div>
 
                 <div className="flex gap-3">
-                  <Button
-                    className="flex-1"
-                    onClick={() => void handleRecommendationEnroll(course, persisted, "dashboard_recommendations")}
-                    disabled={verificationBlocked || enrollingRecommendationCourseId === course.id}
-                  >
-                    {verificationBlocked ? (
-                      user.verificationStatus === "rejected" ? copy.blockedRejected : copy.blockedPending
-                    ) : enrollingRecommendationCourseId === course.id ? (
-                      <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        {copy.enrolling}
-                      </>
-                    ) : (
-                      copy.enrollNow
-                    )}
+                  <Button className="flex-1" asChild>
+                    <Link to="/courses">{copy.browseCourses}</Link>
                   </Button>
                   <Button variant="outline" asChild>
-                    <Link
-                      to={`/courses/${course.id}`}
-                      state={{ entrySource: "dashboard_recommendations" }}
-                      onClick={() => {
-                        const resolvedRecommendation = persisted?.id
-                          ? persisted
-                          : persistedRecommendations.find((item) => item.courseId === course.id);
-                        if (resolvedRecommendation) {
-                          void analyticsService.logRecommendationClick(user.id, resolvedRecommendation, "dashboard_recommendations");
-                        }
-                      }}
-                    >
-                      <Eye className="mr-2 h-4 w-4" />
-                      {copy.preview}
-                    </Link>
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      </section>
-    );
-  };
-
-  const renderAssessmentOnlyRecommendations = () => {
-    if (loadingCourses || loadingPerformance) {
-      return null;
-    }
-
-    if (!hasCompletedOnboarding) {
-      return null;
-    }
-
-    if (!performanceSummary || performanceSummary.scoredAssessments === 0) {
-      return (
-        <Card>
-          <CardContent className="py-8 text-center space-y-3">
-            <Brain className="h-10 w-10 text-primary/70 mx-auto" />
-            <div>
-              <p className="font-medium">{copy.assessmentNeedEvidenceTitle}</p>
-              <p className="text-sm text-muted-foreground">
-                {copy.assessmentNeedEvidenceBody}
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-      );
-    }
-
-    if (!hasAssessmentOnlyRecommendationContext) {
-      return null;
-    }
-
-    return (
-      <section className="space-y-4 rounded-[1.5rem] border border-border bg-muted/40 p-5 sm:p-6 dark:bg-muted/25">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <div className="flex items-center gap-2 text-primary">
-              <Brain className="h-5 w-5" />
-              <span className="text-sm font-semibold uppercase tracking-[0.18em]">{copy.assessmentOnlyAdvisory}</span>
-            </div>
-            <h2 className="mt-2 text-2xl font-semibold tracking-[-0.03em] text-foreground">{assessmentOnlyHeadline}</h2>
-            <p className="mt-2 max-w-3xl text-sm leading-7 text-muted-foreground">{assessmentOnlyDescription}</p>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Badge variant="outline" className="w-fit rounded-full bg-background/80 px-3 py-1 text-xs font-semibold">
-              {assessmentOnlyEvidence?.scoreBand || "assessment_only"} score band
-            </Badge>
-            <Badge variant="outline" className="w-fit rounded-full bg-background/80 px-3 py-1 text-xs font-semibold">
-              {assessmentOnlyEvidence?.scoredAssessments || 0} scored assessment{assessmentOnlyEvidence?.scoredAssessments === 1 ? "" : "s"}
-            </Badge>
-          </div>
-        </div>
-
-        {assessmentOnlyEvidence ? (
-          <div className="grid gap-3 md:grid-cols-3">
-            <div className="rounded-lg border bg-background/85 p-4">
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{copy.strongestTopic}</p>
-              <p className="mt-2 font-semibold">{assessmentOnlyEvidence.strongestTopic?.topic || copy.notEnoughEvidence}</p>
-            </div>
-            <div className="rounded-lg border bg-background/85 p-4">
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{copy.weakestTopic}</p>
-              <p className="mt-2 font-semibold">{assessmentOnlyEvidence.weakestTopic?.topic || copy.noClearFocus}</p>
-            </div>
-            <div className="rounded-lg border bg-background/85 p-4">
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{copy.failedCompetencies}</p>
-              <p className="mt-2 font-semibold">
-                {assessmentOnlyEvidence.failedCompetencies.length > 0
-                  ? assessmentOnlyEvidence.failedCompetencies.map((topic) => topic.topic).join(", ")
-                  : copy.noFailedClusters}
-              </p>
-            </div>
-          </div>
-        ) : null}
-
-        <div className="grid gap-4 lg:grid-cols-3">
-          {assessmentOnlyRecommendationCards.map(({ course, reasons, persisted }) => (
-            <Card key={course.id} className="overflow-hidden border-border/80 bg-background/95 shadow-[0_18px_40px_-30px_rgba(15,23,42,0.4)]">
-              <div className="relative aspect-[16/10] overflow-hidden border-b border-border bg-muted">
-                {course.thumbnail ? (
-                  <img src={course.thumbnail} alt={course.title} className="h-full w-full object-cover" />
-                ) : (
-                  <div className="flex h-full items-center justify-center bg-muted">
-                    <ImageIcon className="h-10 w-10 text-slate-500" />
-                  </div>
-                )}
-                <div className="absolute left-4 top-4 flex items-center gap-2">
-                  <Badge className="rounded-full bg-primary px-3 py-1 text-[11px] font-semibold text-primary-foreground hover:bg-primary">
-                    {course.level}
-                  </Badge>
-                  <Badge variant="outline" className="rounded-full bg-background/90 px-3 py-1 text-[11px] font-semibold backdrop-blur">
-                    Assessment only
-                  </Badge>
-                </div>
-              </div>
-              <CardHeader className="space-y-3">
-                <div>
-                  <CardTitle className="line-clamp-2 text-xl">{course.title}</CardTitle>
-                  <CardDescription className="mt-2 line-clamp-3">{course.description}</CardDescription>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-2 text-sm text-muted-foreground">
-                  <div className="flex items-center gap-2">
-                    <Clock3 className="h-4 w-4" />
-                    <span>{getOfficialHoursCreditLabel(course.duration)}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <BookOpen className="h-4 w-4" />
-                    <span>{course.category}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Users className="h-4 w-4" />
-                    <span>{copy.assignedTrainer(course.assignedTrainer?.displayName || course.instructor || copy.defaultTrainer)}</span>
-                  </div>
-                </div>
-
-                <div className="flex flex-wrap gap-2">
-                  {reasons.map((reason) => (
-                    <Badge key={reason} variant="secondary" className="rounded-full px-3 py-1 text-xs font-medium">
-                      {reason}
-                    </Badge>
-                  ))}
-                </div>
-
-                <div className="flex gap-3">
-                  <Button
-                    className="flex-1"
-                    onClick={() =>
-                      void handleRecommendationEnroll(course, persisted, "dashboard_assessment_recommendations")
-                    }
-                    disabled={verificationBlocked || enrollingRecommendationCourseId === course.id}
-                  >
-                    {verificationBlocked ? (
-                      user.verificationStatus === "rejected" ? copy.blockedRejected : copy.blockedPending
-                    ) : enrollingRecommendationCourseId === course.id ? (
-                      <>
-                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        {copy.enrolling}
-                      </>
-                    ) : (
-                      copy.enrollNow
-                    )}
-                  </Button>
-                  <Button variant="outline" asChild>
-                    <Link
-                      to={`/courses/${course.id}`}
-                      state={{ entrySource: "dashboard_assessment_recommendations" }}
-                      onClick={() => {
-                        const resolvedRecommendation = persisted?.id
-                          ? persisted
-                          : persistedAssessmentOnlyRecommendations.find((item) => item.courseId === course.id);
-                        if (resolvedRecommendation) {
-                          void analyticsService.logRecommendationClick(user.id, resolvedRecommendation, "dashboard_assessment_recommendations");
-                        }
-                      }}
-                    >
-                      <Eye className="mr-2 h-4 w-4" />
-                      {copy.preview}
-                    </Link>
+                    <Link to={`/courses/${course.id}`}>{copy.preview}</Link>
                   </Button>
                 </div>
               </CardContent>
@@ -1564,9 +1015,7 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
         <TraineeOnboardingModal
           open={showOnboardingModal}
           user={user}
-          onDismiss={() => {
-            void handleDismissOnboardingModal();
-          }}
+          onDismiss={() => undefined}
           onCompleted={(summary) => {
             void handleOnboardingCompleted(summary);
           }}
@@ -1599,377 +1048,351 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
           </Alert>
         ) : null}
 
-        <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
-          <Card className="overflow-hidden border-primary/15 bg-card">
-            <CardContent className="p-6 sm:p-7">
-              <div className="flex flex-col gap-6">
-                <div className="space-y-3">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Badge className="w-fit rounded-full bg-primary/10 px-3 py-1 text-primary hover:bg-primary/10">
-                      {copy.workspaceBadge}
-                    </Badge>
-                    <TraineeVerificationBadge status={user.verificationStatus} />
-                  </div>
-                  <div>
-                    <h1 className="text-3xl font-bold tracking-tight">{copy.welcome(user.name)}</h1>
-                    <p className="mt-2 max-w-2xl text-sm leading-7 text-muted-foreground sm:text-base">
-                      {copy.welcomeBody}
-                    </p>
-                  </div>
+        <Card className="overflow-hidden border-primary/15 bg-card">
+          <CardContent className="p-6 sm:p-7">
+            <div className="flex flex-col gap-6">
+              <div className="space-y-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge className="w-fit rounded-full bg-primary/10 px-3 py-1 text-primary hover:bg-primary/10">
+                    {copy.workspaceBadge}
+                  </Badge>
+                  <TraineeVerificationBadge status={user.verificationStatus} />
                 </div>
-
-                <div className="grid gap-3 sm:grid-cols-3">
-                  <div className="rounded-2xl border border-border/60 bg-background/70 p-4">
-                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">{copy.enrolled}</p>
-                    <p className="mt-2 text-3xl font-semibold">{stats.enrolledCourses}</p>
-                    <p className="mt-1 text-xs text-muted-foreground">{copy.enrolledBody}</p>
-                  </div>
-                  <div className="rounded-2xl border border-border/60 bg-background/70 p-4">
-                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">{copy.completed}</p>
-                    <p className="mt-2 text-3xl font-semibold">{stats.completedCourses}</p>
-                    <p className="mt-1 text-xs text-muted-foreground">{copy.completedBody}</p>
-                  </div>
-                  <div className="rounded-2xl border border-border/60 bg-background/70 p-4">
-                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">{copy.profileSignals}</p>
-                    <p className="mt-2 text-3xl font-semibold">{profileSignalCoverage}%</p>
-                    <p className="mt-1 text-xs text-muted-foreground">{copy.profileSignalsBody}</p>
-                  </div>
-                </div>
-
-                {verificationFeedback ? (
-                  <Alert>
-                    <AlertCircle className="h-4 w-4" />
-                    <AlertTitle>{verificationFeedback.title}</AlertTitle>
-                    <AlertDescription>{verificationFeedback.description}</AlertDescription>
-                  </Alert>
-                ) : null}
-
-                <div className="rounded-3xl border border-primary/15 bg-background/80 p-5">
-                  <p className="text-xs font-medium uppercase tracking-[0.18em] text-primary">{copy.primaryNextStep}</p>
-                  <h2 className="mt-3 text-2xl font-semibold tracking-[-0.03em]">{primaryAction.title}</h2>
-                  <p className="mt-2 max-w-2xl text-sm leading-7 text-muted-foreground">{primaryAction.description}</p>
-                  <div className="mt-5 flex flex-wrap gap-2">
-                    <Button asChild>
-                      <Link to={primaryAction.href} state={primaryAction.state}>
-                        {primaryAction.label}
-                      </Link>
-                    </Button>
-                    <Button asChild variant="outline">
-                      <Link to={verificationBlocked ? "/profile" : "/progress"}>
-                        {verificationBlocked ? (user.verificationStatus === "rejected" ? copy.updateProfile : copy.openProfile) : copy.viewProgress}
-                      </Link>
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>{copy.shortcutsTitle}</CardTitle>
-              <CardDescription>{copy.shortcutsBody}</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {nextStepCards.map((item) => (
-                <div key={item.title} className="rounded-2xl border border-border/70 p-4">
-                  <p className="font-medium">{item.title}</p>
-                  <p className="mt-2 text-sm leading-6 text-muted-foreground">{item.description}</p>
-                  {item.href === "#" ? (
-                    <Button variant="outline" size="sm" className="mt-4" onClick={item.onClick}>
-                      {item.label}
-                    </Button>
-                  ) : (
-                    <Button asChild variant="outline" size="sm" className="mt-4">
-                      <Link to={item.href}>{item.label}</Link>
-                    </Button>
-                  )}
-                </div>
-              ))}
-            </CardContent>
-          </Card>
-        </div>
-
-        <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
-        <Card>
-          <CardHeader className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-            <div>
-              <CardTitle className="flex items-center gap-2 text-xl">
-                <Clock3 className="h-5 w-5 text-primary" />
-                {copy.lastAccessedTitle}
-              </CardTitle>
-              <CardDescription>
-                {copy.lastAccessedBody}
-              </CardDescription>
-            </div>
-            {lastAccessedModule && !loadingSessionHistory ? (
-              <Badge variant="secondary" className="w-fit">
-                {formatSessionStatus(lastAccessedModule.sessionStatus)}
-              </Badge>
-            ) : null}
-          </CardHeader>
-          <CardContent>
-            {loadingSessionHistory ? (
-              <div className="flex items-center justify-center py-8">
-                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-              </div>
-            ) : lastAccessedModule ? (
-              <div className="space-y-5">
-                <div className="space-y-2">
-                  <p className="text-lg font-semibold leading-tight">
-                    {lastAccessedModule.moduleTitle || "Untitled module"}
-                  </p>
-                  <p className="text-sm text-muted-foreground">
-                    {lastAccessedModule.courseTitle || "Untitled course"}
+                <div>
+                  <h1 className="text-3xl font-bold tracking-tight">{copy.welcome(user.name)}</h1>
+                  <p className="mt-2 max-w-2xl text-sm leading-7 text-muted-foreground sm:text-base">
+                    {copy.welcomeBody}
                   </p>
                 </div>
-
-                <div className="grid gap-3 md:grid-cols-3">
-                  <div className="rounded-lg border p-3">
-                    <p className="text-xs uppercase tracking-wide text-muted-foreground">{copy.lastOpened}</p>
-                    <p className="mt-2 text-sm font-medium">{formatActivityTime(lastAccessedModule.lastSeenAt)}</p>
-                  </div>
-                  <div className="rounded-lg border p-3">
-                    <p className="text-xs uppercase tracking-wide text-muted-foreground">{copy.latestSession}</p>
-                    <p className="mt-2 text-sm font-medium">{formatSessionDuration(lastAccessedModule.durationSeconds)}</p>
-                  </div>
-                  <div className="rounded-lg border p-3">
-                    <p className="text-xs uppercase tracking-wide text-muted-foreground">{copy.resumePoint}</p>
-                    <p className="mt-2 text-sm font-medium">
-                      {typeof lastAccessedModule.resumePositionSeconds === "number" && lastAccessedModule.resumePositionSeconds > 0
-                        ? formatSessionDuration(lastAccessedModule.resumePositionSeconds)
-                        : copy.startCurrentModule}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex flex-wrap gap-2">
-                  <Button asChild>
-                    <Link
-                      to={`/courses/${lastAccessedModule.courseId}`}
-                      state={{
-                        entrySource: "dashboard_last_accessed_module",
-                        moduleId: lastAccessedModule.moduleId,
-                      }}
-                    >
-                      {copy.continueModule}
-                    </Link>
-                  </Button>
-                  <Button asChild variant="outline">
-                    <Link to="/progress">{copy.viewSessionHistory}</Link>
-                  </Button>
-                </div>
               </div>
-            ) : (
-              <div className="space-y-4 py-4 text-center">
-                <p className="text-sm text-muted-foreground">
-                  {copy.recentActivityEmpty}
-                </p>
+
+              {verificationFeedback ? (
+                <Alert>
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertTitle>{verificationFeedback.title}</AlertTitle>
+                  <AlertDescription>{verificationFeedback.description}</AlertDescription>
+                </Alert>
+              ) : null}
+
+              <div className="flex flex-wrap gap-2">
+                <Button asChild>
+                  <Link to={primaryAction.href} state={primaryAction.state}>
+                    {primaryAction.label}
+                  </Link>
+                </Button>
                 <Button asChild variant="outline">
-                  <Link to="/courses">{copy.browseCourses}</Link>
+                  <Link to={verificationBlocked ? "/profile" : "/progress"}>
+                    {verificationBlocked ? (user.verificationStatus === "rejected" ? copy.updateProfile : copy.openProfile) : copy.viewProgress}
+                  </Link>
                 </Button>
               </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>{copy.currentFocusTitle}</CardTitle>
-            <CardDescription>{copy.currentFocusBody}</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="rounded-2xl border border-border/70 bg-muted/30 p-4">
-              <p className="text-sm text-muted-foreground">{copy.resumeLearningTitle}</p>
-              <p className="mt-2 font-medium">
-                {lastAccessedModule
-                  ? `${lastAccessedModule.moduleTitle || "Latest module"} is ready to continue.`
-                  : primaryCourse
-                    ? `${primaryCourse.title} is your current in-progress course.`
-                      : copy.noRecentModule}
-              </p>
-            </div>
-            <div className="rounded-2xl border border-border/70 bg-muted/30 p-4">
-                    <p className="text-sm text-muted-foreground">{copy.recommendationStrength}</p>
-              <p className="mt-2 font-medium">
-                {profileSignalCoverage >= 75
-                  ? "Your dashboard has enough profile context to keep recommendations specific."
-                  : "Complete more profile signals to make recommendations more specific and actionable."}
-              </p>
-            </div>
-            <div className="rounded-2xl border border-border/70 bg-muted/30 p-4">
-              <p className="text-sm text-muted-foreground">{copy.progressReview}</p>
-              <p className="mt-2 font-medium">
-                {stats.enrolledCourses > 0
-                  ? "Use the progress dashboard when you want course-by-course detail, not when you are trying to resume quickly."
-                  : "Progress detail becomes useful after you enroll and start learning activity."}
-              </p>
             </div>
           </CardContent>
         </Card>
-        </div>
 
-    {renderRecommendedCourses()}
-
-      {renderAssessmentOnlyRecommendations()}
-
-        <div>
-          <div className="mb-4 flex items-center justify-between">
-            <div>
-              <h2 className="text-2xl font-bold">{copy.myCourses}</h2>
-              <p className="mt-1 text-sm text-muted-foreground">{copy.myCoursesBody}</p>
-            </div>
-            <Button asChild variant="outline">
-              <Link to="/courses">{copy.viewAll}</Link>
-            </Button>
+        <Tabs value={dashboardTab} onValueChange={(value) => setDashboardTab(value as DashboardTab)} className="space-y-6">
+          <div className="rounded-3xl border border-border/70 bg-card p-2">
+            <TabsList className="grid h-auto w-full grid-cols-1 gap-2 bg-transparent p-0 sm:grid-cols-3">
+              <TabsTrigger value="continue" className="rounded-2xl px-4 py-3 text-sm font-semibold data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+                {copy.tabs.continue}
+              </TabsTrigger>
+              <TabsTrigger value="discover" className="rounded-2xl px-4 py-3 text-sm font-semibold data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+                {copy.tabs.discover}
+              </TabsTrigger>
+              <TabsTrigger value="review" className="rounded-2xl px-4 py-3 text-sm font-semibold data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+                {copy.tabs.review}
+              </TabsTrigger>
+            </TabsList>
           </div>
-          {loadingCourses ? (
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {Array.from({ length: 3 }).map((_, index) => (
-                <Card key={index}>
-                  <CardHeader>
-                    <Skeleton className="h-6 w-2/3" />
-                    <Skeleton className="h-4 w-1/2" />
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    <Skeleton className="h-4 w-full" />
-                    <Skeleton className="h-2 w-full" />
-                    <Skeleton className="h-10 w-full" />
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
-          ) : (
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {myCourses.length > 0 ? (
-                myCourses.map((course) => {
-                  const isCompleted = course.enrollment.status === "completed";
-                  const isAwaitingApproval = course.enrollment.progress >= 100 && course.enrollment.completionApprovalStatus !== "approved";
-                  return (
-                    <Card key={course.id} className={isCompleted ? "border-green-200 dark:border-green-900/30" : ""}>
+
+          <TabsContent value="continue" className="space-y-6">
+            <Card>
+              <CardHeader className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2 text-xl">
+                    <Clock3 className="h-5 w-5 text-primary" />
+                    {copy.lastAccessedTitle}
+                  </CardTitle>
+                  <CardDescription>
+                    {copy.lastAccessedBody}
+                  </CardDescription>
+                </div>
+                {lastAccessedModule && !loadingSessionHistory ? (
+                  <Badge variant="secondary" className="w-fit">
+                    {formatSessionStatus(lastAccessedModule.sessionStatus)}
+                  </Badge>
+                ) : null}
+              </CardHeader>
+              <CardContent>
+                {loadingSessionHistory ? (
+                  <div className="flex items-center justify-center py-8">
+                    <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+                  </div>
+                ) : lastAccessedModule ? (
+                  <div className="space-y-5">
+                    <div className="space-y-2">
+                      <p className="text-lg font-semibold leading-tight">
+                        {lastAccessedModule.moduleTitle || "Untitled module"}
+                      </p>
+                      <p className="text-sm text-muted-foreground">
+                        {lastAccessedModule.courseTitle || "Untitled course"}
+                      </p>
+                    </div>
+
+                    <div className="grid gap-3 md:grid-cols-3">
+                      <div className="rounded-lg border p-3">
+                        <p className="text-xs uppercase tracking-wide text-muted-foreground">{copy.lastOpened}</p>
+                        <p className="mt-2 text-sm font-medium">{formatActivityTime(lastAccessedModule.lastSeenAt)}</p>
+                      </div>
+                      <div className="rounded-lg border p-3">
+                        <p className="text-xs uppercase tracking-wide text-muted-foreground">{copy.latestSession}</p>
+                        <p className="mt-2 text-sm font-medium">{formatSessionDuration(lastAccessedModule.durationSeconds)}</p>
+                      </div>
+                      <div className="rounded-lg border p-3">
+                        <p className="text-xs uppercase tracking-wide text-muted-foreground">{copy.resumePoint}</p>
+                        <p className="mt-2 text-sm font-medium">
+                          {typeof lastAccessedModule.resumePositionSeconds === "number" && lastAccessedModule.resumePositionSeconds > 0
+                            ? formatSessionDuration(lastAccessedModule.resumePositionSeconds)
+                            : copy.startCurrentModule}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2">
+                      <Button asChild>
+                        <Link
+                          to={`/courses/${lastAccessedModule.courseId}`}
+                          state={{
+                            entrySource: "dashboard_last_accessed_module",
+                            moduleId: lastAccessedModule.moduleId,
+                          }}
+                        >
+                          {copy.continueModule}
+                        </Link>
+                      </Button>
+                      <Button asChild variant="outline">
+                        <Link to="/progress">{copy.viewSessionHistory}</Link>
+                      </Button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-4 py-4 text-center">
+                    <p className="text-sm text-muted-foreground">
+                      {copy.recentActivityEmpty}
+                    </p>
+                    <Button asChild variant="outline">
+                      <Link to="/courses">{copy.browseCourses}</Link>
+                    </Button>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            <div>
+              <div className="mb-4 flex items-center justify-between">
+                <div>
+                  <h2 className="text-2xl font-bold">{copy.myCourses}</h2>
+                  <p className="mt-1 text-sm text-muted-foreground">{copy.myCoursesBody}</p>
+                </div>
+                <Button asChild variant="outline">
+                  <Link to="/courses">{copy.viewAll}</Link>
+                </Button>
+              </div>
+              {loadingCourses ? (
+                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                  {Array.from({ length: 3 }).map((_, index) => (
+                    <Card key={index}>
                       <CardHeader>
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="min-w-0 flex-1">
-                            <CardTitle className="line-clamp-2">{course.title}</CardTitle>
-                            <CardDescription>
-                              {course.category} • {course.level} • {course.assignedTrainer?.displayName || course.instructor || "PESO Training Team"}
-                            </CardDescription>
-                          </div>
-                          {isCompleted && (
-                            <Badge variant="outline" className="shrink-0 text-green-600 border-green-300">
-                              <CheckCircle2 className="w-3 h-3 mr-1" />
-                              Completed
-                            </Badge>
-                          )}
-                        </div>
+                        <Skeleton className="h-6 w-2/3" />
+                        <Skeleton className="h-4 w-1/2" />
                       </CardHeader>
-                      <CardContent>
-                        <div className="space-y-2">
-                          <div className="flex justify-between text-sm">
-                            <span className="text-muted-foreground">Progress</span>
-                            <span className="font-medium">{course.enrollment.progress}%</span>
-                          </div>
-                          <div className="h-2 bg-muted rounded-full overflow-hidden">
-                            <div
-                              className={`h-full rounded-full transition-all ${isCompleted ? "bg-green-600" : "bg-primary"}`}
-                              style={{ width: `${course.enrollment.progress}%` }}
-                            />
-                          </div>
-                          {isAwaitingApproval ? (
-                            <p className="text-xs text-muted-foreground">
-                              {copy.waitingApproval}
-                            </p>
-                          ) : null}
-                          {isCompleted ? (
-                            <Button asChild className="w-full mt-4" variant="secondary">
-                              <Link to="/certificates">View Certificate</Link>
-                            </Button>
-                          ) : (
-                            <Button asChild className="w-full mt-4">
-                              <Link to={`/courses/${course.id}`} state={{ entrySource: "dashboard_continue_learning" }}>
-                                Continue Learning
-                              </Link>
-                            </Button>
-                          )}
-                        </div>
+                      <CardContent className="space-y-3">
+                        <Skeleton className="h-4 w-full" />
+                        <Skeleton className="h-2 w-full" />
+                        <Skeleton className="h-10 w-full" />
                       </CardContent>
                     </Card>
-                  );
-                })
+                  ))}
+                </div>
               ) : (
-                <Card className="col-span-full">
-                  <CardContent className="flex flex-col items-center justify-center py-8 text-center">
-                    <BookOpen className="w-12 h-12 text-muted-foreground mb-4" />
-                    {completedCourses.length > 0 || stats.enrolledCourses > 0 ? (
-                      <>
-                        <p className="text-muted-foreground mb-2">You have no active in-progress courses right now.</p>
-                        <p className="text-sm text-muted-foreground mb-4 max-w-xl">
-                          Review released certificates or enroll in another course if you want a new next step on the dashboard.
-                        </p>
-                        <div className="flex flex-wrap items-center justify-center gap-2">
-                          <Button asChild variant="outline">
-                            <Link to="/certificates">View Certificates</Link>
-                          </Button>
-                          <Button asChild>
-                            <Link to="/courses">Browse Courses</Link>
-                          </Button>
-                        </div>
-                      </>
-                    ) : (
-                      <>
-                        <p className="text-muted-foreground mb-2">You have not enrolled in any courses yet.</p>
-                        <p className="text-sm text-muted-foreground mb-4 max-w-xl">
-                          Start with the course catalog, then come back here to resume modules and review progress.
-                        </p>
-                        <Button asChild>
-                          <Link to="/courses">Browse Courses</Link>
-                        </Button>
-                      </>
-                    )}
-                  </CardContent>
-                </Card>
+                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                  {myCourses.length > 0 ? (
+                    myCourses.map((course) => {
+                      const isCompleted = course.enrollment.status === "completed";
+                      const isAwaitingApproval = course.enrollment.progress >= 100 && course.enrollment.completionApprovalStatus !== "approved";
+                      return (
+                        <Card key={course.id} className={isCompleted ? "border-green-200 dark:border-green-900/30" : ""}>
+                          <CardHeader>
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0 flex-1">
+                                <CardTitle className="line-clamp-2">{course.title}</CardTitle>
+                                <CardDescription>
+                                  {course.category} • {course.level} • {course.assignedTrainer?.displayName || course.instructor || "PESO Training Team"}
+                                </CardDescription>
+                              </div>
+                              {isCompleted && (
+                                <Badge variant="outline" className="shrink-0 text-green-600 border-green-300">
+                                  <CheckCircle2 className="w-3 h-3 mr-1" />
+                                  Completed
+                                </Badge>
+                              )}
+                            </div>
+                          </CardHeader>
+                          <CardContent>
+                            <div className="space-y-2">
+                              <div className="flex justify-between text-sm">
+                                <span className="text-muted-foreground">Progress</span>
+                                <span className="font-medium">{course.enrollment.progress}%</span>
+                              </div>
+                              <div className="h-2 bg-muted rounded-full overflow-hidden">
+                                <div
+                                  className={`h-full rounded-full transition-all ${isCompleted ? "bg-green-600" : "bg-primary"}`}
+                                  style={{ width: `${course.enrollment.progress}%` }}
+                                />
+                              </div>
+                              {isAwaitingApproval ? (
+                                <p className="text-xs text-muted-foreground">
+                                  {copy.waitingApproval}
+                                </p>
+                              ) : null}
+                              {isCompleted ? (
+                                <Button asChild className="w-full mt-4" variant="secondary">
+                                  <Link to="/certificates">View Certificate</Link>
+                                </Button>
+                              ) : (
+                                <Button asChild className="w-full mt-4">
+                                  <Link to={`/courses/${course.id}`} state={{ entrySource: "dashboard_continue_learning" }}>
+                                    Continue Learning
+                                  </Link>
+                                </Button>
+                              )}
+                            </div>
+                          </CardContent>
+                        </Card>
+                      );
+                    })
+                  ) : (
+                    <Card className="col-span-full">
+                      <CardContent className="flex flex-col items-center justify-center py-8 text-center">
+                        <BookOpen className="w-12 h-12 text-muted-foreground mb-4" />
+                        {completedCourses.length > 0 || stats.enrolledCourses > 0 ? (
+                          <>
+                            <p className="text-muted-foreground mb-2">You have no active in-progress courses right now.</p>
+                            <p className="text-sm text-muted-foreground mb-4 max-w-xl">
+                              Review released certificates or enroll in another course if you want a new next step on the dashboard.
+                            </p>
+                            <div className="flex flex-wrap items-center justify-center gap-2">
+                              <Button asChild variant="outline">
+                                <Link to="/certificates">View Certificates</Link>
+                              </Button>
+                              <Button asChild>
+                                <Link to="/courses">Browse Courses</Link>
+                              </Button>
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <p className="text-muted-foreground mb-2">You have not enrolled in any courses yet.</p>
+                            <p className="text-sm text-muted-foreground mb-4 max-w-xl">
+                              Start with the course catalog, then come back here to resume modules and review progress.
+                            </p>
+                            <Button asChild>
+                              <Link to="/courses">Browse Courses</Link>
+                            </Button>
+                          </>
+                        )}
+                      </CardContent>
+                    </Card>
+                  )}
+                </div>
               )}
             </div>
-          )}
-        </div>
+          </TabsContent>
 
-        {renderPerformanceSummary()}
+          <TabsContent value="discover" className="space-y-6">
+            {renderRecommendedCourses()}
+          </TabsContent>
 
-        {/* Completed Courses - on Dashboard per user request */}
-        {completedCourses.length > 0 && (
-          <div className="space-y-4">
-            <h2 className="text-xl font-semibold flex items-center gap-2">
-              <CheckCircle2 className="h-5 w-5 text-green-600" />
-              Completed Courses
-            </h2>
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {completedCourses.map((course) => (
-                <Card key={course.id} className="flex flex-col border-green-200 dark:border-green-900/30">
-                  <CardHeader>
-                    <Badge variant="outline" className="w-fit text-green-600 border-green-300">
-                      Completed
-                    </Badge>
-                    <CardTitle className="line-clamp-2">{course.title}</CardTitle>
-                    <CardDescription className="line-clamp-2">
-                      {course.description}
-                    </CardDescription>
-                    <p className="text-sm text-muted-foreground">
-                      Assigned trainer: {course.assignedTrainer?.displayName || course.instructor || "PESO Training Team"}
-                    </p>
-                  </CardHeader>
-                  <CardContent className="mt-auto">
-                    <Button asChild variant="default" className="w-full gap-2">
-                      <Link to="/certificates">
-                        <Award className="h-4 w-4" />
-                        View Released Certificate
-                      </Link>
-                    </Button>
-                  </CardContent>
-                </Card>
-              ))}
+          <TabsContent value="review" className="space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle>{copy.reviewActionsTitle}</CardTitle>
+                <CardDescription>{copy.reviewActionsBody}</CardDescription>
+              </CardHeader>
+              <CardContent className="flex flex-wrap gap-2">
+                <Button asChild>
+                  <Link to="/progress">{copy.viewProgress}</Link>
+                </Button>
+                <Button asChild variant="outline">
+                  <Link to={completedCourses.length > 0 ? "/certificates" : "/courses"}>
+                    {completedCourses.length > 0 ? copy.viewCertificates : copy.browseCourses}
+                  </Link>
+                </Button>
+              </CardContent>
+            </Card>
+
+            <div className="grid gap-3 md:grid-cols-3">
+              <Card>
+                <CardContent className="p-4">
+                  <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">{copy.enrolled}</p>
+                  <p className="mt-2 text-3xl font-semibold">{stats.enrolledCourses}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">{copy.enrolledBody}</p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-4">
+                  <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">{copy.completed}</p>
+                  <p className="mt-2 text-3xl font-semibold">{stats.completedCourses}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">{copy.completedBody}</p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-4">
+                  <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">{copy.profileSignals}</p>
+                  <p className="mt-2 text-3xl font-semibold">{profileSignalCoverage}%</p>
+                  <p className="mt-1 text-xs text-muted-foreground">{copy.profileSignalsBody}</p>
+                </CardContent>
+              </Card>
             </div>
-          </div>
-        )}
+
+            {renderPerformanceSummary()}
+
+            {completedCourses.length > 0 && (
+              <div className="space-y-4">
+                <h2 className="text-xl font-semibold flex items-center gap-2">
+                  <CheckCircle2 className="h-5 w-5 text-green-600" />
+                  Completed Courses
+                </h2>
+                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                  {completedCourses.map((course) => (
+                    <Card key={course.id} className="flex flex-col border-green-200 dark:border-green-900/30">
+                      <CardHeader>
+                        <Badge variant="outline" className="w-fit text-green-600 border-green-300">
+                          Completed
+                        </Badge>
+                        <CardTitle className="line-clamp-2">{course.title}</CardTitle>
+                        <CardDescription className="line-clamp-2">
+                          {course.description}
+                        </CardDescription>
+                        <p className="text-sm text-muted-foreground">
+                          Assigned trainer: {course.assignedTrainer?.displayName || course.instructor || "PESO Training Team"}
+                        </p>
+                      </CardHeader>
+                      <CardContent className="mt-auto">
+                        <Button asChild variant="default" className="w-full gap-2">
+                          <Link to="/certificates">
+                            <Award className="h-4 w-4" />
+                            View Released Certificate
+                          </Link>
+                        </Button>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              </div>
+            )}
+          </TabsContent>
+        </Tabs>
 
       </div>
     </DashboardLayout>

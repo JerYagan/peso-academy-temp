@@ -18,6 +18,7 @@ export interface ProgressStats {
 export interface CourseProgress {
   courseId: string;
   courseTitle: string;
+  officialDurationHours: number;
   progress: number;
   timeSpent: number;
   modulesCompleted: number;
@@ -175,12 +176,12 @@ export const progressTrackingService = {
       const courseIds = enrollments.map((e) => e.course_id);
       const { data: courses } = await supabase
         .from("courses")
-        .select("id, title")
+        .select("id, title, duration")
         .in("id", courseIds);
 
       if (!courses) return [];
 
-      const courseMap = new Map(courses.map((c) => [c.id, c.title]));
+      const courseMap = new Map(courses.map((c) => [c.id, { title: c.title, duration: Number(c.duration) || 0 }]));
 
       // Get time spent and module counts for each enrollment
       const progressPromises = enrollments.map(async (enrollment) => {
@@ -206,7 +207,8 @@ export const progressTrackingService = {
 
         return {
           courseId: enrollment.course_id,
-          courseTitle: courseMap.get(enrollment.course_id) || "Unknown Course",
+          courseTitle: courseMap.get(enrollment.course_id)?.title || "Unknown Course",
+          officialDurationHours: courseMap.get(enrollment.course_id)?.duration || 0,
           progress: enrollment.progress,
           timeSpent: totalTimeSpent,
           modulesCompleted: modulesCompleted || 0,

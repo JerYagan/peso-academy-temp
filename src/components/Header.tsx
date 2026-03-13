@@ -23,7 +23,7 @@ const Header = () => {
   const { t } = useLocale();
   const navigate = useNavigate();
   const location = useLocation();
-  const logoSrc = resolvedTheme === "dark" ? "/images/logo_dark.png" : "/images/logo.png";
+  const logoSrc = "/images/logo_dark.png";
   const toggleTheme = () => {
     void setThemePreference(resolvedTheme === "dark" ? "light" : "dark");
   };

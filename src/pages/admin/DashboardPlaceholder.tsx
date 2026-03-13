@@ -506,11 +506,11 @@ const AdminDashboardPlaceholder = () => {
                       Switch between high-level performance, learner activity, predictive risk, and recommendation tooling so each admin task has a smaller surface area.
                     </p>
                   </div>
-                  <TabsList className="h-auto w-full flex-wrap justify-start gap-2 rounded-2xl bg-muted/60 p-1 xl:w-auto">
-                    <TabsTrigger value="overview" className="rounded-xl px-4 py-2.5">Overview</TabsTrigger>
-                    <TabsTrigger value="activity" className="rounded-xl px-4 py-2.5">Learner activity</TabsTrigger>
-                    <TabsTrigger value="risk" className="rounded-xl px-4 py-2.5">Predictive risk</TabsTrigger>
-                    <TabsTrigger value="recommendations" className="rounded-xl px-4 py-2.5">Recommendations & tools</TabsTrigger>
+                  <TabsList className="grid h-auto w-full grid-cols-1 gap-2 rounded-2xl bg-muted/60 p-1 sm:grid-cols-2 xl:grid-cols-4">
+                    <TabsTrigger value="overview" className="w-full rounded-xl px-4 py-3 text-sm font-semibold data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">Overview</TabsTrigger>
+                    <TabsTrigger value="activity" className="w-full rounded-xl px-4 py-3 text-sm font-semibold data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">Learner activity</TabsTrigger>
+                    <TabsTrigger value="risk" className="w-full rounded-xl px-4 py-3 text-sm font-semibold data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">Predictive risk</TabsTrigger>
+                    <TabsTrigger value="recommendations" className="w-full rounded-xl px-4 py-3 text-sm font-semibold data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">Recommendations & tools</TabsTrigger>
                   </TabsList>
                 </div>
               </div>

@@ -775,14 +775,14 @@ const CourseDetail = () => {
 
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
           {/* Modules Sidebar */}
-          <div className="lg:col-span-1">
-            <Card>
+          <div className="lg:col-span-1 lg:self-start">
+            <Card className="lg:sticky lg:top-24">
               <CardHeader>
                 <CardTitle className="text-lg">{copy.modulesCardTitle}</CardTitle>
                 <CardDescription>{copy.modulesCardDescription(modules.length)}</CardDescription>
               </CardHeader>
               <CardContent className="p-0">
-                <ScrollArea className="h-[600px]">
+                <ScrollArea className="h-[420px] lg:h-[calc(100vh-12rem)]">
                   <div className="p-4 space-y-1">
                     {modules.map((module, index) => {
                       const completed = isModuleCompleted(module.id);

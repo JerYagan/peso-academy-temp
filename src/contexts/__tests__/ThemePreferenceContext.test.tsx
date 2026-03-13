@@ -43,7 +43,9 @@ describe("ThemePreferenceContext", () => {
     mockedUser = null;
     mockedTheme = "system";
     mockedResolvedTheme = "light";
+    window.localStorage.clear();
     updateUserMock.mockReset();
+    updateUserMock.mockResolvedValue(undefined);
     setThemeMock.mockClear();
   });
 
@@ -90,6 +92,32 @@ describe("ThemePreferenceContext", () => {
       expect(updateUserMock).toHaveBeenCalledWith({ themePreference: "dark" });
     });
 
+    expect(setThemeMock).toHaveBeenCalledWith("dark");
+  });
+
+  it("keeps the selected theme locally while profile persistence is in flight", async () => {
+    mockedUser = {
+      id: "user-1",
+      email: "learner@example.com",
+      name: "Learner",
+      role: "trainee",
+      themePreference: "system",
+    } as User;
+    mockedTheme = "system";
+    mockedResolvedTheme = "light";
+
+    updateUserMock.mockImplementation(() => new Promise(() => undefined));
+
+    render(
+      <ThemePreferenceProvider>
+        <ThemeProbe />
+      </ThemePreferenceProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Switch theme" }));
+
+    expect(screen.getByTestId("theme-preference")).toHaveTextContent("dark");
+    expect(window.localStorage.getItem("peso-theme-preference")).toBe("dark");
     expect(setThemeMock).toHaveBeenCalledWith("dark");
   });
 });

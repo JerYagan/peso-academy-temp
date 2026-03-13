@@ -7,7 +7,7 @@ const Footer = () => {
   return (
     <footer className="bg-primary py-10 text-primary-foreground sm:py-14">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        <div className="grid gap-8 border-b border-white/15 pb-8 sm:gap-10 sm:pb-10 md:grid-cols-[1.3fr_0.8fr_1fr]">
+        <div className="grid gap-8 border-b border-white/15 pb-8 sm:gap-10 sm:pb-10 md:grid-cols-[1.5fr_1fr]">
           <div className="space-y-4">
             <Link to="/" className="inline-flex items-center">
               <img
@@ -28,14 +28,6 @@ const Footer = () => {
               <li><a href="#how-it-works" className="transition-colors hover:text-white">{t("header.nav.howItWorks")}</a></li>
               <li><Link to="/courses" className="transition-colors hover:text-white">{t("common.courses")}</Link></li>
               <li><a href="#about" className="transition-colors hover:text-white">{t("header.nav.about")}</a></li>
-            </ul>
-          </div>
-
-          <div>
-            <h4 className="mb-3 text-[11px] font-extrabold uppercase tracking-[0.16em] text-primary-foreground sm:mb-4 sm:text-sm">{t("footer.contact")}</h4>
-            <ul className="space-y-1.5 text-xs leading-6 text-primary-foreground/75 sm:space-y-2 sm:text-sm sm:leading-7">
-              <li>{t("footer.cityGovernment")}</li>
-              <li>{t("footer.location")}</li>
             </ul>
           </div>
         </div>

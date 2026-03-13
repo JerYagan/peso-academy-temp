@@ -180,9 +180,6 @@ const Certificates = () => {
                             </p>
                           )}
                         </div>
-                        <span className="shrink-0 rounded-md bg-green-100 px-3 py-1 text-sm font-medium text-green-800 dark:bg-green-900/40 dark:text-green-300">
-                          {t("certificates.badge")}
-                        </span>
                       </div>
 
                       <div className="mt-4 grid gap-2 text-sm sm:grid-cols-3">

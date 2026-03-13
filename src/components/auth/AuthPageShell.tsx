@@ -31,7 +31,7 @@ const AuthPageShell = ({
           <div className="mx-auto max-w-6xl">
             <div className="mx-auto text-center">
               <img
-                src="/images/logo.png"
+                src="/images/logo_dark.png"
                 alt="PESO Academy"
                 className="mx-auto h-20 w-auto object-contain sm:h-24"
               />

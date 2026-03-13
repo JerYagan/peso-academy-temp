@@ -58,6 +58,20 @@ const normalizeStoredDocumentPath = (storedValue: string) => {
     return "";
   }
 
+  try {
+    const parsedUrl = new URL(trimmedValue);
+    const pathname = parsedUrl.pathname;
+    if (pathname) {
+      const normalizedPathname = pathname.replace(/\\/g, "/");
+      const bucketIndex = normalizedPathname.indexOf(`/${TRAINEE_VERIFICATION_DOCUMENTS_BUCKET}/`);
+      if (bucketIndex >= 0) {
+        return normalizedPathname.slice(bucketIndex + TRAINEE_VERIFICATION_DOCUMENTS_BUCKET.length + 2).split("?")[0];
+      }
+    }
+  } catch {
+    // Ignore non-URL values and continue with path normalization.
+  }
+
   const bucketMarkerPatterns = [
     `/storage/v1/object/authenticated/${TRAINEE_VERIFICATION_DOCUMENTS_BUCKET}/`,
     `/storage/v1/object/sign/${TRAINEE_VERIFICATION_DOCUMENTS_BUCKET}/`,
@@ -77,11 +91,39 @@ const normalizeStoredDocumentPath = (storedValue: string) => {
 
 export const downloadPhysicalIdDocument = async (storedValue: string, userId?: string) => {
   const normalizedValue = normalizeStoredDocumentPath(storedValue);
+  const baseName = normalizedValue.split("/").pop() || normalizedValue;
+
+  if (userId && baseName) {
+    const { data: allFiles, error: allFilesError } = await supabase.storage
+      .from(TRAINEE_VERIFICATION_DOCUMENTS_BUCKET)
+      .list(userId, { limit: 100 });
+
+    if (!allFilesError && allFiles && allFiles.length > 0) {
+      const likelyMatch = allFiles.find((file) => file.name === baseName)
+        || allFiles.find((file) => file.name === normalizedValue)
+        || allFiles.find((file) => file.name.includes(baseName))
+        || allFiles.find((file) => file.name.startsWith("physical-id-"))
+        || null;
+
+      if (likelyMatch) {
+        const recoveredPath = `${userId}/${likelyMatch.name}`;
+        const { data, error } = await supabase.storage
+          .from(TRAINEE_VERIFICATION_DOCUMENTS_BUCKET)
+          .download(recoveredPath);
+
+        if (!error && data) {
+          return data;
+        }
+      }
+    }
+  }
+
   const candidatePaths = Array.from(
     new Set(
       [
         normalizedValue,
         userId && normalizedValue && !normalizedValue.includes("/") ? `${userId}/${normalizedValue}` : "",
+        userId && baseName ? `${userId}/${baseName}` : "",
       ].filter(Boolean),
     ),
   );
@@ -93,27 +135,6 @@ export const downloadPhysicalIdDocument = async (storedValue: string, userId?: s
 
     if (!error && data) {
       return data;
-    }
-  }
-
-  if (userId && normalizedValue && !normalizedValue.includes("/")) {
-    const { data: listedFiles, error: listError } = await supabase.storage
-      .from(TRAINEE_VERIFICATION_DOCUMENTS_BUCKET)
-      .list(userId, {
-        search: normalizedValue,
-        limit: 10,
-      });
-
-    if (!listError && listedFiles && listedFiles.length > 0) {
-      const matchingFile = listedFiles.find((file) => file.name === normalizedValue) || listedFiles[0];
-      const recoveredPath = `${userId}/${matchingFile.name}`;
-      const { data, error } = await supabase.storage
-        .from(TRAINEE_VERIFICATION_DOCUMENTS_BUCKET)
-        .download(recoveredPath);
-
-      if (!error && data) {
-        return data;
-      }
     }
   }
 
