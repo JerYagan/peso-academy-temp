@@ -77,7 +77,11 @@ export interface EnrollmentAssessmentProgress {
   latestAttemptId?: string;
   requiresManualReview: boolean;
   submittedAt?: string;
+  timeSpent?: number;
   reviewStatus?: "submitted" | "under_review" | "needs_revision" | "approved";
+  reviewFeedback?: string;
+  earnedPoints?: number;
+  totalPoints?: number;
   passed?: boolean;
   score?: number;
 }

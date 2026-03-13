@@ -2608,14 +2608,37 @@ export const enrollmentService = {
     const { data: attemptRows, error: attemptError } = assessmentIds.length > 0
       ? await supabase
           .from("assessment_attempts")
-          .select("id, assessment_id, submitted_at, started_at, review_status, passed, score, requires_manual_review")
+          .select("id, assessment_id, submitted_at, started_at, review_status, review_feedback, passed, score, time_spent, requires_manual_review")
           .eq("enrollment_id", enrollmentId)
           .in("assessment_id", assessmentIds)
+      : { data: [], error: null };
+    const attemptIds = (attemptRows || []).map((attempt: any) => attempt.id).filter(Boolean);
+    const { data: questionRows, error: questionError } = assessmentIds.length > 0
+      ? await supabase
+          .from("assessment_questions")
+          .select("assessment_id, points")
+          .in("assessment_id", assessmentIds)
+      : { data: [], error: null };
+    const { data: answerRows, error: answerError } = attemptIds.length > 0
+      ? await supabase
+          .from("assessment_answers")
+          .select("attempt_id, points_earned")
+          .in("attempt_id", attemptIds)
       : { data: [], error: null };
 
     if (attemptError) {
       handleSupabaseError(attemptError);
       throw attemptError;
+    }
+
+    if (questionError) {
+      handleSupabaseError(questionError);
+      throw questionError;
+    }
+
+    if (answerError) {
+      handleSupabaseError(answerError);
+      throw answerError;
     }
 
     const completionMap = new Map<string, { completedAt?: string; timeSpent?: number }>();
@@ -2627,12 +2650,29 @@ export const enrollmentService = {
     }
 
     const completedModuleIds = Array.from(completionMap.keys());
+    const totalPointsByAssessmentId = new Map<string, number>();
+    for (const row of questionRows || []) {
+      totalPointsByAssessmentId.set(
+        row.assessment_id,
+        (totalPointsByAssessmentId.get(row.assessment_id) || 0) + (Number(row.points) || 0),
+      );
+    }
+    const earnedPointsByAttemptId = new Map<string, number>();
+    for (const row of answerRows || []) {
+      earnedPointsByAttemptId.set(
+        row.attempt_id,
+        (earnedPointsByAttemptId.get(row.attempt_id) || 0) + (Number(row.points_earned) || 0),
+      );
+    }
     const latestAttemptByAssessmentId = new Map<string, any>();
     for (const attempt of attemptRows || []) {
       const current = latestAttemptByAssessmentId.get(attempt.assessment_id);
+      const attemptIsSubmitted = Boolean(attempt.submitted_at);
+      const currentIsSubmitted = Boolean(current?.submitted_at);
       const attemptTime = new Date(attempt.submitted_at || attempt.started_at || 0).getTime();
       const currentTime = current ? new Date(current.submitted_at || current.started_at || 0).getTime() : -1;
-      if (!current || attemptTime > currentTime) {
+
+      if (!current || (attemptIsSubmitted && !currentIsSubmitted) || (attemptIsSubmitted === currentIsSubmitted && attemptTime > currentTime)) {
         latestAttemptByAssessmentId.set(attempt.assessment_id, attempt);
       }
     }
@@ -2659,7 +2699,11 @@ export const enrollmentService = {
           latestAttemptId: latestAttempt?.id || undefined,
           requiresManualReview: Boolean(latestAttempt?.requires_manual_review),
           submittedAt: latestAttempt?.submitted_at || undefined,
+          timeSpent: latestAttempt?.time_spent ? Math.max(1, Math.ceil(Number(latestAttempt.time_spent) / 60)) : undefined,
           reviewStatus: latestAttempt?.review_status || undefined,
+          reviewFeedback: latestAttempt?.review_feedback || undefined,
+          earnedPoints: latestAttempt?.id ? earnedPointsByAttemptId.get(latestAttempt.id) || 0 : undefined,
+          totalPoints: totalPointsByAssessmentId.get(assessment.id) || 0,
           passed: typeof latestAttempt?.passed === "boolean" ? latestAttempt.passed : undefined,
           score: latestAttempt?.score === null || latestAttempt?.score === undefined ? undefined : Number(latestAttempt.score),
         };

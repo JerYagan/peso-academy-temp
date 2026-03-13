@@ -3,7 +3,7 @@
 This dataset is intended for browser-based or scripted population of trainer courses and modules in PESO Academy.
 
 Coverage goals:
-- 7 courses
+- 8 courses
 - 5 modules per course
 - Every supported content block type represented throughout the dataset
 - Content block types used: text, code, video, image, quiz, document, learning_material
@@ -616,22 +616,329 @@ This course is the fully detailed reference specimen for actual population.
   - document: https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf
   - quiz: Essay prompt describing a small campaign concept and rationale.
 
+## Course 8: Pixel Art Game Development with Godot
+
+This course is intended as a real, trainer-ready beginner pathway for learners who want to build a small playable 2D game while creating and integrating their own pixel art.
+
+- Category: Creative & Design
+- Level: Beginner to Intermediate
+- Duration: 20 hours
+- Skill tags: Graphic Design, Professional Communication, Marketing
+- Topic tags: Creative Design, Marketing Strategy
+- Industry tags: Indie Games, Creative Technology, Digital Media
+- Career paths: Junior Game Artist, 2D Game Developer, Indie Creator
+- Thumbnail: https://commons.wikimedia.org/wiki/Special:FilePath/Tileset%202D%20Game%20Development%20-%20Ground%2C%20Water%2C%20Dirt%2C%20Path.png
+- Course document: https://docs.godotengine.org/en/stable/getting_started/first_2d_game/index.html
+- Course summary: A project-based course that walks learners through planning a small 2D pixel art game, drawing assets, animating a character, building a tile-based level in Godot, and finishing a playable prototype they can continue improving.
+- Intended learner outcome: Trainees should be able to scope a small pixel art game, produce simple original sprites, assemble a tile-based scene, implement a core gameplay loop in Godot, and export a playable prototype with documented assets and references.
+
+### Module 1: Project Scope, References, and Godot Setup
+- Description: Establishes the production workflow for a tiny pixel art game and gets learners working inside a real Godot 2D project.
+- Duration: 4 hours
+- Thumbnail: https://docs.godotengine.org/en/stable/_images/dodge_preview.gif
+- Module document: https://docs.godotengine.org/en/stable/getting_started/first_2d_game/01.project_setup.html
+- Skill tags: Professional Communication, Graphic Design
+- Topic tags: Creative Design
+- Learning objectives:
+  - Define a game scope small enough to finish as a first prototype.
+  - Set up a Godot 2D project with the right resolution and folder structure for pixel art.
+  - Gather reference material and separate inspiration from direct copying.
+- Content blocks:
+  - text:
+    - title: Start with a one-room game
+    - body: A first pixel art game should be intentionally small. Limit the project to one controllable character, one main mechanic, one level, and one clear success condition. This constraint protects the schedule and helps learners experience a full game pipeline instead of abandoning an oversized concept halfway through production.
+  - video:
+    - title: Godot beginner project walkthrough
+    - url: https://www.youtube.com/watch?v=5V9f3MT86M8
+    - body: This tutorial demonstrates an approachable beginner flow for creating a first Godot project, including scene setup and early 2D workflow decisions.
+  - image:
+    - title: Sample 2D prototype target
+    - url: https://docs.godotengine.org/en/stable/_images/dodge_preview.gif
+    - alt_text: Animated preview of a simple 2D Godot game prototype
+    - caption: Reference example showing the scale and clarity expected from a first prototype rather than a large commercial-style game.
+  - document:
+    - title: Godot first 2D game project setup
+    - url: https://docs.godotengine.org/en/stable/getting_started/first_2d_game/index.html
+    - body: Official step-by-step documentation for building a complete beginner-friendly 2D project in Godot.
+  - learning_material:
+    - title: Downloadable starter assets from the official docs
+    - url: https://github.com/godotengine/godot-docs-project-starters/releases/download/latest-4.x/dodge_the_creeps_2d_assets.zip
+    - body: Real public starter assets that learners can inspect to understand file organization, scene structure, and expected import workflow.
+- Assessment:
+  - multiple_choice:
+    - question: Which scope is most appropriate for a first pixel art prototype?
+    - options:
+      - A massive open world with multiple classes and online multiplayer
+      - A small game with one character, one mechanic, and one short level
+      - A role-playing game with dozens of NPCs and side quests
+      - A procedural sandbox with user-generated content
+    - correct_answer: A small game with one character, one mechanic, and one short level
+    - points: 1
+    - explanation: Completing one small project teaches more production discipline than designing a large project that never reaches playable state.
+  - true_false:
+    - question: Pixel art projects benefit from deciding their target resolution early.
+    - correct_answer: True
+    - points: 1
+    - explanation: Resolution affects sprite scale, UI sizing, camera framing, and export behavior.
+  - short_answer:
+    - question: Name one reason reference gathering matters before making art or code.
+    - expected_focus: Clarifies style, scope, mechanic direction, environment design, or consistency.
+    - points: 2
+  - essay:
+    - question: Write a short concept brief for a one-screen pixel art game, including the player goal, main mechanic, and the reason the scope is realistic for a beginner.
+    - expected_focus: Clear scope, realistic production boundaries, and strong linkage between mechanic and level size.
+    - points: 5
+
+### Module 2: Pixel Art Workflow, Palette Planning, and Tileset Design
+- Description: Builds the visual foundation of the game by teaching palette decisions, readable forms, and reusable tile pieces for level construction.
+- Duration: 4 hours
+- Thumbnail: https://commons.wikimedia.org/wiki/Special:FilePath/Pixel%20art%20grass%20image.png
+- Module document: https://lospec.com/pixel-art-where-to-start
+- Skill tags: Graphic Design, Marketing
+- Topic tags: Creative Design, Marketing Strategy
+- Learning objectives:
+  - Create a small palette and explain why color limits improve consistency.
+  - Design readable environmental tiles that repeat cleanly.
+  - Distinguish decorative detail from gameplay-critical visual information.
+- Content blocks:
+  - text:
+    - title: Readability before decoration
+    - body: Early environment art should prioritize silhouette, contrast, and gameplay readability over excessive detail. Ground must read as walkable, hazards must stand out, and the palette should be small enough that new tiles look like part of the same world instead of separate experiments.
+  - video:
+    - title: Pixel art fundamentals for beginners
+    - url: https://www.youtube.com/watch?v=DKmrBUpd0yw
+    - body: This reference video provides a compact overview of color, linework, shading, and style choices that directly affect game-ready pixel art.
+  - image:
+    - title: Tileset reference image
+    - url: https://commons.wikimedia.org/wiki/Special:FilePath/Tileset%202D%20Game%20Development%20-%20Ground%2C%20Water%2C%20Dirt%2C%20Path.png
+    - alt_text: Example tileset showing ground, water, dirt, and path pieces for 2D game development
+    - caption: Real tileset reference for discussing how modular pieces support fast level construction.
+  - document:
+    - title: Lospec starting guide
+    - url: https://lospec.com/pixel-art-where-to-start
+    - body: Beginner-friendly resource explaining where to begin with pixel art tools, constraints, and practice habits.
+  - learning_material:
+    - title: Aseprite color and drawing documentation
+    - url: https://www.aseprite.org/docs/color/
+    - body: Official Aseprite documentation for color handling and drawing workflow, useful when turning palette ideas into consistent production files.
+- Assessment:
+  - multiple_choice:
+    - question: Why do many pixel art beginners start with a limited palette?
+    - options:
+      - It makes files impossible to export
+      - It improves visual consistency and reduces indecision
+      - It automatically animates sprites
+      - It removes the need for composition
+    - correct_answer: It improves visual consistency and reduces indecision
+    - points: 1
+    - explanation: Fewer colors create stronger cohesion and make contrast decisions more intentional.
+  - true_false:
+    - question: A tileset should be designed so repeated pieces connect cleanly without obvious seams.
+    - correct_answer: True
+    - points: 1
+    - explanation: Reusable tiles only save time when they align and loop correctly in the engine.
+  - short_answer:
+    - question: What is one visual signal you would use to make a hazard read clearly in a small pixel art scene?
+    - expected_focus: Strong contrast, color change, silhouette, animation, outline, or spacing.
+    - points: 2
+  - essay:
+    - question: Explain how you would plan a tiny environment tileset for a platformer or top-down game, including palette limits, tile categories, and how the art should support gameplay readability.
+    - expected_focus: Reusable pieces, readability, palette decisions, and environment logic.
+    - points: 5
+
+### Module 3: Character Sprites, Animation, and Engine Import
+- Description: Focuses on creating a small player sprite, animating core states, and importing pixel art into Godot without blur or scaling problems.
+- Duration: 4 hours
+- Thumbnail: https://commons.wikimedia.org/wiki/Special:FilePath/Ranger%20RPG%20Character%20Idle%20Sprite%20Sheet.png
+- Module document: https://www.aseprite.org/docs/animation/
+- Skill tags: Graphic Design, Professional Communication
+- Topic tags: Creative Design
+- Learning objectives:
+  - Build a simple player sprite with readable idle and movement poses.
+  - Animate a short cycle using clean key poses and frame timing.
+  - Import sprites into Godot using pixel-friendly settings.
+- Content blocks:
+  - text:
+    - title: Animate the minimum viable moveset
+    - body: For a first project, learners do not need a full fighting-game animation set. A practical scope is idle, walk, jump or attack depending on genre, and possibly one hurt or pickup reaction. Each animation should communicate state clearly even when viewed at a small scale on a busy screen.
+  - video:
+    - title: Pixel art animation workflow in Aseprite
+    - url: https://www.youtube.com/watch?v=iWvfaiiVuDI
+    - body: This reference breaks down animation into reference, key poses, timing, and polish, which maps well to beginner sprite workflows.
+  - image:
+    - title: Sprite sheet reference
+    - url: https://commons.wikimedia.org/wiki/Special:FilePath/Ranger%20RPG%20Character%20Idle%20Sprite%20Sheet.png
+    - alt_text: Idle sprite sheet for a 2D RPG-style character
+    - caption: Real sprite sheet reference for discussing frame consistency, spacing, and export preparation.
+  - document:
+    - title: Godot sprite import guide
+    - url: https://www.youtube.com/watch?v=dZ2zN3h1Kp4
+    - body: Beginner-oriented video reference on importing pixel art sprites into Godot while preserving crisp visuals.
+  - learning_material:
+    - title: Aseprite sprite sheet export documentation
+    - url: https://www.aseprite.org/docs/sprite-sheet/
+    - body: Official reference for exporting sprite sheets cleanly for engine use.
+- Assessment:
+  - multiple_choice:
+    - question: Which animation set is most reasonable for a first playable prototype?
+    - options:
+      - Idle, movement, and one context-specific action
+      - Dozens of combat combos and cinematic sequences
+      - Full facial rig animation for every dialogue line
+      - Motion-captured 3D animation converted into sprites
+    - correct_answer: Idle, movement, and one context-specific action
+    - points: 1
+    - explanation: A minimal but functional animation set supports playtesting without overloading production.
+  - true_false:
+    - question: Import settings that blur pixel art can make a sprite look incorrect even if the original drawing is good.
+    - correct_answer: True
+    - points: 1
+    - explanation: Engine-side filtering and scaling choices directly affect perceived art quality.
+  - short_answer:
+    - question: What is one sign that a walk cycle needs timing adjustment?
+    - expected_focus: Feels floaty, uneven, too fast, too stiff, or lacks readable contact poses.
+    - points: 2
+  - essay:
+    - question: Describe the full path from drawing a character in Aseprite to seeing it move correctly in Godot, including frame planning, export, import settings, and first in-engine testing.
+    - expected_focus: Production order, technical handoff, and troubleshooting blur or spacing issues.
+    - points: 5
+
+### Module 4: Tilemaps, Collisions, and Building a Playable Level
+- Description: Teaches learners how to turn environment art into a structured level with collisions, layers, and readable traversal.
+- Duration: 4 hours
+- Thumbnail: https://commons.wikimedia.org/wiki/Special:FilePath/Tile%20set.png
+- Module document: https://www.aseprite.org/docs/tilemap/
+- Skill tags: Graphic Design, Professional Communication
+- Topic tags: Creative Design
+- Learning objectives:
+  - Build a tilemap that supports clean navigation and readable space.
+  - Configure collisions and terrain logic for a functional play area.
+  - Separate background decoration from gameplay-critical surfaces.
+- Content blocks:
+  - text:
+    - title: Design for movement first
+    - body: A playable level is not just a collage of attractive tiles. Every jump, path, choke point, safe platform, and hazard location teaches the player how the game behaves. If the level is visually interesting but mechanically unclear, the art is no longer supporting play.
+  - code:
+    - title: Example grid planning note
+    - body: Tile size: 16x16 | Solid layer: ground, walls | Decoration layer: grass, props | Hazard layer: spikes, water
+  - video:
+    - title: Godot tilemap workflow
+    - url: https://www.youtube.com/watch?v=ZutpG0_CYrQ
+    - body: In-depth tutorial covering tilemap setup, tile layers, animation, and auto-tiling in Godot 4.
+  - image:
+    - title: Basic tileset layout reference
+    - url: https://commons.wikimedia.org/wiki/Special:FilePath/Tile%20set.png
+    - alt_text: Basic tile set image showing repeated terrain pieces
+    - caption: Use this reference to discuss modularity, collision expectations, and the relationship between art and map layout.
+  - document:
+    - title: Godot official level-building source project
+    - url: https://github.com/godotengine/godot-demo-projects/tree/master/2d/dodge_the_creeps
+    - body: Official demo source code for studying how a real Godot 2D project organizes scenes and gameplay structure.
+  - learning_material:
+    - title: Kenney 2D asset library
+    - url: https://kenney.nl/assets/category:2D
+    - body: Real asset source for studying how modular packs are structured and how environment art is organized for production.
+- Assessment:
+  - multiple_choice:
+    - question: Why is it useful to separate collision-critical tiles from decorative layers?
+    - options:
+      - It makes every tile animated automatically
+      - It helps level logic stay readable and easier to debug
+      - It removes the need for playtesting
+      - It prevents exported builds from loading
+    - correct_answer: It helps level logic stay readable and easier to debug
+    - points: 1
+    - explanation: Separating logic and decoration makes level maintenance and troubleshooting more predictable.
+  - true_false:
+    - question: Good level art should help players understand where they can move and what can hurt them.
+    - correct_answer: True
+    - points: 1
+    - explanation: Visual clarity is part of gameplay communication, not just aesthetics.
+  - short_answer:
+    - question: Give one example of a decorative element that should usually stay off the collision layer.
+    - expected_focus: Grass, distant props, clouds, background foliage, signage, or similar non-blocking details.
+    - points: 2
+  - essay:
+    - question: Explain how you would assemble a short first level for a pixel art game, including tile categories, collisions, player guidance, and visual signposting for hazards and goals.
+    - expected_focus: Layout logic, readability, collision planning, and relationship between art and mechanic.
+    - points: 5
+
+### Module 5: Core Gameplay Loop, UI Feedback, and Exporting the Prototype
+- Description: Finishes the course by wiring gameplay logic, feedback, scoring or win conditions, and a final build learners can share or continue refining.
+- Duration: 4 hours
+- Thumbnail: https://commons.wikimedia.org/wiki/Special:FilePath/BOE%20tile%20set.png
+- Module document: https://docs.godotengine.org/en/stable/getting_started/first_2d_game/07.finishing-up.html
+- Skill tags: Graphic Design, Marketing, Professional Communication
+- Topic tags: Creative Design, Marketing Strategy
+- Learning objectives:
+  - Implement a basic gameplay loop with a clear lose or win state.
+  - Add UI feedback that helps the player understand progress.
+  - Export a build and document what should be improved in the next iteration.
+- Content blocks:
+  - text:
+    - title: Finish the loop before polishing forever
+    - body: A prototype becomes a game when the player can start, act, receive feedback, and reach an outcome. That outcome can be survival time, score, a collected item count, or reaching an exit. Prioritize a complete loop before adding extra mechanics, because polish on an unfinished loop often hides design problems instead of solving them.
+  - code:
+    - title: GDScript score example
+    - body: var score := 0\nfunc add_point():\n    score += 1\n    $HUD.update_score(score)
+  - video:
+    - title: Full beginner game prototype build
+    - url: https://www.youtube.com/watch?v=LOhfqjmasi0
+    - body: Longer reference showing how a beginner Godot project becomes a complete playable game from rough systems to exported result.
+  - image:
+    - title: Tile and prototype reference sheet
+    - url: https://commons.wikimedia.org/wiki/Special:FilePath/BOE%20tile%20set.png
+    - alt_text: Tile set image that can be used as a reference for simple prototype presentation
+    - caption: Helpful visual reference when discussing what should be present in a minimum viable prototype build.
+  - document:
+    - title: Godot export and finishing guide
+    - url: https://docs.godotengine.org/en/stable/getting_started/first_2d_game/07.finishing-up.html
+    - body: Official documentation for finishing the sample project and understanding what a complete beginner deliverable looks like.
+  - learning_material:
+    - title: Godot exporting projects documentation
+    - url: https://docs.godotengine.org/en/stable/tutorials/export/exporting_projects.html
+    - body: Real deployment reference for packaging the game beyond the editor.
+- Assessment:
+  - multiple_choice:
+    - question: Which feature most clearly turns a prototype scene into a playable loop?
+    - options:
+      - A complete start-play-feedback-end structure
+      - A larger concept art board
+      - More unused sprite variations
+      - A hidden debug panel only developers can see
+    - correct_answer: A complete start-play-feedback-end structure
+    - points: 1
+    - explanation: A loop gives the player something meaningful to do and finish.
+  - true_false:
+    - question: UI feedback such as score, health, or prompts helps the player understand the state of the game.
+    - correct_answer: True
+    - points: 1
+    - explanation: Feedback systems support clarity, pacing, and player decision-making.
+  - short_answer:
+    - question: Name one thing you would check before exporting a first public prototype.
+    - expected_focus: Resolution, controls, missing assets, audio balance, collisions, readability, or win/lose states.
+    - points: 2
+  - essay:
+    - question: Describe the final checklist you would use before sharing a beginner pixel art game prototype, including gameplay loop verification, asset review, UI clarity, and export testing.
+    - expected_focus: End-to-end validation, scope discipline, and presentation quality.
+    - points: 5
+
 ## Content Block Coverage Summary
 
 - text: Present in every module
-- code: Used in Courses 1, 2, 3, 4, 5, 6, and 7
-- video: Used across all 7 courses
+- code: Used in Courses 1, 2, 3, 4, 5, 6, 7, and 8
+- video: Used across all 8 courses
 - image: Present in every module
 - quiz: Present in every module
-- document: Used across all 7 courses
-- learning_material: Used across all 7 courses
+- document: Used across all 8 courses
+- learning_material: Used across all 8 courses
 
 ## Assessment Coverage Summary
 
-- multiple_choice: Used across all 7 courses
-- true_false: Used across all 7 courses
-- short_answer: Used across all 7 courses
-- essay: Used across all 7 courses
+- multiple_choice: Used across all 8 courses
+- true_false: Used across all 8 courses
+- short_answer: Used across all 8 courses
+- essay: Used across all 8 courses
 
 ## Suggested Population Notes
 

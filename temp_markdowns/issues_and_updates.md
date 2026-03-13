@@ -67,20 +67,15 @@ User credentials:
 ---
 
 ## UI Changes
-- [x] Home page: the header logo should use logo_dark.png including the login and register page
-- [x] Change the "Account" link to "Register" label
-- [x] Register page: The Employee ID and Physical ID looks off in dark mode
-
-### All users:
-- [x] Move the security section in the profile to settings page.
+- [x] Landing, Login, Register page: use the header logo should use logo_dark.png when in dark mode, and use logo.png when in light mode
 
 ### Admin & Trainee
-- [x] Verification page: Verify modal is too large vertically
-- [x] Verification page: Physical ID still fails to load
-- [x] Verification page: Remove Reviewer notes both in modal and in table column
+- [ ] In the review modal, only the essay should be graded. Other quiz types (multiple choice, true or false) should be automatically graded and the results should be shown in the progress page. This will help to streamline the grading process for the trainers and also provide immediate feedback to the trainees for the automatically graded quiz types.
+
+- [x] Address the critical gap where both the admin and trainer cannot review and verify learner's module progress and quiz result, they should be able to mark the trainee's module as complete and also review the quiz results to ensure that the trainee has completed the course and also to provide an opportunity for the trainers to give feedback and guidance to the trainees before marking the course as complete.
 
 ### Admin
-- [x] Improve Enrollment table layout, make sure it doesn't have a horizontal scroll and also make it more organized and visually appealing
+- [x] Make the View Progress modal of admin better organized and visually appealing, also make it vertically scrollable to accommodate for more courses and modules. It's way too cramped for such a small modal
 
 ### Courses/Modules population
 - [ ] Via browser interaction, populate courses and modules with a variety of content and assessment types to ensure the system can handle different scenarios and to provide a rich dataset for testing and demonstration purposes. This will also help to identify any issues or bugs in the course and module creation process and also to ensure that the courses and modules are properly displayed and accessible to the trainees. Use generic youtube videos, image links, and reference materials for the content blocks, and create a variety of quiz questions (multiple choice, true or false, short answer, essay) to test the different assessment functionalities of the platform.

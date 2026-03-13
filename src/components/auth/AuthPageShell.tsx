@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import Footer from "@/components/Footer";
 import Header from "@/components/Header";
 import { useLocale } from "@/contexts/LocaleContext";
+import { useThemePreference } from "@/contexts/ThemePreferenceContext";
 
 type AuthPageShellProps = {
   title: string;
@@ -19,6 +20,8 @@ const AuthPageShell = ({
   maxWidthClass = "max-w-xl",
 }: AuthPageShellProps) => {
   const { t } = useLocale();
+  const { resolvedTheme } = useThemePreference();
+  const logoSrc = resolvedTheme === "dark" ? "/images/logo_dark.png" : "/images/logo.png";
 
   return (
     <div className="min-h-screen bg-muted/35 dark:bg-background">
@@ -31,7 +34,7 @@ const AuthPageShell = ({
           <div className="mx-auto max-w-6xl">
             <div className="mx-auto text-center">
               <img
-                src="/images/logo_dark.png"
+                src={logoSrc}
                 alt="PESO Academy"
                 className="mx-auto h-20 w-auto object-contain sm:h-24"
               />

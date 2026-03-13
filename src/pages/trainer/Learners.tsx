@@ -12,13 +12,15 @@ import {
 import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
-import { Users, BookOpen, Loader2, RefreshCw, Award, CheckCircle2, Clock3 } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
+import { Users, BookOpen, Loader2, RefreshCw, Award, CheckCircle2, Clock3, AlertCircle, FileQuestion, MessageSquareText } from "lucide-react";
 import { assessmentService, type AssessmentReviewDecision, type AssessmentReviewDetail, type AssessmentReviewQueueItem } from "@/services/assessmentService";
-import { certificateService, courseService, enrollmentService, moduleService, userService } from "@/services/supabaseDatabaseService";
+import { certificateService, courseService, enrollmentService, moduleCompletionService, userService } from "@/services/supabaseDatabaseService";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
 import { useState, useEffect, useMemo } from "react";
-import { Course, Enrollment, Module } from "@/types";
+import { Course, Enrollment, EnrollmentProgressDetail, Module } from "@/types";
 import { User } from "@/types/auth";
 import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
@@ -40,6 +42,8 @@ interface LearnerCourseProgress {
     completed: boolean;
     completedAt?: string;
     timeSpent?: number;
+    blockedByModuleIds: string[];
+    assessments: EnrollmentProgressDetail["assessments"];
   }>;
 }
 
@@ -199,9 +203,16 @@ const TrainerLearners = () => {
   const [reviewDialogOpen, setReviewDialogOpen] = useState(false);
   const [reviewDecision, setReviewDecision] = useState<AssessmentReviewDecision>("approved");
   const [reviewFeedback, setReviewFeedback] = useState("");
+  const [reviewScore, setReviewScore] = useState("");
   const [reviewLoading, setReviewLoading] = useState(false);
   const [reviewSubmitting, setReviewSubmitting] = useState(false);
   const [courseActionEnrollmentId, setCourseActionEnrollmentId] = useState<string | null>(null);
+  const [moduleActionKey, setModuleActionKey] = useState<string | null>(null);
+  const [completionDialogOpen, setCompletionDialogOpen] = useState(false);
+  const [completionDecision, setCompletionDecision] = useState<"approved" | "needs_revision">("approved");
+  const [completionFeedback, setCompletionFeedback] = useState("");
+  const [completionSubmitting, setCompletionSubmitting] = useState(false);
+  const [completionTarget, setCompletionTarget] = useState<{ enrollmentId: string; courseTitle: string } | null>(null);
   const focusedCourseId = searchParams.get("courseId");
   const attentionOnly = searchParams.get("attention") === "1";
   const focusedCourse = focusedCourseId ? visibleCourses.find((course) => course.id === focusedCourseId) || null : null;
@@ -348,47 +359,30 @@ const TrainerLearners = () => {
         issuedAt: certificate.issued_at,
       }));
 
-      const enrollmentIds = learnerEnrollments.map((enrollment) => enrollment.id);
       const courseIds = Array.from(new Set(learnerEnrollments.map((enrollment) => enrollment.courseId)));
-      const completionsLookup = new Map<string, Map<string, { completedAt?: string; timeSpent?: number }>>();
+      const detailResults = await Promise.allSettled(
+        learnerEnrollments.map((enrollment) => enrollmentService.getEnrollmentProgressDetail(enrollment.id)),
+      );
+      const detailByEnrollment = new Map<string, EnrollmentProgressDetail>();
 
-      if (supabase && enrollmentIds.length > 0) {
-        const { data: completionRows, error } = await supabase
-          .from("module_completions")
-          .select("enrollment_id, module_id, completed_at, time_spent")
-          .in("enrollment_id", enrollmentIds);
-
-        if (error) {
-          throw error;
+      detailResults.forEach((result, index) => {
+        if (result.status === "fulfilled" && result.value) {
+          detailByEnrollment.set(learnerEnrollments[index].id, result.value);
+          return;
         }
 
-        for (const row of completionRows || []) {
-          const enrollmentMap = completionsLookup.get(row.enrollment_id) || new Map<string, { completedAt?: string; timeSpent?: number }>();
-          enrollmentMap.set(row.module_id, {
-            completedAt: row.completed_at || undefined,
-            timeSpent: row.time_spent || undefined,
-          });
-          completionsLookup.set(row.enrollment_id, enrollmentMap);
+        if (result.status === "rejected") {
+          console.error(`Error loading detailed progress for enrollment ${learnerEnrollments[index].id}:`, result.reason);
         }
-      }
+      });
 
       const courseLookup = new Map(
         [...visibleCourses, ...allCourses].map((course) => [course.id, course]),
       );
       const modulesByCourse = new Map<string, Module[]>();
-
-      const moduleResults = await Promise.allSettled(
-        courseIds.map(async (courseId) => {
-          const modules = await moduleService.getModulesByCourse(courseId);
-          modulesByCourse.set(courseId, modules);
-        }),
-      );
-
-      moduleResults.forEach((result, index) => {
-        if (result.status === "rejected") {
-          console.error(`Error loading modules for course ${courseIds[index]}:`, result.reason);
-        }
-      });
+      for (const detail of detailByEnrollment.values()) {
+        modulesByCourse.set(detail.enrollment.courseId, detail.modules.map((entry) => entry.module));
+      }
 
       const pendingReviewsByEnrollment = pendingReviewQueue.reduce<Record<string, AssessmentReviewQueueItem[]>>((acc, reviewItem) => {
         const current = acc[reviewItem.enrollmentId] || [];
@@ -399,18 +393,17 @@ const TrainerLearners = () => {
 
       const progressRows = learnerEnrollments
         .map((enrollment) => {
-          const course = courseLookup.get(enrollment.courseId) || null;
+          const detail = detailByEnrollment.get(enrollment.id);
+          const course = detail?.course || courseLookup.get(enrollment.courseId) || null;
           const certificate = normalizedLearnerCertificates.find((item) => item.courseId === enrollment.courseId);
-          const completionMap = completionsLookup.get(enrollment.id) || new Map<string, { completedAt?: string; timeSpent?: number }>();
-          const modules = (modulesByCourse.get(enrollment.courseId) || []).map((module) => {
-            const completion = completionMap.get(module.id);
-            return {
-              module,
-              completed: Boolean(completion),
-              completedAt: completion?.completedAt,
-              timeSpent: completion?.timeSpent,
-            };
-          });
+          const modules = (detail?.modules || []).map((moduleEntry) => ({
+            module: moduleEntry.module,
+            completed: moduleEntry.completed,
+            completedAt: moduleEntry.completedAt,
+            timeSpent: moduleEntry.timeSpent,
+            blockedByModuleIds: moduleEntry.blockedByModuleIds,
+            assessments: (detail?.assessments || []).filter((assessment) => assessment.moduleId === moduleEntry.module.id),
+          }));
 
           return {
             enrollment,
@@ -460,8 +453,13 @@ const TrainerLearners = () => {
       setSelectedLearnerRecentSessions([]);
       setSelectedReview(null);
       setReviewFeedback("");
+      setReviewScore("");
       setReviewDialogOpen(false);
       setCourseActionEnrollmentId(null);
+      setModuleActionKey(null);
+      setCompletionDialogOpen(false);
+      setCompletionFeedback("");
+      setCompletionTarget(null);
     }
   };
 
@@ -489,6 +487,7 @@ const TrainerLearners = () => {
     setReviewDialogOpen(true);
     setReviewDecision(reviewItem.reviewStatus === "needs_revision" ? "needs_revision" : "approved");
     setReviewFeedback(reviewItem.reviewFeedback || "");
+    setReviewScore("");
 
     try {
       if (reviewItem.reviewStatus === "submitted") {
@@ -502,6 +501,9 @@ const TrainerLearners = () => {
 
       setSelectedReview(detail);
       setReviewFeedback(detail.reviewFeedback || "");
+      setReviewScore(detail.reviewablePoints > 0 && detail.score !== undefined && detail.totalPoints > 0
+        ? String(Math.max(0, Math.min(detail.reviewablePoints, Math.round((detail.score / 100) * detail.totalPoints) - detail.autoEarnedPoints)))
+        : "");
       setReviewDecision(detail.reviewStatus === "needs_revision" ? "needs_revision" : "approved");
     } catch (error) {
       console.error("Error opening assessment review:", error);
@@ -522,6 +524,13 @@ const TrainerLearners = () => {
       return;
     }
 
+    const parsedScore = Number(reviewScore);
+    const maxScore = selectedReview.reviewablePoints || 100;
+    if (!Number.isFinite(parsedScore) || parsedScore < 0 || parsedScore > maxScore) {
+      toast.error(`Enter a score from 0 to ${maxScore} before submitting this review.`);
+      return;
+    }
+
     setReviewSubmitting(true);
 
     try {
@@ -529,6 +538,7 @@ const TrainerLearners = () => {
         reviewerId: user.id,
         decision: reviewDecision,
         feedback: reviewFeedback,
+        score: parsedScore,
       });
       toast.success(reviewDecision === "approved" ? "Essay review approved" : "Essay review returned for follow-up");
       setReviewDialogOpen(false);
@@ -542,22 +552,61 @@ const TrainerLearners = () => {
     }
   };
 
-  const handleCompletionReview = async (enrollmentId: string, decision: "approved" | "needs_revision") => {
-    if (!user) {
+  const openCompletionReviewDialog = (item: LearnerCourseProgress, decision: "approved" | "needs_revision") => {
+    setCompletionTarget({
+      enrollmentId: item.enrollment.id,
+      courseTitle: item.course?.title || "Course",
+    });
+    setCompletionDecision(decision);
+    setCompletionFeedback(item.enrollment.completionFeedback || "");
+    setCompletionDialogOpen(true);
+  };
+
+  const handleSubmitCompletionReview = async () => {
+    if (!user || !completionTarget) {
       return;
     }
 
-    setCourseActionEnrollmentId(enrollmentId);
+    if (completionDecision === "needs_revision" && !completionFeedback.trim()) {
+      toast.error("Feedback is required when returning a course for follow-up.");
+      return;
+    }
+
+    setCompletionSubmitting(true);
+    setCourseActionEnrollmentId(completionTarget.enrollmentId);
 
     try {
-      await enrollmentService.reviewCompletion(enrollmentId, user.id, decision);
-      toast.success(decision === "approved" ? "Course completion approved" : "Course returned for follow-up");
+      await enrollmentService.reviewCompletion(
+        completionTarget.enrollmentId,
+        user.id,
+        completionDecision,
+        completionFeedback,
+      );
+      toast.success(completionDecision === "approved" ? "Course completion approved" : "Course returned for follow-up");
+      setCompletionDialogOpen(false);
       await refreshSelectedLearnerProgress();
     } catch (error: any) {
       console.error("Error reviewing course completion:", error);
       toast.error(error?.message || "Failed to review course completion");
     } finally {
       setCourseActionEnrollmentId(null);
+      setCompletionSubmitting(false);
+    }
+  };
+
+  const handleMarkModuleComplete = async (enrollmentId: string, moduleId: string) => {
+    const actionKey = `${enrollmentId}:${moduleId}`;
+    setModuleActionKey(actionKey);
+
+    try {
+      await moduleCompletionService.markModuleComplete(enrollmentId, moduleId);
+      toast.success("Module marked complete");
+      await refreshSelectedLearnerProgress();
+    } catch (error: any) {
+      console.error("Error marking module complete:", error);
+      toast.error(error?.message || "Failed to mark module complete");
+    } finally {
+      setModuleActionKey(null);
     }
   };
 
@@ -964,14 +1013,14 @@ const TrainerLearners = () => {
                               {item.enrollment.completionApprovalStatus !== "approved" ? (
                                 <>
                                   <Button
-                                    onClick={() => void handleCompletionReview(item.enrollment.id, "approved")}
+                                    onClick={() => openCompletionReviewDialog(item, "approved")}
                                     disabled={courseActionEnrollmentId === item.enrollment.id || item.pendingReviews.length > 0}
                                   >
                                     Approve Completion
                                   </Button>
                                   <Button
                                     variant="outline"
-                                    onClick={() => void handleCompletionReview(item.enrollment.id, "needs_revision")}
+                                    onClick={() => openCompletionReviewDialog(item, "needs_revision")}
                                     disabled={courseActionEnrollmentId === item.enrollment.id}
                                   >
                                     Mark For Follow-up
@@ -996,39 +1045,196 @@ const TrainerLearners = () => {
                               <p className="font-medium">Module Progress</p>
                             </div>
                             {item.modules.length > 0 ? (
-                              <div className="space-y-2">
-                                {item.modules.map((moduleItem, index) => (
-                                  <div key={moduleItem.module.id} className="rounded-lg border p-3">
-                                    <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-                                      <div>
-                                        <p className="font-medium">Module {index + 1}: {moduleItem.module.title}</p>
-                                        <p className="text-sm text-muted-foreground">{moduleItem.module.description}</p>
-                                      </div>
-                                      <div className="flex flex-wrap gap-2">
-                                        <Badge variant={moduleItem.completed ? "default" : "secondary"}>
-                                          {moduleItem.completed ? (
-                                            <>
-                                              <CheckCircle2 className="mr-1 h-3 w-3" />
-                                              Completed
-                                            </>
-                                          ) : "Pending"}
-                                        </Badge>
-                                      </div>
-                                    </div>
-                                    <div className="mt-3 flex flex-wrap gap-4 text-xs text-muted-foreground">
-                                      <span className="flex items-center gap-1">
-                                        <Clock3 className="h-3 w-3" />
-                                        {formatTimeSpent(moduleItem.timeSpent)}
-                                      </span>
-                                      <span>
-                                        {moduleItem.completedAt
-                                          ? `Completed ${new Date(moduleItem.completedAt).toLocaleDateString()}`
-                                          : "Not completed yet"}
-                                      </span>
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
+                              <Accordion type="multiple" className="space-y-2">
+                                {item.modules.map((moduleItem, index) => {
+                                  const actionKey = `${item.enrollment.id}:${moduleItem.module.id}`;
+                                  const blockingModules = moduleItem.blockedByModuleIds
+                                    .map((blockedId) => item.modules.find((candidate) => candidate.module.id === blockedId)?.module || null)
+                                    .filter((candidate): candidate is Module => Boolean(candidate));
+                                  const moduleReviews = item.pendingReviews.filter((review) => review.moduleId === moduleItem.module.id);
+                                  const hasPendingManualScore = moduleItem.assessments.some((assessment) => assessment.requiresManualReview && assessment.score === undefined);
+                                  const latestAssessment = moduleItem.assessments.reduce<EnrollmentProgressDetail["assessments"][number] | null>((current, assessment) => {
+                                    if (!current) {
+                                      return assessment;
+                                    }
+
+                                    const assessmentTime = new Date(assessment.submittedAt || 0).getTime();
+                                    const currentTime = new Date(current.submittedAt || 0).getTime();
+                                    return assessmentTime > currentTime ? assessment : current;
+                                  }, null);
+
+                                  return (
+                                    <AccordionItem key={moduleItem.module.id} value={moduleItem.module.id} className="overflow-hidden rounded-lg border px-3">
+                                      <AccordionTrigger className="py-3 hover:no-underline">
+                                        <div className="flex w-full flex-col gap-2 pr-3 text-left md:flex-row md:items-center md:justify-between">
+                                          <div>
+                                            <p className="font-medium">Module {index + 1}: {moduleItem.module.title}</p>
+                                            <p className="text-sm text-muted-foreground">{moduleItem.module.description}</p>
+                                          </div>
+                                          <div className="flex flex-wrap gap-2">
+                                            <Badge variant={moduleItem.completed ? "default" : moduleItem.blockedByModuleIds.length > 0 ? "outline" : "secondary"}>
+                                              {moduleItem.completed ? (
+                                                <>
+                                                  <CheckCircle2 className="mr-1 h-3 w-3" />
+                                                  Completed
+                                                </>
+                                              ) : moduleItem.blockedByModuleIds.length > 0 ? "Blocked" : "Pending"}
+                                            </Badge>
+                                            {moduleItem.assessments[0] ? (
+                                              <Badge variant={moduleItem.assessments[0].passed || moduleItem.assessments[0].reviewStatus === "approved" ? "default" : moduleItem.assessments[0].requiresManualReview ? "secondary" : "outline"}>
+                                                {moduleItem.assessments[0].requiresManualReview
+                                                  ? moduleItem.assessments[0].reviewStatus?.replace(/_/g, " ") || "Pending review"
+                                                  : moduleItem.assessments[0].score !== undefined
+                                                  ? `Score ${moduleItem.assessments[0].score}%`
+                                                  : "Assessment pending"}
+                                              </Badge>
+                                            ) : null}
+                                          </div>
+                                        </div>
+                                      </AccordionTrigger>
+                                      <AccordionContent className="pb-3">
+                                        <div className="space-y-4">
+                                          <div className="grid gap-3 md:grid-cols-4 text-sm">
+                                            <div className="rounded-lg border p-3">
+                                              <p className="text-muted-foreground">Learner score</p>
+                                              <p className="mt-1 font-medium">
+                                                {latestAssessment?.earnedPoints !== undefined && latestAssessment?.totalPoints
+                                                  ? `${latestAssessment.earnedPoints} / ${latestAssessment.totalPoints}`
+                                                  : latestAssessment?.requiresManualReview
+                                                  ? "Pending score"
+                                                  : "No score yet"}
+                                              </p>
+                                            </div>
+                                            <div className="rounded-lg border p-3">
+                                              <p className="text-muted-foreground">Assessment items</p>
+                                              <p className="mt-1 font-medium">
+                                                {moduleItem.assessments.length}
+                                              </p>
+                                            </div>
+                                            <div className="rounded-lg border p-3">
+                                              <p className="text-muted-foreground">Latest submission</p>
+                                              <p className="mt-1 font-medium">
+                                                {latestAssessment?.submittedAt
+                                                  ? new Date(latestAssessment.submittedAt).toLocaleString()
+                                                  : latestAssessment?.latestAttemptId
+                                                  ? "Attempt recorded"
+                                                  : "No submitted attempt yet"}
+                                              </p>
+                                            </div>
+                                            <div className="rounded-lg border p-3">
+                                              <p className="text-muted-foreground">Latest result</p>
+                                              <p className="mt-1 font-medium">
+                                                {latestAssessment?.score !== undefined
+                                                  ? `${latestAssessment.score}%`
+                                                  : latestAssessment?.reviewStatus
+                                                  ? latestAssessment.reviewStatus.replace(/_/g, " ")
+                                                  : "Awaiting result"}
+                                              </p>
+                                            </div>
+                                          </div>
+
+                                          {!moduleItem.completed ? (
+                                            <div className="flex flex-wrap items-center gap-3 rounded-lg border border-dashed p-3">
+                                              <div className="min-w-0 flex-1">
+                                                <p className="font-medium text-foreground">Manual completion override</p>
+                                                <p className="mt-1 text-sm text-muted-foreground">
+                                                  Use this after confirming the learner finished the work, including offline or trainer-guided activities.
+                                                </p>
+                                              </div>
+                                              <Button
+                                                variant="outline"
+                                                onClick={() => void handleMarkModuleComplete(item.enrollment.id, moduleItem.module.id)}
+                                                disabled={moduleActionKey === actionKey || blockingModules.length > 0 || hasPendingManualScore}
+                                              >
+                                                {moduleActionKey === actionKey ? "Saving..." : "Mark Module Complete"}
+                                              </Button>
+                                            </div>
+                                          ) : null}
+
+                                          {hasPendingManualScore ? (
+                                            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                                              <p className="font-medium">Essay score required</p>
+                                              <p className="mt-1">Finalize the manual review score before marking this module complete.</p>
+                                            </div>
+                                          ) : null}
+
+                                          {blockingModules.length > 0 ? (
+                                            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                                              <div className="flex items-start gap-2">
+                                                <AlertCircle className="mt-0.5 h-4 w-4" />
+                                                <div>
+                                                  <p className="font-medium">Blocked prerequisite state</p>
+                                                  <p className="mt-1">Waiting on {blockingModules.map((module) => module.title).join(", ")}.</p>
+                                                </div>
+                                              </div>
+                                            </div>
+                                          ) : null}
+
+                                          {moduleItem.assessments.length > 0 ? (
+                                            <div className="space-y-2">
+                                              {moduleItem.assessments.map((assessment) => {
+                                                const linkedReview = moduleReviews.find((review) => review.assessmentId === assessment.assessmentId);
+
+                                                return (
+                                                  <div key={assessment.assessmentId} className="rounded-lg border bg-muted/30 p-3 text-sm">
+                                                    <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                                                      <div>
+                                                        <div className="flex items-center gap-2">
+                                                          <FileQuestion className="h-4 w-4 text-muted-foreground" />
+                                                          <span className="font-medium">{assessment.assessmentTitle}</span>
+                                                        </div>
+                                                        <div className="mt-2 flex flex-wrap gap-4 text-xs text-muted-foreground">
+                                                          <span>Total score: {assessment.earnedPoints !== undefined && assessment.totalPoints ? `${assessment.earnedPoints} / ${assessment.totalPoints}` : assessment.requiresManualReview ? "Pending manual review" : "—"}</span>
+                                                          <span>
+                                                            {assessment.submittedAt
+                                                              ? `Submitted ${new Date(assessment.submittedAt).toLocaleString()}`
+                                                              : assessment.latestAttemptId
+                                                              ? "Attempt recorded"
+                                                              : "No submitted attempt yet"}
+                                                          </span>
+                                                        </div>
+                                                      </div>
+                                                      <div className="flex flex-wrap items-center gap-2">
+                                                        <Badge variant={assessment.passed || assessment.reviewStatus === "approved" ? "default" : assessment.requiresManualReview ? "secondary" : "outline"}>
+                                                          {assessment.requiresManualReview
+                                                            ? assessment.reviewStatus?.replace(/_/g, " ") || "Pending review"
+                                                            : assessment.passed === true
+                                                            ? "Passed"
+                                                            : assessment.passed === false
+                                                            ? "Not yet passed"
+                                                            : "Submitted"}
+                                                        </Badge>
+                                                        {linkedReview ? (
+                                                          <Button variant="outline" size="sm" onClick={() => void handleOpenReview(linkedReview)}>
+                                                            Review Essay
+                                                          </Button>
+                                                        ) : null}
+                                                      </div>
+                                                    </div>
+                                                    {assessment.reviewFeedback ? (
+                                                      <div className="mt-3 rounded-lg border border-border/60 bg-background/80 p-3">
+                                                        <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                                                          <MessageSquareText className="h-3.5 w-3.5" />
+                                                          Reviewer feedback
+                                                        </div>
+                                                        <p className="mt-2 whitespace-pre-wrap text-sm text-foreground">{assessment.reviewFeedback}</p>
+                                                      </div>
+                                                    ) : null}
+                                                  </div>
+                                                );
+                                              })}
+                                            </div>
+                                          ) : (
+                                            <div className="rounded-lg border border-dashed p-3 text-sm text-muted-foreground">
+                                              No assessment is attached to this module.
+                                            </div>
+                                          )}
+                                        </div>
+                                      </AccordionContent>
+                                    </AccordionItem>
+                                  );
+                                })}
+                              </Accordion>
                             ) : (
                               <p className="text-sm text-muted-foreground">No modules are available for this course yet.</p>
                             )}
@@ -1050,10 +1256,11 @@ const TrainerLearners = () => {
             if (!open) {
               setSelectedReview(null);
               setReviewFeedback("");
+              setReviewScore("");
             }
           }}
         >
-          <DialogContent className="max-h-[90vh] max-w-3xl overflow-hidden">
+          <DialogContent className="flex max-h-[90vh] max-w-3xl flex-col overflow-hidden">
             <DialogHeader>
               <DialogTitle>{selectedReview ? `Review: ${selectedReview.assessmentTitle}` : "Review assessment"}</DialogTitle>
               <DialogDescription>
@@ -1067,7 +1274,8 @@ const TrainerLearners = () => {
                 Loading assessment review...
               </div>
             ) : (
-              <div className="space-y-4 overflow-y-auto pr-1">
+              <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+                <div className="space-y-4 pb-4">
                 <div className="rounded-lg border p-3 text-sm">
                   <p className="font-medium">{selectedReview.learnerName}</p>
                   <p className="text-muted-foreground">{selectedReview.courseTitle} • {selectedReview.moduleTitle}</p>
@@ -1118,6 +1326,22 @@ const TrainerLearners = () => {
                   />
                 </div>
 
+                <div className="space-y-2">
+                  <p className="text-sm font-medium">Essay score</p>
+                  <Input
+                    type="number"
+                    min="0"
+                    max={selectedReview?.reviewablePoints || 100}
+                    step="1"
+                    value={reviewScore}
+                    onChange={(event) => setReviewScore(event.target.value)}
+                    placeholder={selectedReview ? `Enter 0-${selectedReview.reviewablePoints}` : "Enter score"}
+                  />
+                  {selectedReview ? (
+                    <p className="text-xs text-muted-foreground">Essay portion: {selectedReview.reviewablePoints} points. Assessment total: {selectedReview.totalPoints} points. Passing score: {selectedReview.passingScore}%.</p>
+                  ) : null}
+                </div>
+
                 <div className="flex flex-wrap justify-end gap-2 border-t pt-4">
                   <Button variant="outline" onClick={() => setReviewDialogOpen(false)} disabled={reviewSubmitting}>
                     Cancel
@@ -1127,7 +1351,56 @@ const TrainerLearners = () => {
                   </Button>
                 </div>
               </div>
-            )}
+            </div>
+          )}
+          </DialogContent>
+        </Dialog>
+
+        <Dialog
+          open={completionDialogOpen}
+          onOpenChange={(open) => {
+            setCompletionDialogOpen(open);
+            if (!open) {
+              setCompletionFeedback("");
+              setCompletionTarget(null);
+            }
+          }}
+        >
+          <DialogContent className="max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>{completionDecision === "approved" ? "Approve Course Completion" : "Return Course For Follow-up"}</DialogTitle>
+              <DialogDescription>
+                {completionDecision === "approved"
+                  ? "Add optional guidance for the learner before finalizing the course completion review."
+                  : "Explain what the learner still needs to address before the course can be marked complete."}
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4">
+              <div className="rounded-lg border p-3 text-sm">
+                <p className="font-medium">{selectedLearner?.name || "Learner"}</p>
+                <p className="text-muted-foreground">{completionTarget?.courseTitle || "Course"}</p>
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-sm font-medium">Guidance and feedback</p>
+                <Textarea
+                  rows={6}
+                  value={completionFeedback}
+                  onChange={(event) => setCompletionFeedback(event.target.value)}
+                  placeholder={completionDecision === "approved" ? "Optional note for the learner." : "Required follow-up guidance for the learner."}
+                />
+              </div>
+
+              <div className="flex justify-end gap-2">
+                <Button type="button" variant="outline" onClick={() => setCompletionDialogOpen(false)}>
+                  Cancel
+                </Button>
+                <Button type="button" onClick={() => void handleSubmitCompletionReview()} disabled={completionSubmitting}>
+                  {completionSubmitting ? "Submitting..." : completionDecision === "approved" ? "Approve Completion" : "Send Follow-up"}
+                </Button>
+              </div>
+            </div>
           </DialogContent>
         </Dialog>
       </div>

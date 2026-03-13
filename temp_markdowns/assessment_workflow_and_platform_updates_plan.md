@@ -352,7 +352,7 @@ Implementation notes:
 - Does the system have a recommendatory feature in the system that indicates future opportunities for learners
 
 ## Task for later
-- Write a full documentation of how the algorithm works in the system, including the data it uses, how it processes that data, and how it generates recommendations for learners. Indicate the affected modules, components, and services in the codebase, and any relevant database tables or fields. You must be thourough and detailed in your explanation, and include examples of how the algorithm would work in practice.
+- Write a full documentation (in a markdown) of how the algorithm works in the system, including the data it uses, how it processes that data, and how it generates recommendations for learners. Indicate the affected modules, components, and services in the codebase, and any relevant database tables or fields. You must be thourough and detailed in your explanation, and include examples of how the algorithm would work in practice. Use plain english and avoid technical jargon as much as possible, while still being accurate and comprehensive. The documentation should be clear enough for a non-technical stakeholder to understand how the recommendation system works and how it benefits learners on the platform.
 
 ---
 

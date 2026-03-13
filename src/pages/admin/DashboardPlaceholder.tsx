@@ -510,7 +510,7 @@ const AdminDashboardPlaceholder = () => {
                     <TabsTrigger value="overview" className="w-full rounded-xl px-4 py-3 text-sm font-semibold data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">Overview</TabsTrigger>
                     <TabsTrigger value="activity" className="w-full rounded-xl px-4 py-3 text-sm font-semibold data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">Learner activity</TabsTrigger>
                     <TabsTrigger value="risk" className="w-full rounded-xl px-4 py-3 text-sm font-semibold data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">Predictive risk</TabsTrigger>
-                    <TabsTrigger value="recommendations" className="w-full rounded-xl px-4 py-3 text-sm font-semibold data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">Recommendations & tools</TabsTrigger>
+                    <TabsTrigger value="recommendations" className="w-full rounded-xl px-4 py-3 text-sm font-semibold data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">Recommendations</TabsTrigger>
                   </TabsList>
                 </div>
               </div>

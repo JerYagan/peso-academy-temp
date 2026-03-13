@@ -61,7 +61,7 @@ const unsupportedAssessmentQuestionColumns = new Set<string>();
 const unsupportedAssessmentModuleColumns = new Set<string>();
 const unsupportedAssessmentAttemptColumns = new Set<string>();
 const unsupportedAssessmentAnswerColumns = new Set<string>();
-const MANUAL_REVIEW_QUESTION_TYPES = new Set<AssessmentQuestion["questionType"]>(["short_answer", "essay"]);
+const MANUAL_REVIEW_QUESTION_TYPES = new Set<AssessmentQuestion["questionType"]>(["essay"]);
 
 const normalizeMissingColumnName = (columnName: string | null | undefined): string | null => {
   const normalized = String(columnName || "")
@@ -437,6 +437,11 @@ export interface AssessmentReviewAnswer {
 export interface AssessmentReviewDetail extends AssessmentReviewQueueItem {
   reviewedAt?: string;
   reviewedBy?: string;
+  score?: number;
+  passingScore: number;
+  totalPoints: number;
+  reviewablePoints: number;
+  autoEarnedPoints: number;
   questions: AssessmentReviewAnswer[];
 }
 
@@ -648,6 +653,7 @@ export const assessmentService = {
         enrollment_id,
         user_id,
         submitted_at,
+        score,
         review_status,
         review_feedback,
         reviewed_at,
@@ -655,6 +661,7 @@ export const assessmentService = {
         assessments:assessment_id (
           id,
           title,
+          passing_score,
           module_id,
           modules:module_id (
             id,
@@ -703,18 +710,27 @@ export const assessmentService = {
       };
 
       const questions = await assessmentService.getAssessmentQuestions(data.assessment_id);
+      const reviewQuestions = questions.filter((question) => requiresManualReview(question.questionType));
       const { data: answers } = await supabase
         .from("assessment_answers")
-        .select("question_id, answer, review_status")
+        .select("question_id, answer, review_status, points_earned")
         .eq("attempt_id", attemptId);
       const answerMap = new Map((answers || []).map((answer: any) => [answer.question_id, answer]));
+      const autoEarnedPoints = (answers || []).reduce(
+        (sum: number, answer: any) => sum + (Number(answer.points_earned) || 0),
+        0,
+      );
 
       return {
         ...fallbackItem,
         reviewedAt: data.reviewed_at || undefined,
         reviewedBy: data.reviewed_by || undefined,
-        questions: questions
-          .filter((question) => requiresManualReview(question.questionType))
+        score: data.score === null || data.score === undefined ? undefined : Number(data.score),
+        passingScore: assessment.passing_score || 70,
+        totalPoints: questions.reduce((sum, question) => sum + (Number(question.points) || 0), 0),
+        reviewablePoints: reviewQuestions.reduce((sum, question) => sum + (Number(question.points) || 0), 0),
+        autoEarnedPoints,
+        questions: reviewQuestions
           .map((question) => {
             const answer = answerMap.get(question.id);
             return {
@@ -731,9 +747,10 @@ export const assessmentService = {
     }
 
     const questions = await assessmentService.getAssessmentQuestions(baseItem.assessmentId);
+    const reviewQuestions = questions.filter((question) => requiresManualReview(question.questionType));
     const { data: answers, error: answersError } = await supabase
       .from("assessment_answers")
-      .select("question_id, answer, review_status")
+      .select("question_id, answer, review_status, points_earned")
       .eq("attempt_id", attemptId);
 
     if (answersError) {
@@ -742,13 +759,21 @@ export const assessmentService = {
     }
 
     const answerMap = new Map((answers || []).map((answer: any) => [answer.question_id, answer]));
+    const autoEarnedPoints = (answers || []).reduce(
+      (sum: number, answer: any) => sum + (Number(answer.points_earned) || 0),
+      0,
+    );
 
     return {
       ...baseItem,
       reviewedAt: data.reviewed_at || undefined,
       reviewedBy: data.reviewed_by || undefined,
-      questions: questions
-        .filter((question) => requiresManualReview(question.questionType))
+      score: data.score === null || data.score === undefined ? undefined : Number(data.score),
+      passingScore: ((data as any).assessments?.passing_score) || 70,
+      totalPoints: questions.reduce((sum, question) => sum + (Number(question.points) || 0), 0),
+      reviewablePoints: reviewQuestions.reduce((sum, question) => sum + (Number(question.points) || 0), 0),
+      autoEarnedPoints,
+      questions: reviewQuestions
         .map((question) => {
           const answer = answerMap.get(question.id);
           return {
@@ -803,6 +828,7 @@ export const assessmentService = {
       reviewerId: string;
       decision: AssessmentReviewDecision;
       feedback: string;
+      score: number;
     },
   ): Promise<void> => {
     if (!supabase) {
@@ -816,7 +842,27 @@ export const assessmentService = {
 
     const finalStatus: AssessmentReviewStatus = options.decision === "approved" ? "approved" : "needs_revision";
     const reviewedAt = new Date().toISOString();
-    const passed = options.decision === "approved";
+    const normalizedPoints = Math.max(0, Math.min(detail.reviewablePoints || 100, Math.round(options.score)));
+    const { data: answerRows, error: answerRowsError } = await supabase
+      .from("assessment_answers")
+      .select("points_earned")
+      .eq("attempt_id", attemptId);
+
+    if (answerRowsError) {
+      handleSupabaseError(answerRowsError);
+      throw answerRowsError;
+    }
+
+    const autoEarnedPoints = (answerRows || []).reduce((sum: number, row: any) => sum + (Number(row.points_earned) || 0), 0);
+    const finalEarnedPoints = autoEarnedPoints + normalizedPoints;
+    const normalizedScore = detail.totalPoints > 0
+      ? Math.round((finalEarnedPoints / detail.totalPoints) * 100)
+      : Math.max(0, Math.min(100, Math.round(options.score)));
+    const passed = options.decision === "approved" && normalizedScore >= detail.passingScore;
+
+    if (options.decision === "approved" && normalizedScore < detail.passingScore) {
+      throw new Error(`Approved reviews must meet the passing score of ${detail.passingScore}.`);
+    }
 
     const { error: updateAttemptError } = await executeWriteWithFallback(
       (payload) => supabase
@@ -829,7 +875,7 @@ export const assessmentService = {
         reviewed_by: options.reviewerId,
         review_feedback: options.feedback.trim() || null,
         passed,
-        score: passed ? 100 : 0,
+        score: normalizedScore,
       },
       "assessment_attempts",
       unsupportedAssessmentAttemptColumns,
@@ -866,7 +912,7 @@ export const assessmentService = {
     await refreshEnrollmentProgress(detail.enrollmentId);
 
     if (passed) {
-      await notificationHelpers.notifyAssessmentGraded(detail.learnerId, detail.courseTitle, 100, true);
+      await notificationHelpers.notifyAssessmentGraded(detail.learnerId, detail.courseTitle, normalizedScore, true);
     } else {
       await notificationService.createNotification(
         detail.learnerId,
@@ -935,6 +981,7 @@ export const assessmentService = {
     // Calculate score
     let totalPoints = 0;
     let earnedPoints = 0;
+    const totalAssessmentPoints = questions.reduce((sum, question) => sum + question.points, 0);
     const hasManualReviewQuestions = questions.some((question) => requiresManualReview(question.questionType));
 
     questions.forEach((question) => {
@@ -953,11 +1000,9 @@ export const assessmentService = {
       }
     });
 
-    const score = hasManualReviewQuestions
-      ? undefined
-      : totalPoints > 0
-        ? Math.round((earnedPoints / totalPoints) * 100)
-        : 0;
+    const score = totalAssessmentPoints > 0
+      ? Math.round((earnedPoints / totalAssessmentPoints) * 100)
+      : undefined;
 
     // Get assessment and enrollment details to check passing score and get course info
     const { data: attemptData } = await supabase
@@ -988,7 +1033,7 @@ export const assessmentService = {
       .single();
 
     const passingScore = assessmentData?.passing_score || 70;
-    const passed = score !== undefined ? score >= passingScore : undefined;
+    const passed = !hasManualReviewQuestions && score !== undefined ? score >= passingScore : undefined;
     const reviewStatus: AssessmentReviewStatus = hasManualReviewQuestions ? "submitted" : "approved";
 
     // Update attempt
