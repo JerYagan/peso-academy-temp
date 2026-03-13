@@ -265,8 +265,13 @@ export const ContentBlockComponent = ({
                     const questionType = value as QuizBlockQuestionType;
                     handleUpdate({
                       questionType,
-                      options: questionType === "true_false" ? [...TRUE_FALSE_QUIZ_OPTIONS] : block.options || ["", ""],
-                      correctAnswer: block.correctAnswer ?? 0,
+                      options:
+                        questionType === "true_false"
+                          ? [...TRUE_FALSE_QUIZ_OPTIONS]
+                          : questionType === "essay"
+                            ? []
+                            : block.options || ["", ""],
+                      correctAnswer: questionType === "essay" ? undefined : block.correctAnswer ?? 0,
                       sourceQuestionKey: block.sourceQuestionKey || block.id,
                       isGradable: block.isGradable ?? true,
                     });
@@ -278,6 +283,7 @@ export const ContentBlockComponent = ({
                   <SelectContent>
                     <SelectItem value="multiple_choice">Multiple Choice</SelectItem>
                     <SelectItem value="true_false">True / False</SelectItem>
+                    <SelectItem value="essay">Essay</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -296,76 +302,82 @@ export const ContentBlockComponent = ({
               </div>
             </div>
             <div className="space-y-2">
-              <Label>Question Text</Label>
+              <Label>{block.questionType === "essay" ? "Essay Prompt" : "Question Text"}</Label>
               <Textarea
                 value={block.content}
                 onChange={(e) => handleUpdate({ content: e.target.value })}
-                placeholder="Enter the quiz question"
+                placeholder={block.questionType === "essay" ? "Enter the essay prompt" : "Enter the quiz question"}
                 rows={3}
               />
             </div>
-            <div className="space-y-2">
-              <Label>Options</Label>
-              <RadioGroup
-                value={block.correctAnswer?.toString() || ""}
-                onValueChange={(value) => handleUpdate({ correctAnswer: parseInt(value, 10) })}
-                className="space-y-3"
-              >
-                {(block.options || []).map((option, idx) => (
-                  <div key={idx} className="flex items-center gap-3">
-                    <RadioGroupItem value={idx.toString()} id={`${block.id}-correct-${idx}`} />
-                    <Input
-                      value={option}
-                      disabled={block.questionType === "true_false"}
-                      onChange={(e) => {
-                        const newOptions = [...(block.options || [])];
-                        newOptions[idx] = e.target.value;
-                        handleUpdate({ options: newOptions });
-                      }}
-                      placeholder={`Option ${idx + 1}`}
-                    />
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      disabled={block.questionType === "true_false"}
-                      onClick={() => {
-                        const nextOptions = (block.options || []).filter((_, optionIndex) => optionIndex !== idx);
-                        const nextCorrect =
-                          block.correctAnswer === undefined
-                            ? undefined
-                            : block.correctAnswer === idx
+            {block.questionType === "essay" ? (
+              <div className="rounded-lg border border-dashed px-4 py-3 text-sm text-muted-foreground">
+                Learners will answer this question in a long-form text area. Scoring and feedback are handled through the trainer review workflow.
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <Label>Options</Label>
+                <RadioGroup
+                  value={block.correctAnswer?.toString() || ""}
+                  onValueChange={(value) => handleUpdate({ correctAnswer: parseInt(value, 10) })}
+                  className="space-y-3"
+                >
+                  {(block.options || []).map((option, idx) => (
+                    <div key={idx} className="flex items-center gap-3">
+                      <RadioGroupItem value={idx.toString()} id={`${block.id}-correct-${idx}`} />
+                      <Input
+                        value={option}
+                        disabled={block.questionType === "true_false"}
+                        onChange={(e) => {
+                          const newOptions = [...(block.options || [])];
+                          newOptions[idx] = e.target.value;
+                          handleUpdate({ options: newOptions });
+                        }}
+                        placeholder={`Option ${idx + 1}`}
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        disabled={block.questionType === "true_false"}
+                        onClick={() => {
+                          const nextOptions = (block.options || []).filter((_, optionIndex) => optionIndex !== idx);
+                          const nextCorrect =
+                            block.correctAnswer === undefined
                               ? undefined
-                              : block.correctAnswer > idx
-                                ? block.correctAnswer - 1
-                                : block.correctAnswer;
-                        handleUpdate({ options: nextOptions, correctAnswer: nextCorrect });
-                      }}
-                    >
-                      <X className="w-4 h-4" />
-                    </Button>
-                  </div>
-                ))}
-              </RadioGroup>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={block.questionType === "true_false"}
-                onClick={() => {
-                  handleUpdate({ options: [...(block.options || []), ""] });
-                }}
-              >
-                <Plus className="w-4 h-4 mr-1" />
-                Add Option
-              </Button>
-            </div>
+                              : block.correctAnswer === idx
+                                ? undefined
+                                : block.correctAnswer > idx
+                                  ? block.correctAnswer - 1
+                                  : block.correctAnswer;
+                          handleUpdate({ options: nextOptions, correctAnswer: nextCorrect });
+                        }}
+                      >
+                        <X className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  ))}
+                </RadioGroup>
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={block.questionType === "true_false"}
+                  onClick={() => {
+                    handleUpdate({ options: [...(block.options || []), ""] });
+                  }}
+                >
+                  <Plus className="w-4 h-4 mr-1" />
+                  Add Option
+                </Button>
+              </div>
+            )}
             <div className="space-y-2">
               <Label>Explanation (optional)</Label>
               <Textarea
                 value={block.explanation || ""}
                 onChange={(e) => handleUpdate({ explanation: e.target.value })}
-                placeholder="Explain why this answer is correct..."
+                placeholder={block.questionType === "essay" ? "Add guidance for reviewers or post-review learner feedback..." : "Explain why this answer is correct..."}
                 rows={3}
               />
             </div>

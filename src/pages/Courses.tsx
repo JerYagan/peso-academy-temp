@@ -32,7 +32,16 @@ import {
   Ribbon,
   Users,
 } from "lucide-react";
-import { courseService, enrollmentService, getEnrollmentErrorFeedback, moduleService } from "@/services/supabaseDatabaseService";
+import TraineeVerificationBadge from "@/components/trainee/TraineeVerificationBadge";
+import { getFlexibleCourseDurationLabel, getOfficialHoursCreditLabel } from "@/lib/courseDuration";
+import {
+  courseService,
+  enrollmentService,
+  getEnrollmentErrorFeedback,
+  getTraineeEnrollmentVerificationFeedback,
+  isTraineeEnrollmentBlocked,
+  moduleService,
+} from "@/services/supabaseDatabaseService";
 import { Course, Enrollment } from "@/types";
 import { toast } from "sonner";
 
@@ -99,11 +108,6 @@ const getCourseVisual = (course: Course) => {
     gradient: "linear-gradient(135deg, #e2e8f0 0%, #cbd5e1 100%)",
     iconWrapClass: "bg-slate-700/10 text-slate-700 dark:bg-slate-300/15 dark:text-slate-300",
   };
-};
-
-const getDurationLabel = (duration: number) => {
-  const weeks = Math.max(1, Math.round(duration / 10));
-  return `${weeks} ${weeks === 1 ? "week" : "weeks"}`;
 };
 
 const formatLearnerCount = (count: number) => `${count || 0} learners enrolled`;
@@ -231,6 +235,13 @@ const Courses = () => {
     () => courses.filter((course) => matchesTab(course, activeTab)),
     [courses, activeTab],
   );
+  const verificationBlocked = isTraineeEnrollmentBlocked(user);
+  const verificationFeedback = verificationBlocked
+    ? getTraineeEnrollmentVerificationFeedback(user?.verificationStatus)
+    : null;
+  const blockedEnrollLabel = user?.verificationStatus === "rejected"
+    ? "Verification rejected"
+    : "Awaiting verification";
 
   const profileSignalCoverage = Math.round(
     ([
@@ -312,7 +323,7 @@ const Courses = () => {
           <div className="mt-5 space-y-2.5 text-sm text-muted-foreground">
             <div className="flex items-center gap-2">
               <Clock3 className="h-4 w-4" />
-              <span>{getDurationLabel(course.duration)}</span>
+              <span>{getFlexibleCourseDurationLabel(course.duration)}</span>
             </div>
             <div className="flex items-center gap-2">
               <Users className="h-4 w-4" />
@@ -335,9 +346,11 @@ const Courses = () => {
               <Button
                 onClick={() => handleEnrollClick(course)}
                 className="h-12 w-full rounded-xl text-base font-semibold"
-                disabled={isEnrolling}
+                disabled={isEnrolling || verificationBlocked}
               >
-                {isEnrolling ? (
+                {verificationBlocked ? (
+                  blockedEnrollLabel
+                ) : isEnrolling ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     Enrolling...
@@ -396,7 +409,7 @@ const Courses = () => {
             <div className="grid gap-3 rounded-xl bg-muted/50 p-4 text-sm text-muted-foreground sm:grid-cols-3">
               <div className="flex items-center gap-2">
                 <Clock3 className="h-4 w-4" />
-                <span>{previewCourse.duration} hours</span>
+                <span>{getOfficialHoursCreditLabel(previewCourse.duration)}</span>
               </div>
               <div className="flex items-center gap-2">
                 <BookOpen className="h-4 w-4" />
@@ -440,13 +453,15 @@ const Courses = () => {
               ) : (
                 <Button
                   className="w-full sm:w-auto"
-                  disabled={enrolling === previewCourse.id}
+                  disabled={enrolling === previewCourse.id || verificationBlocked}
                   onClick={() => {
                     handleEnrollClick(previewCourse);
                     setPreviewCourse(null);
                   }}
                 >
-                  {enrolling === previewCourse.id ? (
+                  {verificationBlocked ? (
+                    blockedEnrollLabel
+                  ) : enrolling === previewCourse.id ? (
                     <>
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                       Enrolling...
@@ -641,6 +656,29 @@ const Courses = () => {
                   ) : null}
                   <Button size="sm" variant="ghost" onClick={() => setEnrollmentRecovery(null)}>
                     Dismiss
+                  </Button>
+                </div>
+              </div>
+            </AlertDescription>
+          </Alert>
+        ) : null}
+
+        {verificationFeedback ? (
+          <Alert>
+            <AlertCircle className="h-4 w-4" />
+            <AlertTitle className="flex items-center gap-2">
+              {verificationFeedback.title}
+              <TraineeVerificationBadge status={user?.verificationStatus} />
+            </AlertTitle>
+            <AlertDescription>
+              <div className="space-y-3">
+                <p>{verificationFeedback.description}</p>
+                <div className="flex flex-wrap gap-2">
+                  <Button asChild size="sm" variant="outline">
+                    <Link to="/profile">Review profile</Link>
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => setActiveTab("all")}>
+                    Browse all courses
                   </Button>
                 </div>
               </div>

@@ -2,9 +2,18 @@ import { supabase, handleSupabaseError } from "@/lib/supabase";
 import { resolveCourseMaterialUrl, resolveCourseMaterialUrls } from "@/lib/courseAssets";
 import { buildCanonicalCourseTaxonomy, canonicalizeCourseCategory, deriveSkillTags, deriveTopicTags } from "@/lib/taxonomy";
 import { analyticsService } from "@/services/analyticsService";
-import { Course, Enrollment, Certificate, CourseTrainerSummary, Module, Program } from "@/types";
+import {
+  Course,
+  Enrollment,
+  Certificate,
+  CourseTrainerSummary,
+  Module,
+  Program,
+  EnrollmentProgressDetail,
+} from "@/types";
 import { User, normalizeUserRole } from "@/types/auth";
-import { notificationHelpers } from "@/services/notificationService";
+import { notificationHelpers, notificationService } from "@/services/notificationService";
+import { getBlockingModules } from "@/lib/moduleProgress";
 
 if (!supabase) {
   console.warn("Supabase client not initialized. Please set up environment variables.");
@@ -13,6 +22,8 @@ if (!supabase) {
 export type EnrollmentErrorCode =
   | "already_enrolled"
   | "course_unavailable"
+  | "verification_pending"
+  | "verification_rejected"
   | "access_restricted"
   | "unknown";
 
@@ -122,6 +133,18 @@ const createEnrollmentError = (feedback: EnrollmentErrorFeedback): EnrollmentErr
   return error;
 };
 
+export const isTraineeEnrollmentBlocked = (
+  user?: Pick<User, "role" | "verificationStatus"> | null,
+): boolean => user?.role === "trainee" && (user.verificationStatus ?? "pending") !== "verified";
+
+export const getTraineeEnrollmentVerificationFeedback = (
+  status?: User["verificationStatus"],
+  courseTitle?: string,
+): EnrollmentErrorFeedback => buildEnrollmentErrorFeedback(
+  status === "rejected" ? "verification_rejected" : "verification_pending",
+  courseTitle,
+);
+
 const buildEnrollmentErrorFeedback = (
   code: EnrollmentErrorCode,
   courseTitle?: string,
@@ -146,6 +169,24 @@ const buildEnrollmentErrorFeedback = (
         toastMessage: "This course is not available for enrollment right now.",
         canRetry: false,
         suggestedActions: ["browse"],
+      };
+    case "verification_pending":
+      return {
+        code,
+        title: "Verification pending",
+        description: `Your trainee account is still waiting for admin or trainer approval, so enrollment stays locked${courseLabel}. You can keep browsing courses and update your profile while verification is in progress.`,
+        toastMessage: "Your account is pending verification. Enrollment is still locked.",
+        canRetry: false,
+        suggestedActions: ["profile", "browse"],
+      };
+    case "verification_rejected":
+      return {
+        code,
+        title: "Verification rejected",
+        description: `Your trainee verification was rejected, so enrollment stays locked${courseLabel}. Review your profile details or contact the training team before trying again.`,
+        toastMessage: "Your verification was rejected. Update your details before enrolling.",
+        canRetry: false,
+        suggestedActions: ["profile", "browse"],
       };
     case "access_restricted":
       return {
@@ -206,6 +247,22 @@ export const getEnrollmentErrorFeedback = (
     normalizedMessage.includes("violates foreign key")
   ) {
     return buildEnrollmentErrorFeedback("course_unavailable", courseTitle);
+  }
+
+  if (
+    code === "verification_pending" ||
+    normalizedMessage.includes("pending verification") ||
+    normalizedMessage.includes("pending approval")
+  ) {
+    return buildEnrollmentErrorFeedback("verification_pending", courseTitle);
+  }
+
+  if (
+    code === "verification_rejected" ||
+    normalizedMessage.includes("verification rejected") ||
+    normalizedMessage.includes("verification was rejected")
+  ) {
+    return buildEnrollmentErrorFeedback("verification_rejected", courseTitle);
   }
 
   if (
@@ -1659,6 +1716,93 @@ export async function refreshEnrollmentProgress(enrollmentId: string): Promise<v
   await updateEnrollmentProgress(enrollmentId);
 }
 
+const mapEnrollmentRecord = (enrollment: any): Enrollment => ({
+  id: enrollment.id,
+  userId: enrollment.user_id,
+  courseId: enrollment.course_id,
+  progress: enrollment.progress,
+  status: enrollment.status,
+  enrolledAt: enrollment.enrolled_at,
+  completedAt: enrollment.completed_at || undefined,
+  certificateId: enrollment.certificate_id || undefined,
+  sourceRecommendationId: enrollment.originating_recommendation_id || undefined,
+  completionApprovalStatus: enrollment.completion_approval_status || undefined,
+  completionRequestedAt: enrollment.completion_requested_at || undefined,
+  completionReviewedAt: enrollment.completion_reviewed_at || undefined,
+  completionReviewedBy: enrollment.completion_reviewed_by || undefined,
+  completionFeedback: enrollment.completion_feedback || undefined,
+  creditedDurationHours:
+    enrollment.credited_duration_hours === null || enrollment.credited_duration_hours === undefined
+      ? undefined
+      : Number(enrollment.credited_duration_hours),
+  actualLearningMinutes:
+    enrollment.actual_learning_minutes === null || enrollment.actual_learning_minutes === undefined
+      ? undefined
+      : Number(enrollment.actual_learning_minutes),
+  lastActivityAt: enrollment.updated_at || enrollment.enrolled_at,
+});
+
+async function getEnrollmentLearningSnapshot(
+  enrollmentId: string,
+  courseId: string,
+  includeCreditHours: boolean,
+): Promise<{ creditedDurationHours: number | null; actualLearningMinutes: number | null }> {
+  if (!supabase) {
+    return {
+      creditedDurationHours: null,
+      actualLearningMinutes: null,
+    };
+  }
+
+  const [
+    { data: course },
+    { data: sessionRows, error: sessionError },
+    { data: completionRows, error: completionError },
+    { data: assessmentRows, error: assessmentError },
+  ] = await Promise.all([
+    supabase.from("courses").select("duration").eq("id", courseId).maybeSingle(),
+    supabase.from("module_sessions").select("duration_seconds").eq("enrollment_id", enrollmentId),
+    supabase.from("module_completions").select("time_spent").eq("enrollment_id", enrollmentId),
+    supabase.from("assessment_attempts").select("time_spent").eq("enrollment_id", enrollmentId).not("submitted_at", "is", null),
+  ]);
+
+  if (sessionError) {
+    handleSupabaseError(sessionError);
+    throw sessionError;
+  }
+
+  if (completionError) {
+    handleSupabaseError(completionError);
+    throw completionError;
+  }
+
+  if (assessmentError) {
+    handleSupabaseError(assessmentError);
+    throw assessmentError;
+  }
+
+  const sessionMinutes = (sessionRows || []).reduce((sum, session) => {
+    return sum + Math.round(Number(session.duration_seconds || 0) / 60);
+  }, 0);
+  const moduleCompletionMinutes = (completionRows || []).reduce((sum, completion) => {
+    return sum + Number(completion.time_spent || 0);
+  }, 0);
+  const assessmentMinutes = (assessmentRows || []).reduce((sum, attempt) => {
+    return sum + Math.round(Number(attempt.time_spent || 0) / 60);
+  }, 0);
+
+  const actualLearningMinutes = Math.max(
+    sessionMinutes,
+    moduleCompletionMinutes + assessmentMinutes,
+  );
+  const creditedDurationHours = includeCreditHours ? Math.max(Number(course?.duration || 0), 0) : null;
+
+  return {
+    creditedDurationHours: creditedDurationHours > 0 ? creditedDurationHours : null,
+    actualLearningMinutes: actualLearningMinutes > 0 ? actualLearningMinutes : null,
+  };
+}
+
 /**
  * Helper function to update enrollment progress based on completed modules
  */
@@ -1668,7 +1812,7 @@ async function updateEnrollmentProgress(enrollmentId: string): Promise<void> {
   // Get enrollment
   const { data: enrollment } = await supabase
     .from("enrollments")
-    .select("course_id, user_id, status, completed_at")
+    .select("course_id, user_id, status, completed_at, completion_approval_status, completion_requested_at")
     .eq("id", enrollmentId)
     .single();
 
@@ -1679,93 +1823,57 @@ async function updateEnrollmentProgress(enrollmentId: string): Promise<void> {
     return;
   }
 
+  const learningSnapshot = completionState.isCourseComplete
+    ? await getEnrollmentLearningSnapshot(
+        enrollmentId,
+        enrollment.course_id,
+        enrollment.completion_approval_status === "approved",
+      )
+    : {
+        creditedDurationHours: null,
+        actualLearningMinutes: null,
+      };
+
   // Update enrollment progress and status
   const updateData: any = { progress: completionState.progress };
   if (completionState.isCourseComplete) {
-    updateData.status = "completed";
-    updateData.completed_at = enrollment.completed_at || new Date().toISOString();
-    
-    if (enrollment.status !== "completed" || !enrollment.completed_at) {
-      try {
-        const { data: course } = await supabase
-          .from("courses")
-          .select("title")
-          .eq("id", enrollment.course_id)
-          .single();
-        
-        if (course) {
-          await notificationHelpers.notifyCourseCompleted(
-            enrollment.user_id,
-            course.title,
-            enrollment.course_id
-          );
-        }
-      } catch (error) {
-        console.error("Error sending course completion notification:", error);
-      }
-
-      try {
-        await autoGenerateCertificate(enrollmentId);
-      } catch (error) {
-        console.error("Error auto-generating certificate:", error);
-      }
+    if (enrollment.completion_approval_status === "approved") {
+      updateData.status = "completed";
+      updateData.completed_at = enrollment.completed_at || new Date().toISOString();
+    } else {
+      updateData.status = "in-progress";
+      updateData.completed_at = null;
+      updateData.completion_approval_status = "pending";
+      updateData.completion_requested_at = enrollment.completion_requested_at || new Date().toISOString();
+      updateData.credited_duration_hours = null;
+    }
+    updateData.actual_learning_minutes = learningSnapshot.actualLearningMinutes;
+    if (enrollment.completion_approval_status === "approved") {
+      updateData.credited_duration_hours = learningSnapshot.creditedDurationHours;
     }
   } else if (completionState.progress > 0) {
     updateData.status = "in-progress";
     updateData.completed_at = null;
+    updateData.completion_approval_status = "not_ready";
+    updateData.completion_requested_at = null;
+    updateData.completion_reviewed_at = null;
+    updateData.completion_reviewed_by = null;
+    updateData.completion_feedback = null;
+    updateData.credited_duration_hours = null;
+    updateData.actual_learning_minutes = null;
   } else {
     updateData.status = "enrolled";
     updateData.completed_at = null;
+    updateData.completion_approval_status = "not_ready";
+    updateData.completion_requested_at = null;
+    updateData.completion_reviewed_at = null;
+    updateData.completion_reviewed_by = null;
+    updateData.completion_feedback = null;
+    updateData.credited_duration_hours = null;
+    updateData.actual_learning_minutes = null;
   }
 
   await supabase.from("enrollments").update(updateData).eq("id", enrollmentId);
-}
-
-/**
- * Auto-generate certificate when course is completed
- */
-async function autoGenerateCertificate(enrollmentId: string): Promise<void> {
-  if (!supabase) return;
-
-  // Get enrollment details
-  const { data: enrollment } = await supabase
-    .from("enrollments")
-    .select("user_id, course_id, certificate_id")
-    .eq("id", enrollmentId)
-    .single();
-
-  if (!enrollment || enrollment.certificate_id) {
-    // Already has a certificate
-    return;
-  }
-
-  const completionState = await getEnrollmentCompletionState(enrollmentId, enrollment.course_id);
-  if (!completionState?.isCourseComplete) {
-    return;
-  }
-
-  // Get course details
-  const { data: course } = await supabase
-    .from("courses")
-    .select("id, title, certificate_type")
-    .eq("id", enrollment.course_id)
-    .single();
-
-  if (!course) return;
-
-  // Issue certificate
-  const certificate = await certificateService.issueCertificate(
-    enrollment.user_id,
-    enrollment.course_id,
-    course.title,
-    course.certificate_type || "completion"
-  );
-
-  // Update enrollment with certificate ID
-  await supabase
-    .from("enrollments")
-    .update({ certificate_id: certificate.id })
-    .eq("id", enrollmentId);
 }
 
 // Enrollment operations
@@ -1853,20 +1961,7 @@ export const enrollmentService = {
       return [];
     }
 
-    const mappedEnrollments = (
-      data?.map((enrollment: any) => ({
-        id: enrollment.id,
-        userId: enrollment.user_id,
-        courseId: enrollment.course_id,
-        progress: enrollment.progress,
-        status: enrollment.status,
-        enrolledAt: enrollment.enrolled_at,
-        completedAt: enrollment.completed_at || undefined,
-        certificateId: enrollment.certificate_id || undefined,
-        sourceRecommendationId: enrollment.originating_recommendation_id || undefined,
-        lastActivityAt: enrollment.updated_at || enrollment.enrolled_at,
-      })) || []
-    );
+    const mappedEnrollments = (data?.map((enrollment: any) => mapEnrollmentRecord(enrollment)) || []);
 
     console.log("Mapped enrollments:", mappedEnrollments);
     console.log("=== END ENROLLMENT DEBUG ===");
@@ -1926,6 +2021,27 @@ export const enrollmentService = {
       throw createEnrollmentError(buildEnrollmentErrorFeedback("already_enrolled", courseRow.title));
     }
 
+    const { data: learnerProfile, error: learnerProfileError } = await supabase
+      .from("users")
+      .select("role, verification_status")
+      .eq("id", learnerUserId)
+      .maybeSingle();
+
+    if (learnerProfileError) {
+      throw createEnrollmentError(getEnrollmentErrorFeedback(learnerProfileError, courseRow.title));
+    }
+
+    if (!learnerProfile) {
+      throw createEnrollmentError(buildEnrollmentErrorFeedback("access_restricted", courseRow.title));
+    }
+
+    const learnerRole = normalizeUserRole(learnerProfile.role);
+    const verificationStatus = (learnerProfile.verification_status as User["verificationStatus"] | null) || "pending";
+
+    if (learnerRole === "trainee" && verificationStatus !== "verified") {
+      throw createEnrollmentError(getTraineeEnrollmentVerificationFeedback(verificationStatus, courseRow.title));
+    }
+
     const { data, error } = await supabase
       .from("enrollments")
       .insert({
@@ -1945,7 +2061,10 @@ export const enrollmentService = {
     }
 
     // Update course enrolled count
-    await supabase.rpc("increment_enrolled_count", { course_id: courseId });
+    await supabase.rpc("increment_enrolled_count", {
+      course_id: courseId,
+      increment_by: 1,
+    });
 
     // Notify user about enrollment confirmation
     try {
@@ -1994,17 +2113,7 @@ export const enrollmentService = {
     });
     await analyticsService.refreshPhase1Analytics(learnerUserId);
 
-    return {
-      id: data.id,
-      userId: data.user_id,
-      courseId: data.course_id,
-      progress: data.progress,
-      status: data.status,
-      enrolledAt: data.enrolled_at,
-      completedAt: data.completed_at || undefined,
-      certificateId: data.certificate_id || undefined,
-      sourceRecommendationId: data.originating_recommendation_id || undefined,
-    };
+    return mapEnrollmentRecord(data);
   },
 
   /**
@@ -2017,6 +2126,13 @@ export const enrollmentService = {
     if (updates.status !== undefined) updateData.status = updates.status;
     if (updates.completedAt !== undefined) updateData.completed_at = updates.completedAt;
     if (updates.certificateId !== undefined) updateData.certificate_id = updates.certificateId;
+    if (updates.completionApprovalStatus !== undefined) updateData.completion_approval_status = updates.completionApprovalStatus;
+    if (updates.completionRequestedAt !== undefined) updateData.completion_requested_at = updates.completionRequestedAt;
+    if (updates.completionReviewedAt !== undefined) updateData.completion_reviewed_at = updates.completionReviewedAt;
+    if (updates.completionReviewedBy !== undefined) updateData.completion_reviewed_by = updates.completionReviewedBy;
+    if (updates.completionFeedback !== undefined) updateData.completion_feedback = updates.completionFeedback;
+    if (updates.creditedDurationHours !== undefined) updateData.credited_duration_hours = updates.creditedDurationHours;
+    if (updates.actualLearningMinutes !== undefined) updateData.actual_learning_minutes = updates.actualLearningMinutes;
 
     const { data, error } = await supabase
       .from("enrollments")
@@ -2030,17 +2146,91 @@ export const enrollmentService = {
       throw error;
     }
 
-    return {
-      id: data.id,
-      userId: data.user_id,
-      courseId: data.course_id,
-      progress: data.progress,
-      status: data.status,
-      enrolledAt: data.enrolled_at,
-      completedAt: data.completed_at || undefined,
-      certificateId: data.certificate_id || undefined,
-      sourceRecommendationId: data.originating_recommendation_id || undefined,
+    return mapEnrollmentRecord(data);
+  },
+
+  reviewCompletion: async (
+    enrollmentId: string,
+    reviewerId: string,
+    decision: "approved" | "needs_revision",
+    feedback?: string,
+  ): Promise<Enrollment> => {
+    if (!supabase) {
+      throw new Error("Supabase not initialized");
+    }
+
+    const { data: enrollment, error: enrollmentError } = await supabase
+      .from("enrollments")
+      .select("id, user_id, course_id, progress, certificate_id")
+      .eq("id", enrollmentId)
+      .single();
+
+    if (enrollmentError || !enrollment) {
+      if (enrollmentError) {
+        handleSupabaseError(enrollmentError);
+      }
+      throw enrollmentError || new Error("Enrollment not found");
+    }
+
+    if (decision === "approved" && enrollment.progress < 100) {
+      throw new Error("This course is not yet ready for completion approval.");
+    }
+
+    const learningSnapshot = await getEnrollmentLearningSnapshot(
+      enrollmentId,
+      enrollment.course_id,
+      decision === "approved",
+    );
+
+    const reviewedAt = new Date().toISOString();
+    const updateData = {
+      completion_approval_status: decision,
+      completion_reviewed_at: reviewedAt,
+      completion_reviewed_by: reviewerId,
+      completion_feedback: feedback?.trim() || null,
+      status: decision === "approved" ? "completed" : enrollment.progress > 0 ? "in-progress" : "enrolled",
+      completed_at: decision === "approved" ? reviewedAt : null,
+      credited_duration_hours: decision === "approved" ? learningSnapshot.creditedDurationHours : null,
+      actual_learning_minutes: learningSnapshot.actualLearningMinutes,
     };
+
+    const { data: updated, error: updateError } = await supabase
+      .from("enrollments")
+      .update(updateData)
+      .eq("id", enrollmentId)
+      .select()
+      .single();
+
+    if (updateError) {
+      handleSupabaseError(updateError);
+      throw updateError;
+    }
+
+    const { data: course } = await supabase
+      .from("courses")
+      .select("title")
+      .eq("id", enrollment.course_id)
+      .single();
+
+    if (decision === "approved") {
+      await notificationHelpers.notifyCourseCompleted(
+        enrollment.user_id,
+        course?.title || "your course",
+        enrollment.course_id,
+      );
+    } else {
+      await notificationService.createNotification(
+        enrollment.user_id,
+        "feedback_received",
+        `Your course completion request for "${course?.title || "your course"}" needs follow-up from you. Check your trainer's feedback.`,
+        {
+          courseId: enrollment.course_id,
+          enrollmentId,
+        },
+      );
+    }
+
+    return mapEnrollmentRecord(updated);
   },
 
   /**
@@ -2281,18 +2471,9 @@ export const enrollmentService = {
 
     return (
       data?.map((item: any) => ({
-        id: item.id,
-        userId: item.user_id,
-        courseId: item.course_id,
-        progress: item.progress,
-        status: item.status,
-        enrolledAt: item.enrolled_at,
-        completedAt: item.completed_at || undefined,
-        certificateId: item.certificate_id || undefined,
-        sourceRecommendationId: item.originating_recommendation_id || undefined,
+        ...mapEnrollmentRecord(item),
         userName: item.users?.name,
         userEmail: item.users?.email,
-        lastActivityAt: item.updated_at || item.enrolled_at,
       })) || []
     );
   },
@@ -2340,21 +2521,124 @@ export const enrollmentService = {
 
     return (
       data?.map((item: any) => ({
-        id: item.id,
-        userId: item.user_id,
-        courseId: item.course_id,
-        progress: item.progress,
-        status: item.status,
-        enrolledAt: item.enrolled_at,
-        completedAt: item.completed_at || undefined,
-        certificateId: item.certificate_id || undefined,
-        sourceRecommendationId: item.originating_recommendation_id || undefined,
+        ...mapEnrollmentRecord(item),
         userName: item.users?.name || undefined,
         userEmail: item.users?.email || undefined,
         courseTitle: item.courses?.title || undefined,
-        lastActivityAt: item.updated_at || item.enrolled_at,
       })) || []
     );
+  },
+
+  getEnrollmentProgressDetail: async (enrollmentId: string): Promise<EnrollmentProgressDetail | null> => {
+    if (!supabase) {
+      return null;
+    }
+
+    const { data: enrollmentRow, error: enrollmentError } = await supabase
+      .from("enrollments")
+      .select("*")
+      .eq("id", enrollmentId)
+      .single();
+
+    if (enrollmentError || !enrollmentRow) {
+      if (enrollmentError) {
+        handleSupabaseError(enrollmentError);
+      }
+      return null;
+    }
+
+    const enrollment = mapEnrollmentRecord(enrollmentRow);
+    const [course, modules] = await Promise.all([
+      courseService.getCourse(enrollment.courseId),
+      moduleService.getModulesByCourse(enrollment.courseId),
+    ]);
+
+    const moduleIds = modules.map((module) => module.id);
+    const [{ data: completionRows, error: completionError }, { data: assessmentRows, error: assessmentError }] = await Promise.all([
+      supabase
+        .from("module_completions")
+        .select("module_id, completed_at, time_spent")
+        .eq("enrollment_id", enrollmentId),
+      moduleIds.length > 0
+        ? supabase
+            .from("assessments")
+            .select("id, module_id, title, derived_from_module_quiz")
+            .eq("is_active", true)
+            .in("module_id", moduleIds)
+        : Promise.resolve({ data: [], error: null }),
+    ]);
+
+    if (completionError) {
+      handleSupabaseError(completionError);
+      throw completionError;
+    }
+
+    if (assessmentError) {
+      handleSupabaseError(assessmentError);
+      throw assessmentError;
+    }
+
+    const assessmentIds = (assessmentRows || []).map((assessment: any) => assessment.id).filter(Boolean);
+    const { data: attemptRows, error: attemptError } = assessmentIds.length > 0
+      ? await supabase
+          .from("assessment_attempts")
+          .select("id, assessment_id, submitted_at, started_at, review_status, passed, score, requires_manual_review")
+          .eq("enrollment_id", enrollmentId)
+          .in("assessment_id", assessmentIds)
+      : { data: [], error: null };
+
+    if (attemptError) {
+      handleSupabaseError(attemptError);
+      throw attemptError;
+    }
+
+    const completionMap = new Map<string, { completedAt?: string; timeSpent?: number }>();
+    for (const row of completionRows || []) {
+      completionMap.set(row.module_id, {
+        completedAt: row.completed_at || undefined,
+        timeSpent: row.time_spent || undefined,
+      });
+    }
+
+    const completedModuleIds = Array.from(completionMap.keys());
+    const latestAttemptByAssessmentId = new Map<string, any>();
+    for (const attempt of attemptRows || []) {
+      const current = latestAttemptByAssessmentId.get(attempt.assessment_id);
+      const attemptTime = new Date(attempt.submitted_at || attempt.started_at || 0).getTime();
+      const currentTime = current ? new Date(current.submitted_at || current.started_at || 0).getTime() : -1;
+      if (!current || attemptTime > currentTime) {
+        latestAttemptByAssessmentId.set(attempt.assessment_id, attempt);
+      }
+    }
+
+    return {
+      enrollment,
+      course,
+      modules: modules.map((module) => {
+        const completion = completionMap.get(module.id);
+        return {
+          module,
+          completed: Boolean(completion),
+          completedAt: completion?.completedAt,
+          timeSpent: completion?.timeSpent,
+          blockedByModuleIds: getBlockingModules(module, modules, completedModuleIds).map((candidate) => candidate.id),
+        };
+      }),
+      assessments: (assessmentRows || []).map((assessment: any) => {
+        const latestAttempt = latestAttemptByAssessmentId.get(assessment.id);
+        return {
+          assessmentId: assessment.id,
+          moduleId: assessment.module_id,
+          assessmentTitle: assessment.title || "Module Assessment",
+          latestAttemptId: latestAttempt?.id || undefined,
+          requiresManualReview: Boolean(latestAttempt?.requires_manual_review),
+          submittedAt: latestAttempt?.submitted_at || undefined,
+          reviewStatus: latestAttempt?.review_status || undefined,
+          passed: typeof latestAttempt?.passed === "boolean" ? latestAttempt.passed : undefined,
+          score: latestAttempt?.score === null || latestAttempt?.score === undefined ? undefined : Number(latestAttempt.score),
+        };
+      }),
+    };
   },
 };
 
@@ -2393,6 +2677,7 @@ export const certificateService = {
           certificateNumber: cert.certificate_number,
           certificateType: cert.certificate_type,
           verificationCode: cert.verification_code,
+          issuedBy: cert.issued_by || undefined,
           courseCategory: course?.category,
           courseThumbnail: resolveCourseMaterialUrl(course?.thumbnail),
         };
@@ -2407,11 +2692,12 @@ export const certificateService = {
     userId: string,
     courseId: string,
     courseTitle: string,
-    certificateType: "completion" | "participation" = "completion"
+    certificateType: "completion" | "participation" = "completion",
+    issuedBy?: string,
   ): Promise<Certificate> => {
     const { data: existingCertificate, error: existingCertificateError } = await supabase
       .from("certificates")
-      .select("id, user_id, course_id, issued_at, certificate_number, certificate_type, verification_code")
+      .select("id, user_id, course_id, issued_at, certificate_number, certificate_type, verification_code, issued_by")
       .eq("user_id", userId)
       .eq("course_id", courseId)
       .order("issued_at", { ascending: true })
@@ -2433,6 +2719,7 @@ export const certificateService = {
         certificateNumber: existingCertificate.certificate_number,
         certificateType: existingCertificate.certificate_type,
         verificationCode: existingCertificate.verification_code,
+        issuedBy: existingCertificate.issued_by || undefined,
       };
     }
 
@@ -2448,6 +2735,7 @@ export const certificateService = {
         certificate_type: certificateType,
         issued_at: new Date().toISOString(),
         verification_code: verificationCode,
+        issued_by: issuedBy || null,
       })
       .select()
       .single();
@@ -2459,7 +2747,7 @@ export const certificateService = {
 
     const { data: matchingCertificates, error: matchingCertificatesError } = await supabase
       .from("certificates")
-      .select("id, user_id, course_id, issued_at, certificate_number, certificate_type, verification_code")
+      .select("id, user_id, course_id, issued_at, certificate_number, certificate_type, verification_code, issued_by")
       .eq("user_id", userId)
       .eq("course_id", courseId)
       .order("issued_at", { ascending: true });
@@ -2497,6 +2785,7 @@ export const certificateService = {
       certificateNumber: canonicalCertificate.certificate_number,
       certificateType: canonicalCertificate.certificate_type,
       verificationCode: canonicalCertificate.verification_code,
+      issuedBy: canonicalCertificate.issued_by || undefined,
     };
 
     if (certificate.id === data.id) {
@@ -2510,6 +2799,60 @@ export const certificateService = {
       } catch (error) {
         console.error("Error sending certificate notification:", error);
       }
+    }
+
+    return certificate;
+  },
+
+  issueCertificateForEnrollment: async (
+    enrollmentId: string,
+    issuedBy: string,
+  ): Promise<Certificate> => {
+    if (!supabase) {
+      throw new Error("Supabase not initialized");
+    }
+
+    const { data: enrollment, error: enrollmentError } = await supabase
+      .from("enrollments")
+      .select(`
+        id,
+        user_id,
+        course_id,
+        certificate_id,
+        completion_approval_status,
+        courses:course_id (title, certificate_type)
+      `)
+      .eq("id", enrollmentId)
+      .single();
+
+    if (enrollmentError || !enrollment) {
+      if (enrollmentError) {
+        handleSupabaseError(enrollmentError);
+      }
+      throw enrollmentError || new Error("Enrollment not found");
+    }
+
+    if (enrollment.completion_approval_status !== "approved") {
+      throw new Error("Completion must be approved before issuing a certificate.");
+    }
+
+    const course = enrollment.courses as { title?: string; certificate_type?: "completion" | "participation" } | null;
+    const certificate = await certificateService.issueCertificate(
+      enrollment.user_id,
+      enrollment.course_id,
+      course?.title || "Course",
+      course?.certificate_type || "completion",
+      issuedBy,
+    );
+
+    const { error: updateEnrollmentError } = await supabase
+      .from("enrollments")
+      .update({ certificate_id: certificate.id })
+      .eq("id", enrollmentId);
+
+    if (updateEnrollmentError) {
+      handleSupabaseError(updateEnrollmentError);
+      throw updateEnrollmentError;
     }
 
     return certificate;
@@ -2667,6 +3010,14 @@ export const userService = {
         email: user.email,
         name: user.name,
         role: normalizeUserRole(user.role),
+        traineeType: (user.trainee_type as User["traineeType"] | undefined) || undefined,
+        verificationStatus: (user.verification_status as User["verificationStatus"] | undefined) || undefined,
+        employeeId: user.employee_id || undefined,
+        physicalId: user.physical_id || undefined,
+        verificationSubmittedAt: user.verification_submitted_at || undefined,
+        verifiedAt: user.verified_at || undefined,
+        verifiedBy: user.verified_by || undefined,
+        verificationNotes: user.verification_notes || undefined,
         avatar: user.avatar || undefined,
         phone: user.phone || undefined,
         address: user.address || undefined,
@@ -2683,10 +3034,117 @@ export const userService = {
         industryInterests: user.industry_interests || undefined,
         preferredCategories: user.preferred_categories || undefined,
         onboardingSkillLevel: user.onboarding_skill_level || undefined,
+        onboardingModalSeenAt: user.onboarding_modal_seen_at || undefined,
         skills: user.skills || undefined,
         createdAt: user.created_at,
       })) || []
     );
+  },
+
+  getTraineesForVerification: async (): Promise<User[]> => {
+    if (!supabase) {
+      console.warn("Supabase not initialized");
+      return [];
+    }
+
+    const { data, error } = await supabase.rpc("get_trainees_for_verification");
+
+    if (error) {
+      handleSupabaseError(error);
+      throw error;
+    }
+
+    return (
+      (data as any[] | null)?.map((user) => ({
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: normalizeUserRole(user.role),
+        traineeType: (user.trainee_type as User["traineeType"] | undefined) || undefined,
+        verificationStatus: (user.verification_status as User["verificationStatus"] | undefined) || undefined,
+        employeeId: user.employee_id || undefined,
+        physicalId: user.physical_id || undefined,
+        verificationSubmittedAt: user.verification_submitted_at || undefined,
+        verifiedAt: user.verified_at || undefined,
+        verifiedBy: user.verified_by || undefined,
+        verificationNotes: user.verification_notes || undefined,
+        avatar: user.avatar || undefined,
+        phone: user.phone || undefined,
+        address: user.address || undefined,
+        dateOfBirth: user.date_of_birth || undefined,
+        gender: user.gender || undefined,
+        civilStatus: user.civil_status || undefined,
+        employmentStatus: user.employment_status || undefined,
+        occupation: user.occupation || undefined,
+        educationLevel: user.education_level || undefined,
+        barangay: user.barangay || undefined,
+        cityMunicipality: user.city_municipality || undefined,
+        province: user.province || undefined,
+        postalCode: user.postal_code || undefined,
+        industryInterests: user.industry_interests || undefined,
+        preferredCategories: user.preferred_categories || undefined,
+        onboardingSkillLevel: user.onboarding_skill_level || undefined,
+        onboardingModalSeenAt: user.onboarding_modal_seen_at || undefined,
+        skills: user.skills || undefined,
+        createdAt: user.created_at,
+      })) || []
+    );
+  },
+
+  updateTraineeVerification: async (
+    traineeId: string,
+    verificationStatus: NonNullable<User["verificationStatus"]>,
+    verificationNotes?: string,
+    _reviewerId?: string,
+  ): Promise<User> => {
+    if (!supabase) {
+      throw new Error("Supabase not initialized");
+    }
+
+    const { data, error } = await supabase.rpc("update_trainee_verification", {
+      p_trainee_id: traineeId,
+      p_verification_status: verificationStatus,
+      p_verification_notes: verificationNotes || null,
+    });
+
+    if (error || !data) {
+      handleSupabaseError(error);
+      throw error || new Error("Failed to update trainee verification");
+    }
+
+    return {
+      id: data.id,
+      email: data.email,
+      name: data.name,
+      role: normalizeUserRole(data.role),
+      traineeType: (data.trainee_type as User["traineeType"] | undefined) || undefined,
+      verificationStatus: (data.verification_status as User["verificationStatus"] | undefined) || undefined,
+      employeeId: data.employee_id || undefined,
+      physicalId: data.physical_id || undefined,
+      verificationSubmittedAt: data.verification_submitted_at || undefined,
+      verifiedAt: data.verified_at || undefined,
+      verifiedBy: data.verified_by || undefined,
+      verificationNotes: data.verification_notes || undefined,
+      avatar: data.avatar || undefined,
+      phone: data.phone || undefined,
+      address: data.address || undefined,
+      dateOfBirth: data.date_of_birth || undefined,
+      gender: data.gender || undefined,
+      civilStatus: data.civil_status || undefined,
+      employmentStatus: data.employment_status || undefined,
+      occupation: data.occupation || undefined,
+      educationLevel: data.education_level || undefined,
+      barangay: data.barangay || undefined,
+      cityMunicipality: data.city_municipality || undefined,
+      province: data.province || undefined,
+      postalCode: data.postal_code || undefined,
+      industryInterests: data.industry_interests || undefined,
+      preferredCategories: data.preferred_categories || undefined,
+      onboardingSkillLevel: data.onboarding_skill_level || undefined,
+      onboardingModalSeenAt: data.onboarding_modal_seen_at || undefined,
+      skills: data.skills || undefined,
+      createdAt: data.created_at,
+    };
   },
 
   /**
@@ -2721,6 +3179,14 @@ export const userService = {
       email: data.email,
       name: data.name,
       role: normalizeUserRole(data.role),
+      traineeType: (data.trainee_type as User["traineeType"] | undefined) || undefined,
+      verificationStatus: (data.verification_status as User["verificationStatus"] | undefined) || undefined,
+      employeeId: data.employee_id || undefined,
+      physicalId: data.physical_id || undefined,
+      verificationSubmittedAt: data.verification_submitted_at || undefined,
+      verifiedAt: data.verified_at || undefined,
+      verifiedBy: data.verified_by || undefined,
+      verificationNotes: data.verification_notes || undefined,
       avatar: data.avatar || undefined,
       phone: data.phone || undefined,
       address: data.address || undefined,
@@ -2737,6 +3203,7 @@ export const userService = {
       industryInterests: data.industry_interests || undefined,
       preferredCategories: data.preferred_categories || undefined,
       onboardingSkillLevel: data.onboarding_skill_level || undefined,
+      onboardingModalSeenAt: data.onboarding_modal_seen_at || undefined,
       skills: data.skills || undefined,
       createdAt: data.created_at,
     };
@@ -2756,6 +3223,14 @@ export const userService = {
     };
 
     if (updates.name !== undefined) updateData.name = updates.name;
+    if (updates.traineeType !== undefined) updateData.trainee_type = updates.traineeType || null;
+    if (updates.verificationStatus !== undefined) updateData.verification_status = updates.verificationStatus || null;
+    if (updates.employeeId !== undefined) updateData.employee_id = updates.employeeId || null;
+    if (updates.physicalId !== undefined) updateData.physical_id = updates.physicalId || null;
+    if (updates.verificationSubmittedAt !== undefined) updateData.verification_submitted_at = updates.verificationSubmittedAt || null;
+    if (updates.verifiedAt !== undefined) updateData.verified_at = updates.verifiedAt || null;
+    if (updates.verifiedBy !== undefined) updateData.verified_by = updates.verifiedBy || null;
+    if (updates.verificationNotes !== undefined) updateData.verification_notes = updates.verificationNotes || null;
     if (updates.phone !== undefined) updateData.phone = updates.phone;
     if (updates.address !== undefined) updateData.address = updates.address;
     if (updates.dateOfBirth !== undefined) updateData.date_of_birth = updates.dateOfBirth || null;
@@ -2771,6 +3246,7 @@ export const userService = {
     if (updates.industryInterests !== undefined) updateData.industry_interests = updates.industryInterests;
     if (updates.preferredCategories !== undefined) updateData.preferred_categories = updates.preferredCategories;
     if (updates.onboardingSkillLevel !== undefined) updateData.onboarding_skill_level = updates.onboardingSkillLevel || null;
+    if (updates.onboardingModalSeenAt !== undefined) updateData.onboarding_modal_seen_at = updates.onboardingModalSeenAt || null;
     if (updates.avatar !== undefined) updateData.avatar = updates.avatar;
     if (updates.skills !== undefined) updateData.skills = updates.skills;
     if (updates.role !== undefined) updateData.role = updates.role;
@@ -2806,6 +3282,14 @@ export const userService = {
       email: data.email,
       name: data.name,
       role: normalizeUserRole(data.role),
+      traineeType: (data.trainee_type as User["traineeType"] | undefined) || undefined,
+      verificationStatus: (data.verification_status as User["verificationStatus"] | undefined) || undefined,
+      employeeId: data.employee_id || undefined,
+      physicalId: data.physical_id || undefined,
+      verificationSubmittedAt: data.verification_submitted_at || undefined,
+      verifiedAt: data.verified_at || undefined,
+      verifiedBy: data.verified_by || undefined,
+      verificationNotes: data.verification_notes || undefined,
       avatar: data.avatar || undefined,
       phone: data.phone || undefined,
       address: data.address || undefined,
@@ -2822,6 +3306,7 @@ export const userService = {
       industryInterests: data.industry_interests || undefined,
       preferredCategories: data.preferred_categories || undefined,
       onboardingSkillLevel: data.onboarding_skill_level || undefined,
+      onboardingModalSeenAt: data.onboarding_modal_seen_at || undefined,
       skills: data.skills || undefined,
       createdAt: data.created_at,
     };

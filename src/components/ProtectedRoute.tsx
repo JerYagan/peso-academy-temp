@@ -55,13 +55,19 @@ export const ProtectedRoute = ({ children, allowedRoles, requiredPermissions }: 
   // Determine required permissions for this route
   useEffect(() => {
     const checkPermissions = async () => {
-      if (loading || !user) {
+      if (loading) {
+        setPermissionLoading(true);
+        return;
+      }
+
+      if (!user) {
         setPermissionLoading(false);
         setHasAccess(false);
         return;
       }
 
       try {
+        setPermissionLoading(true);
         let permissionsToCheck: string[] = [];
 
         // Priority: requiredPermissions prop > route-based permissions > allowedRoles (deprecated)

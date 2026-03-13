@@ -2,8 +2,10 @@ import { ReactNode } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
-import { GraduationCap, LogOut, User, BookOpen, Settings, BarChart3, Users, FileText, FileSpreadsheet, Award, TrendingUp, ClipboardList, Tags } from "lucide-react";
+import { LogOut, User, BookOpen, Settings, BarChart3, Users, FileSpreadsheet, Award, ClipboardList, Tags, ShieldCheck } from "lucide-react";
 import { useTheme } from "next-themes";
+import { useLocale } from "@/contexts/LocaleContext";
+import LanguageSwitcher from "@/components/LanguageSwitcher";
 import NotificationCenter from "./NotificationCenter";
 import {
   DropdownMenu,
@@ -21,6 +23,7 @@ interface DashboardLayoutProps {
 const DashboardLayout = ({ children }: DashboardLayoutProps) => {
   const { user, logout } = useAuth();
   const { resolvedTheme } = useTheme();
+  const { t } = useLocale();
   const navigate = useNavigate();
   const location = useLocation();
   const logoSrc = resolvedTheme === "dark" ? "/images/logo_dark.png" : "/images/logo.png";
@@ -36,15 +39,16 @@ const DashboardLayout = ({ children }: DashboardLayoutProps) => {
     switch (user.role) {
       case "trainee":
         return [
-          { path: "/dashboard", label: "My Dashboard", icon: BarChart3 },
-          { path: "/courses", label: "Browse Courses", icon: BookOpen },
+          { path: "/dashboard", label: t("dashboardLayout.traineeNav.dashboard"), icon: BarChart3 },
+          { path: "/courses", label: t("dashboardLayout.traineeNav.courses"), icon: BookOpen },
           // { path: "/progress", label: "My Progress", icon: TrendingUp },
-          { path: "/certificates", label: "Certifications", icon: Award },
-          { path: "/profile", label: "Profile", icon: User },
+          { path: "/certificates", label: t("dashboardLayout.traineeNav.certificates"), icon: Award },
+          { path: "/profile", label: t("dashboardLayout.traineeNav.profile"), icon: User },
         ];
       case "admin":
         return [
           { path: "/admin/dashboard", label: "Admin Dashboard", icon: BarChart3 },
+          { path: "/verification", label: "Verification", icon: ShieldCheck },
           { path: "/admin/users", label: "Users", icon: Users },
           { path: "/admin/taxonomy", label: "Taxonomy", icon: Tags },
           { path: "/admin/enrollments", label: "Enrollments", icon: ClipboardList },
@@ -59,6 +63,7 @@ const DashboardLayout = ({ children }: DashboardLayoutProps) => {
             label: "Trainer Dashboard",
             icon: BarChart3,
           },
+          { path: "/verification", label: "Verification", icon: ShieldCheck },
           { path: "/trainer/courses", label: "My Courses", icon: BookOpen },
           { path: "/trainer/taxonomy", label: "Taxonomy", icon: Tags },
           { path: "/trainer/learners", label: "Learners", icon: Users },
@@ -108,6 +113,7 @@ const DashboardLayout = ({ children }: DashboardLayoutProps) => {
 
             <div className="flex items-center gap-2">
               <NotificationCenter />
+              <LanguageSwitcher compact />
 
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -124,19 +130,19 @@ const DashboardLayout = ({ children }: DashboardLayoutProps) => {
                 <DropdownMenuItem asChild>
                   <Link to="/profile" className="cursor-pointer">
                     <User className="mr-2 h-4 w-4" />
-                    Profile
+                    {t("dashboardLayout.menuProfile")}
                   </Link>
                 </DropdownMenuItem>
                 <DropdownMenuItem asChild>
-                  <Link to="/" className="cursor-pointer">
+                  <Link to="/settings" className="cursor-pointer">
                     <Settings className="mr-2 h-4 w-4" />
-                    Home
+                    {t("dashboardLayout.menuSettings")}
                   </Link>
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={handleLogout} className="cursor-pointer text-destructive">
                   <LogOut className="mr-2 h-4 w-4" />
-                  Logout
+                  {t("common.logout")}
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>

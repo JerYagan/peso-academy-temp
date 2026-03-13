@@ -20,149 +20,107 @@ import {
   Users,
 } from "lucide-react";
 import { Link } from "react-router-dom";
+import { useLocale } from "@/contexts/LocaleContext";
 
-const featureCards = [
+const featureCardDecor = [
   {
-    title: "Learning Management",
-    description:
-      "Access modular courses in employability, technical, digital skills, and entrepreneurship.",
     icon: BookOpen,
     iconStyle: { background: "linear-gradient(135deg, #e11d48 0%, #ec4899 100%)" },
   },
   {
-    title: "Assessment",
-    description:
-      "Validate your learning progress and your newly acquired skills and knowledge.",
     icon: LayoutPanelTop,
     iconStyle: { background: "linear-gradient(135deg, #4f46e5 0%, #334155 100%)" },
   },
   {
-    title: "Digital Certifications",
-    description:
-      "Earn TESDA-supported certificates and digital badges to showcase your achievements.",
     icon: Award,
     iconStyle: { background: "linear-gradient(135deg, #2563eb 0%, #06b6d4 100%)" },
   },
   {
-    title: "Data Privacy",
-    description:
-      "Your data is protected under the Data Privacy Act of 2012. Learn with confidence.",
     icon: ShieldCheck,
     iconStyle: { background: "linear-gradient(135deg, #10b981 0%, #14b8a6 100%)" },
   },
 ];
 
-const processSteps = [
+const processStepDecor = [
   {
-    step: "01",
-    title: "Register & Build Profile",
-    description:
-      "Sign up with your PESO ID or create a new account. Complete your profile with your learning interests and goals.",
     icon: UserRoundPlus,
     badgeClassName: "bg-slate-800 text-white dark:bg-slate-100 dark:text-slate-900",
     iconClassName: "bg-indigo-100 text-indigo-700 ring-1 ring-indigo-200 dark:bg-indigo-500/20 dark:text-indigo-300 dark:ring-indigo-400/20",
   },
   {
-    step: "02",
-    title: "Learn & Complete Assessments",
-    description:
-      "Access learning modules, engage with interactive content, and complete assessments to validate your learning.",
     icon: GraduationCap,
     badgeClassName: "bg-rose-600 text-white dark:bg-rose-500 dark:text-white",
     iconClassName: "bg-rose-100 text-rose-700 ring-1 ring-rose-200 dark:bg-rose-500/20 dark:text-rose-300 dark:ring-rose-400/20",
   },
   {
-    step: "03",
-    title: "Earn Certifications",
-    description:
-      "Receive TESDA-supported certificates and digital badges to showcase your newly acquired skills and knowledge.",
     icon: BadgeCheck,
-    badgeClassName: "bg-blue-600 text-white dark:bg-blue-500 dark:text-white",
+    badgeClassName: "bg-blue-700 text-white dark:bg-blue-500 dark:text-white",
     iconClassName: "bg-sky-100 text-sky-700 ring-1 ring-sky-200 dark:bg-sky-500/20 dark:text-sky-300 dark:ring-sky-400/20",
   },
 ];
 
-const audiences = [
+const audienceDecor = [
   {
-    title: "Jobseekers",
-    description:
-      "Access skills training, certifications, and job matching to advance your career.",
     icon: SearchCheck,
     iconClass: "bg-indigo-100 text-indigo-700 ring-1 ring-indigo-200 dark:bg-indigo-500/20 dark:text-indigo-300 dark:ring-indigo-400/20",
   },
   {
-    title: "Employers",
-    description:
-      "Find skilled candidates and collaborate on workforce development programs.",
     icon: Briefcase,
     iconClass: "bg-rose-100 text-rose-700 ring-1 ring-rose-200 dark:bg-rose-500/20 dark:text-rose-300 dark:ring-rose-400/20",
   },
   {
-    title: "Students",
-    description:
-      "Enhance your academic learning with practical skills and industry certifications.",
     icon: GraduationCap,
     iconClass: "bg-sky-100 text-sky-700 ring-1 ring-sky-200 dark:bg-sky-500/20 dark:text-sky-300 dark:ring-sky-400/20",
   },
   {
-    title: "Out-of-School Youth",
-    description:
-      "Build foundational and technical skills to enter the workforce with confidence.",
     icon: Users,
     iconClass: "bg-amber-100 text-amber-700 ring-1 ring-amber-200 dark:bg-amber-500/20 dark:text-amber-300 dark:ring-amber-400/20",
   },
   {
-    title: "Migratory Workers",
-    description:
-      "Upskill for employment opportunities both locally and internationally.",
     icon: Globe,
     iconClass: "bg-emerald-100 text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-500/20 dark:text-emerald-300 dark:ring-emerald-400/20",
   },
   {
-    title: "Planners",
-    description:
-      "Access labor market data to inform policy and workforce development strategies.",
     icon: FileSearch,
     iconClass: "bg-violet-100 text-violet-700 ring-1 ring-violet-200 dark:bg-violet-500/20 dark:text-violet-300 dark:ring-violet-400/20",
   },
   {
-    title: "Researchers",
-    description:
-      "Utilize employment and skills data for academic and policy research initiatives.",
     icon: FlaskConical,
     iconClass: "bg-pink-100 text-pink-700 ring-1 ring-pink-200 dark:bg-pink-500/20 dark:text-pink-300 dark:ring-pink-400/20",
   },
   {
-    title: "Labor Market Information Users",
-    description:
-      "Leverage workforce trends and insights for decision-making and planning.",
     icon: LayoutPanelTop,
     iconClass: "bg-orange-100 text-orange-700 ring-1 ring-orange-200 dark:bg-orange-500/20 dark:text-orange-300 dark:ring-orange-400/20",
   },
   {
-    title: "Persons with Disabilities (PWDs)",
-    description:
-      "Access inclusive learning programs designed for diverse abilities and needs.",
     icon: HeartHandshake,
     iconClass: "bg-red-100 text-red-700 ring-1 ring-red-200 dark:bg-red-500/20 dark:text-red-300 dark:ring-red-400/20",
   },
   {
-    title: "Returning Overseas Filipino Workers",
-    description:
-      "Transition back to the local workforce with reskilling and reintegration support.",
     icon: Home,
     iconClass: "bg-cyan-100 text-cyan-700 ring-1 ring-cyan-200 dark:bg-cyan-500/20 dark:text-cyan-300 dark:ring-cyan-400/20",
   },
   {
-    title: "Displaced Workers",
-    description:
-      "Reskill and find new opportunities after job displacement or industry changes.",
     icon: Users,
     iconClass: "bg-slate-200 text-slate-700 ring-1 ring-slate-300 dark:bg-slate-500/20 dark:text-slate-300 dark:ring-slate-400/20",
   },
 ];
 
 const Index = () => {
+  const { t, getMessage } = useLocale();
+  const featureCards = getMessage<Array<{ title: string; description: string }>>("home.featureCards").map((item, index) => ({
+    ...item,
+    ...featureCardDecor[index],
+  }));
+  const processSteps = getMessage<Array<{ step: string; title: string; description: string }>>("home.processSteps").map((item, index) => ({
+    ...item,
+    ...processStepDecor[index],
+  }));
+  const audiences = getMessage<Array<{ title: string; description: string }>>("home.audiences").map((item, index) => ({
+    ...item,
+    ...audienceDecor[index],
+  }));
+
   return (
     <div className="min-h-screen bg-background text-foreground">
       <Header />
@@ -171,25 +129,25 @@ const Index = () => {
           <div className="mx-auto grid min-h-[auto] max-w-7xl items-center gap-10 px-4 py-8 sm:px-6 sm:py-12 lg:min-h-[620px] lg:grid-cols-[1.02fr_0.98fr] lg:gap-12 lg:px-8 lg:py-10">
             <div className="max-w-2xl space-y-5 animate-fade-up sm:space-y-6">
               <div className="inline-flex items-center rounded-full border border-primary/15 bg-primary/5 px-3 py-1 text-[11px] font-semibold leading-5 text-primary dark:border-primary/25 dark:bg-primary/10 sm:px-4 sm:text-sm">
-                Free skills training and certifications for learners.
+                {t("home.heroBadge")}
               </div>
               <div className="space-y-4">
                 <h1 className="max-w-2xl text-[2.45rem] font-extrabold leading-[0.95] tracking-[-0.05em] text-foreground sm:text-6xl lg:text-[4.75rem] lg:leading-[0.95]">
-                  Find Your Career Path with <span className="text-primary">PESO Academy</span>
+                  {t("home.heroTitlePrefix")} <span className="text-primary">{t("home.heroTitleHighlight")}</span>
                 </h1>
                 <p className="max-w-xl text-[15px] leading-7 text-muted-foreground sm:text-xl sm:leading-9">
-                  Bridge the skills gap and unlock your potential through continuous learning, practical assessments, and digital certification.
+                  {t("home.heroSubtitle")}
                 </p>
               </div>
               <div className="flex flex-col gap-3 sm:flex-row sm:gap-4">
                 <Button asChild size="lg" className="h-12 w-full rounded-2xl px-6 text-sm font-semibold card-shadow sm:h-14 sm:w-auto sm:px-7 sm:text-base">
                   <Link to="/signup">
-                    Start Learning Free
+                    {t("home.startLearning")}
                     <ArrowRight className="ml-2 h-4 w-4" />
                   </Link>
                 </Button>
                 <Button asChild size="lg" variant="outline" className="h-12 w-full rounded-2xl border-primary/30 bg-background/80 px-6 text-sm font-semibold backdrop-blur hover:bg-muted dark:bg-card/70 sm:h-14 sm:w-auto sm:px-7 sm:text-base">
-                  <Link to="/courses">Browse Courses</Link>
+                  <Link to="/courses">{t("common.browseCourses")}</Link>
                 </Button>
               </div>
             </div>
@@ -211,10 +169,10 @@ const Index = () => {
           <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
             <div className="mx-auto max-w-3xl text-center">
               <h2 className="text-[2rem] font-extrabold tracking-[-0.03em] text-foreground sm:text-5xl">
-                Everything You Need to Succeed
+                {t("home.featuresTitle")}
               </h2>
               <p className="mt-3 text-sm leading-7 text-muted-foreground sm:mt-4 sm:text-lg sm:leading-8">
-                PESO Academy offers a structured learning and certification platform designed to support your skills development.
+                {t("home.featuresSubtitle")}
               </p>
             </div>
 
@@ -241,12 +199,12 @@ const Index = () => {
         <section id="how-it-works" className="border-y border-border bg-muted/55 py-14 dark:bg-muted/30 sm:py-24">
           <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
             <div className="mx-auto max-w-3xl text-center">
-              <p className="text-[11px] font-bold uppercase tracking-[0.24em] text-primary sm:text-sm">How It Works</p>
+              <p className="text-[11px] font-bold uppercase tracking-[0.24em] text-primary sm:text-sm">{t("home.howItWorksEyebrow")}</p>
               <h2 className="mt-2 text-[2rem] font-extrabold tracking-[-0.03em] text-foreground sm:mt-3 sm:text-5xl">
-                Your Path to Upskilling
+                {t("home.howItWorksTitle")}
               </h2>
               <p className="mt-3 text-sm leading-7 text-muted-foreground sm:mt-4 sm:text-lg sm:leading-8">
-                Follow our simple 3-step process to upskill and achieve your learning goals.
+                {t("home.howItWorksSubtitle")}
               </p>
             </div>
 
@@ -275,12 +233,12 @@ const Index = () => {
         <section id="about" className="bg-background py-14 sm:py-24">
           <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
             <div className="mx-auto max-w-3xl text-center">
-              <p className="text-[11px] font-bold uppercase tracking-[0.24em] text-primary sm:text-sm">PESO Clients</p>
+              <p className="text-[11px] font-bold uppercase tracking-[0.24em] text-primary sm:text-sm">{t("home.audiencesEyebrow")}</p>
               <h2 className="mt-2 text-[2rem] font-extrabold tracking-[-0.03em] text-foreground sm:mt-3 sm:text-5xl">
-                Who We Serve
+                {t("home.audiencesTitle")}
               </h2>
               <p className="mt-3 text-sm leading-7 text-muted-foreground sm:mt-4 sm:text-lg sm:leading-8">
-                PESO Academy provides learning opportunities for diverse client groups across the Filipino workforce.
+                {t("home.audiencesSubtitle")}
               </p>
             </div>
 
@@ -310,21 +268,21 @@ const Index = () => {
             <div className="mx-auto max-w-5xl overflow-hidden rounded-[1.5rem] border border-primary/10 bg-[linear-gradient(135deg,hsl(var(--primary))_0%,hsl(237_45%_35%)_45%,hsl(228_54%_30%)_100%)] px-4 py-8 text-center text-primary-foreground shadow-[0_30px_90px_-35px_rgba(31,41,95,0.55)] sm:rounded-[2rem] sm:px-10 sm:py-12 lg:px-16 lg:py-16">
               <div className="mx-auto max-w-3xl">
                 <h2 className="text-[1.8rem] font-extrabold tracking-[-0.03em] leading-tight sm:text-5xl">
-                  Ready to Start Your Journey?
+                  {t("home.ctaTitle")}
                 </h2>
                 <p className="mx-auto mt-3 max-w-2xl text-sm leading-7 text-primary-foreground/80 sm:mt-5 sm:text-lg sm:leading-8">
-                  Join thousands of individuals who have found success through PESO Academy. Create your account today and take the first step towards your dream career.
+                  {t("home.ctaSubtitle")}
                 </p>
               </div>
               <div className="mt-6 flex flex-col items-center justify-center gap-3 sm:mt-8 sm:flex-row">
                 <Button asChild size="lg" variant="secondary" className="h-11 w-full rounded-2xl bg-white px-6 text-sm font-semibold text-primary hover:bg-white/90 sm:h-12 sm:w-auto sm:px-8 sm:text-base">
                   <Link to="/signup">
-                    Get Started
+                    {t("home.startLearning")}
                     <ArrowRight className="ml-2 h-4 w-4" />
                   </Link>
                 </Button>
                 <Button asChild size="lg" variant="outline" className="h-11 w-full rounded-2xl border-white/25 bg-white/10 px-6 text-sm font-semibold text-white backdrop-blur hover:bg-white/15 sm:h-12 sm:w-auto sm:px-8 sm:text-base">
-                  <Link to="/courses">Explore Courses</Link>
+                  <Link to="/courses">{t("common.browseCourses")}</Link>
                 </Button>
               </div>
             </div>

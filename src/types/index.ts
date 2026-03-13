@@ -52,6 +52,41 @@ export interface Enrollment {
   completedAt?: string;
   certificateId?: string;
   sourceRecommendationId?: string;
+  completionApprovalStatus?: "not_ready" | "pending" | "approved" | "needs_revision";
+  completionRequestedAt?: string;
+  completionReviewedAt?: string;
+  completionReviewedBy?: string;
+  completionFeedback?: string;
+  creditedDurationHours?: number;
+  actualLearningMinutes?: number;
+  lastActivityAt?: string;
+}
+
+export interface EnrollmentModuleProgress {
+  module: Module;
+  completed: boolean;
+  completedAt?: string;
+  timeSpent?: number;
+  blockedByModuleIds: string[];
+}
+
+export interface EnrollmentAssessmentProgress {
+  assessmentId: string;
+  moduleId: string;
+  assessmentTitle: string;
+  latestAttemptId?: string;
+  requiresManualReview: boolean;
+  submittedAt?: string;
+  reviewStatus?: "submitted" | "under_review" | "needs_revision" | "approved";
+  passed?: boolean;
+  score?: number;
+}
+
+export interface EnrollmentProgressDetail {
+  enrollment: Enrollment;
+  course: Course | null;
+  modules: EnrollmentModuleProgress[];
+  assessments: EnrollmentAssessmentProgress[];
 }
 
 export type ModuleStatus = "draft" | "finalized";
@@ -85,6 +120,7 @@ export interface Certificate {
   certificateNumber: string;
   certificateType?: "completion" | "participation";
   verificationCode?: string;
+  issuedBy?: string;
   /** Course category for display (e.g. "AI & Data Science") */
   courseCategory?: string;
   /** Course thumbnail URL for certificate card */

@@ -26,9 +26,11 @@ export const routePermissions: RoutePermissionConfig[] = [
   // Protected routes (require authentication only)
   { path: "/dashboard", requiredPermissions: [] },
   { path: "/profile", requiredPermissions: [] },
+  { path: "/settings", requiredPermissions: [] },
   { path: "/progress", requiredPermissions: [] },
   { path: "/certificates", requiredPermissions: [] },
   { path: "/courses/:id", requiredPermissions: [] },
+  { path: "/verification", requiredPermissions: ["users.view", "training.manage"] },
 
   // Admin routes - require ANY related permission (if you can create/update/delete, you can access the dashboard)
   { path: "/admin/users", requiredPermissions: ["users.view", "users.create", "users.update", "users.delete", "users.manage_roles"] },

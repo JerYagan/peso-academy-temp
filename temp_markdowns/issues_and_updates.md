@@ -20,206 +20,15 @@ User credentials:
 - [ ] Registered account goes to Auth but not in the users table. This causes issues for admin when trying to manage users and for trainers when trying to assign courses to users.
 
 ### Trainer & Admin & Course Creation
-- [ ] Assessment score should be the quiz block score and not a separate field that the trainer has to fill in. This is to avoid discrepancies and extra work for the trainer. The quiz block score should be automatically calculated based on the questions and answers in the quiz block. Assessment is the quizzes in each modules. Create an implementation plan so we can address this problem.
-	- Root cause
-		- The platform currently has two parallel quiz systems: module `quiz` content blocks inside module content, and a separate assessment builder backed by `assessments` and `assessment_questions`.
-		- Learners are graded from the separate assessment tables, while quiz blocks are only rendered inline inside module content. This creates duplicate authoring work and allows module quiz content and recorded assessment scores to drift apart.
-	- Target decision
-		- Make module quiz blocks the single source of truth for module assessments.
-		- Keep `assessment_attempts` as the scored learner-attempt record so existing reporting, dashboards, and recommendation features continue to work.
-		- Replace manual question entry in the assessment editor with an auto-generated assessment derived from quiz blocks in the module content.
-	- Phase 1: define the canonical model
-		- [x] Extend the quiz block schema so each quiz block can fully represent a graded assessment question. Added shared quiz block fields for `points`, `questionType`, `sourceQuestionKey`, and `isGradable` in a shared content-block utility.
-		- Decide the supported grading scope for v1. Recommended: auto-grade only `multiple_choice` and `true_false`, and either block `short_answer`/`essay` from module quiz assessments or clearly mark them as not counted until manual grading is designed.
-		- [x] Keep `passingScore` as the pass/fail threshold, but stop treating question creation as a separate assessment-authoring workflow.
-		- [x] Add a shared parser/normalizer so legacy module content with older quiz blocks is normalized into the canonical quiz-block shape before editor, preview, and viewer rendering.
-		- Phase 1 implementation status on March 12, 2026
-			- Added `src/lib/contentBlocks.ts` as the shared content-block model and parser.
-			- Reused the shared parser in trainer module editing, trainer module management, module preview, learner module viewer, and trainer module list block counting.
-			- Added canonical quiz block defaults for newly created quiz blocks so new content starts with `points`, `questionType`, `sourceQuestionKey`, and `isGradable`.
-			- Updated the quiz block editor UI to expose `questionType` and `points` so newly authored content follows the canonical model immediately.
-			- Validation result: editor diagnostics were clean after the change, and a clean-shell `npm run build` completed without reported errors. Existing chunk-size warning remains.
-	- Phase 2: authoring UX changes for admin and trainer
-		- [x] Update the module editor and module management dialog so quiz blocks include all grading fields needed for assessment use.
-		- [x] Remove or heavily simplify the separate assessment question editor. The assessment panel now acts as assessment metadata plus a read-only derived quiz summary.
-		- [x] Add validation before save/publish: a graded module assessment must have at least one valid quiz block, each quiz block must have at least two options for multiple choice, one correct answer, and a positive point value.
-		- [x] Show a computed assessment summary in the editor such as total questions, total points, auto-calculated score basis, and which blocks are counted.
-		- Phase 2 implementation status on March 12, 2026
-			- Added shared validation and summary helpers in `src/lib/contentBlocks.ts` for gradable quiz blocks.
-			- Added `src/components/course/DerivedAssessmentSummary.tsx` and reused it in both trainer authoring surfaces.
-			- Updated `src/pages/trainer/ModuleEditorPage.tsx` so the assessment panel is metadata-only and blocks invalid assessment saves or invalid finalize flows when an assessment already exists.
-			- Updated `src/components/course/ModuleManagementDialog.tsx` so the assessment tab no longer acts as a separate question bank editor.
-			- Validation result: editor diagnostics were clean after the change, and a clean-shell `npm run build` completed without reported errors.
-	- Phase 3: derived assessment sync layer
-		- [x] On module save, parse the saved content blocks and derive the module assessment payload automatically.
-		- [x] Create or update the module's `assessments` row from module quiz metadata instead of manual question form entry.
-		- [x] Create, update, reorder, or deactivate `assessment_questions` rows from the quiz blocks so the learner assessment runtime can keep using the existing tables and attempt flow.
-		- [x] Add a stable mapping between quiz blocks and `assessment_questions` rows to avoid duplicating questions on every edit.
-		- Phase 3 implementation status on March 12, 2026
-			- Added `supabase/migrations/052_add_derived_assessment_question_mapping.sql` to store stable derived-assessment mapping fields on `assessments` and `assessment_questions`.
-			- Extended `src/services/assessmentService.ts` with row mappers plus `syncDerivedAssessmentFromQuizBlocks(...)`, which derives assessment metadata from module quiz blocks and performs deterministic create, update, reorder, and soft-deactivate behavior for questions.
-			- Updated both trainer save surfaces so module saves and assessment metadata saves now run the derived sync flow automatically from the current quiz blocks.
-			- Validation result: editor diagnostics were clean after the change, and a clean-shell `npm run build` completed without reported errors. Existing chunk-size warning remains.
-	- Phase 4: learner runtime and scoring
-		- [x] Keep the learner-facing assessment runner backed by `assessmentService`, but ensure it loads questions generated from module quiz blocks.
-		- [x] Continue calculating score automatically from correct answers and points in `submitAttempt`, since this already computes percentage scores from question totals.
-		- [x] Decide whether inline content-block quizzes in the module content tab remain as practice-only items or become read-only previews of the same graded questions. Chosen behavior: gradable quiz blocks render as read-only assessment previews and the recorded attempt stays in the assessment flow.
-		- Phase 4 implementation status on March 12, 2026
-			- Updated `src/components/course/ModuleContentViewer.tsx` so the learner Activities tab now appears from the actual module assessment record instead of only from material URL heuristics.
-			- Updated graded quiz blocks in the learner content tab to render as read-only previews with a direct action into the assessment flow, removing the duplicate answer path for the same scored question.
-			- Kept non-gradable inline quiz behavior unchanged, so practice-only quiz content can still stay in the content tab when authors intentionally mark it as non-gradable.
-			- Validation result: editor diagnostics were clean after the change, and a clean-shell `npm run build` completed without reported errors. Existing chunk-size warning remains.
-	- Phase 5: migration and backward compatibility
-		- [x] Audit existing modules for three states: quiz blocks only, assessment tables only, and both present with mismatched questions.
-		- [x] Write a one-time migration script that backfills `assessment_questions` from module quiz blocks for modules that already use quiz blocks.
-		- [x] For modules that only have assessment-table questions, either convert them into module quiz blocks automatically or flag them for manual cleanup in an admin report. Current implementation flags them for manual cleanup in the generated report.
-		- [x] Add a mismatch report so staff can detect modules where content quiz blocks and assessment records diverge before the old manual editor is removed.
-		- Phase 5 implementation status on March 12, 2026
-			- Added `scripts/audit-derived-assessments.ts` with two modes: audit-only classification/reporting and optional `--apply-backfill` for safe `quiz_blocks_only` modules.
-			- Added package commands `npm run audit:derived-assessments` and `npm run backfill:derived-assessments`, plus script documentation in `scripts/README.md`.
-			- The audit script classifies modules into `quiz_blocks_only`, `assessment_tables_only`, `both_in_sync`, `both_mismatched`, and `no_assessment_source`, then writes a markdown cleanup report under `temp_markdowns/`.
-			- The backfill path intentionally updates only safe quiz-block-derived modules and leaves legacy assessment-table-only or mismatched modules untouched for manual review.
-			- While implementing the audit, fixed `src/services/assessmentService.ts` so derived assessments store and compare the actual correct option text instead of a quiz-block index, while still accepting older numeric-index rows during grading.
-			- Validation result: editor diagnostics were clean, the new script compiled and started successfully, and a clean-shell `npm run build` completed without reported errors. Live audit/backfill execution still requires `SUPABASE_URL` or `VITE_SUPABASE_URL` plus `SUPABASE_SERVICE_ROLE_KEY` in the shell.
-	- Phase 6: reporting and analytics protection
-		- [x] Verify that dashboards, learner profile summaries, trainer analytics, admin reports, and assessment-only recommendations still read from `assessment_attempts` unchanged.
-		- [x] Regression-test score aggregation because reporting currently relies on `assessment_attempts.score`, not module content directly.
-		- [x] Preserve analytics events such as `assessment_submit`; only the question source changes, not the attempt event contract.
-		- Phase 6 implementation status on March 12, 2026
-			- Added `scripts/check-assessment-reporting-regressions.ts` as a repository-level regression guard for assessment reporting and analytics invariants.
-			- Added `npm run check:assessment-reporting`, which writes `temp_markdowns/assessment_reporting_regression_report.md` and verifies nine critical invariants across assessment submission, learner summaries, staff reporting, analytics SQL rollups, and staff attempt visibility policies.
-			- Confirmed the learner assessment runtime still writes `assessment_attempts.score` and `assessment_attempts.passed`, still emits the `assessment_submit` analytics event, and still refreshes the phase 1 analytics rollups after submission.
-			- Confirmed reporting and analytics paths still aggregate from `assessment_attempts.score` rather than from raw module quiz content or `assessment_questions` rows.
-			- Validation result: the new regression script passed 9 of 9 checks, editor diagnostics were clean, and a clean-shell `npm run build` completed without reported errors. Existing chunk-size warning remains.
-	- Phase 7: rollout order
-		- [x] Step 1: add quiz block grading fields and editor validation.
-		- [x] Step 2: build the derivation/sync utility from module quiz blocks to `assessments` plus `assessment_questions`.
-		- [x] Step 3: switch trainer/admin UI from manual assessment-question editing to derived assessment summaries.
-		- [ ] Step 4: run migration and mismatch audit on existing module data. This remains an operational rollout step that still needs a live Supabase environment.
-		- [x] Step 5: remove deprecated manual question-entry paths after verification.
-		- Phase 7 implementation status on March 12, 2026
-			- Removed the deprecated manual assessment delete actions from both trainer authoring surfaces so assessment lifecycle now follows quiz-block changes instead of a second destructive UI path.
-			- Updated `src/services/assessmentService.ts` so saving a module with zero gradable quiz blocks deactivates the derived assessment and its active questions instead of leaving stale assessment rows behind.
-			- Removed the remaining learner fallback that inferred assessment availability from material marker strings. `src/components/course/ModuleContentViewer.tsx` now relies only on the actual derived assessment record.
-			- Removed deprecated `quiz-activity` and `module-assessment` material markers from `scripts/seed-course-content.ts` so seeded demo content follows the same rollout path as the app.
-			- Removed the unused manual assessment/question CRUD surface from `src/services/assessmentService.ts`, leaving derived sync as the supported authoring path.
-			- Validation result: editor diagnostics were clean, source search found no remaining manual assessment-delete references in `src/`, and a clean-shell `npm run build` completed without reported errors. Existing chunk-size warning remains.
-	- Verification checklist
-		- Creating a module with quiz blocks should automatically create or update the linked assessment and questions with no duplicate trainer input.
-		- Editing quiz text, options, answers, order, or points should update the derived assessment questions deterministically.
-		- Submitting a learner assessment should still write the same `assessment_attempts` and `assessment_answers` records and produce the expected percentage score.
-		- Trainer/admin reports and learner dashboard metrics should remain consistent before and after the change.
-	- Key implementation files to touch
-		- `src/components/course/ContentBlock.tsx`
-		- `src/pages/trainer/ModuleEditorPage.tsx`
-		- `src/components/course/ModuleManagementDialog.tsx`
-		- `src/components/course/ModuleContentViewer.tsx`
-		- `src/services/assessmentService.ts`
-		- related Supabase migration files for any new mapping fields or constraints
-	- Engineering checklist
-		- Workstream A: canonical quiz-block assessment model
-			- [ ] Add grading fields to the `ContentBlock` quiz schema: `points`, `questionType`, `sourceQuestionKey`, and `isGradable`.
-			- [ ] Define normalization rules for legacy quiz blocks that only have `options` and numeric `correctAnswer`.
-			- [ ] Add a shared parser/normalizer utility for module quiz blocks so editor, sync, and learner runtime all read the same structure.
-			- Estimated file changes
-				- `src/components/course/ContentBlock.tsx`
-				- new shared utility under `src/lib/` or `src/services/`
-				- `src/components/course/ModulePreview.tsx`
-			- Estimate
-				- 2 to 4 frontend files
-				- 0 to 1 migration if question mapping is stored in JSON only
-		- Workstream B: trainer and admin authoring UX
-			- [x] Update quiz block editor UI to expose points and supported question type.
-			- [x] Add editor validation for missing options, missing correct answer, invalid points, and unsupported question types.
-			- [x] Replace manual assessment question entry with a derived summary panel showing counted quiz blocks, total questions, total points, and pass threshold.
-			- [x] Keep assessment settings limited to metadata such as title, description, passing score, max attempts, active state, and taxonomy tags.
-			- Estimated file changes
-				- `src/components/course/ContentBlock.tsx`
-				- `src/pages/trainer/ModuleEditorPage.tsx`
-				- `src/components/course/ModuleManagementDialog.tsx`
-			- Estimate
-				- 3 to 5 frontend files
-				- no DB migration by itself
-		- Workstream C: derived assessment sync service
-			- [x] Create a sync function that converts module quiz blocks into an `assessments` record plus ordered `assessment_questions` rows.
-			- [x] Run the sync whenever a module is created or updated and content blocks are saved.
-			- [x] Ensure sync handles create, update, reorder, and delete without duplicating question rows.
-			- [x] Add idempotency rules so repeated saves produce the same derived assessment state.
-			- Estimated file changes
-				- `src/services/assessmentService.ts`
-				- `src/pages/trainer/ModuleEditorPage.tsx`
-				- `src/components/course/ModuleManagementDialog.tsx`
-				- new sync helper file if kept separate
-			- Estimate
-				- 3 to 6 application files
-				- 1 migration strongly recommended for persistent source mapping
-		- Workstream D: learner assessment runtime
-			- [x] Make sure `AssessmentInterface` continues to load the derived questions with no learner-facing schema break.
-			- [x] Decide and implement one learner experience: either hide inline module quiz answering when a graded assessment exists, or render inline quizzes as non-graded previews only.
-			- [x] Prevent duplicate answering paths for the same graded question.
-			- Estimated file changes
-				- `src/components/course/AssessmentInterface.tsx`
-				- `src/components/course/ModuleContentViewer.tsx`
-			- Estimate
-				- 2 to 3 frontend files
-				- no DB migration expected
-		- Workstream E: migration and audit
-			- [x] Build a one-time audit script to classify modules into `quiz_blocks_only`, `assessment_tables_only`, `both_in_sync`, and `both_mismatched`.
-			- [x] Backfill `assessment_questions` from quiz blocks for `quiz_blocks_only` modules.
-			- [x] For `assessment_tables_only`, either auto-convert DB questions into quiz blocks or emit a staff cleanup report before rollout.
-			- [x] Add a temporary admin or script-based mismatch report for cleanup verification.
-			- Estimated file changes
-				- new script under `scripts/`
-				- at least one new Supabase migration or SQL helper
-			- Estimate
-				- 1 to 3 scripts
-				- 1 to 2 SQL files or migrations
-		- Workstream F: regression protection
-			- [x] Verify reporting still uses `assessment_attempts.score` and does not require downstream aggregation rewrites.
-			- [x] Regression test trainer analytics, admin reports, learner profile, dashboard score summaries, and assessment-only recommendations.
-			- [x] Verify analytics events and notifications still fire on submission and grading.
-			- Estimated file changes
-				- mostly tests or targeted smoke-check scripts
-				- possible small adjustments in `src/services/reportingService.ts`
-			- Estimate
-				- 1 to 4 files depending on how much automated coverage is added
-	- Suggested implementation sequence
-		- Sprint task 1: define the shared quiz block schema and normalizer.
-		- Sprint task 2: update trainer/admin authoring UI and validation.
-		- Sprint task 3: implement the derived assessment sync service.
-		- Sprint task 4: adjust learner runtime so there is only one graded answering path.
-		- Sprint task 5: run migration and mismatch audit on existing content.
-		- Sprint task 6: regression test reporting, analytics, and notifications.
-	- Supabase migration steps
-		- Migration 1: add persistent source mapping
-			- Add `source_question_key text` to `assessment_questions`.
-			- Add a uniqueness constraint on `(assessment_id, source_question_key)` so sync can upsert deterministically.
-			- Optional: add `derived_from_module_quiz boolean not null default false` to `assessments` so derived records are distinguishable from legacy/manual records.
-		- Migration 2: backfill derived mappings
-			- Populate `source_question_key` for existing `assessment_questions` where possible.
-			- Mark existing assessment rows as derived or legacy depending on audit classification.
-		- Migration 3: cleanup guardrails
-			- Add comments or constraints documenting that derived module assessments should not be manually edited outside the sync flow.
-			- If needed, add an index on `assessment_questions(assessment_id, order)` and `assessment_questions(assessment_id, source_question_key)` for sync performance.
-	- Concrete DB rollout notes
-		- Run the schema migration first.
-		- Deploy application code that can read both pre-migration and post-migration question rows.
-		- Run `npm run audit:derived-assessments` in a shell that has `SUPABASE_URL` or `VITE_SUPABASE_URL` plus `SUPABASE_SERVICE_ROLE_KEY`, then export the mismatch report.
-		- Run `npm run backfill:derived-assessments` for the safe `quiz_blocks_only` modules after reviewing the audit output.
-		- Enable the new derived sync path for trainer/admin saves.
-		- Remove deprecated manual-question editing only after mismatches are cleaned up.
-	- Practical file estimate by phase
-		- Phase 1 to 2: about 4 to 6 frontend files.
-		- Phase 3: about 3 to 5 service and page files plus 1 migration.
-		- Phase 4: about 2 frontend files.
-		- Phase 5: 1 to 3 scripts plus 1 to 2 SQL migrations.
-		- Phase 6: 0 to 4 files depending on whether automated tests are added.
-	- Definition of done
-		- Trainers and admins only define quiz content once, inside module quiz blocks.
-		- Saving module quiz blocks deterministically updates the linked assessment question set.
-		- Learner submission score is still auto-calculated from question points and correct answers.
-		- Existing score-based dashboards, reports, and recommendation features continue to work without schema-specific UI regressions.
-		- Legacy modules are either migrated or explicitly flagged for cleanup.
+
+## Revision:
+- [ ] Create a markdown plan (in temp_markdowns) to implement these changes in the system
+- [ ] Now there are 2 types of trainee, PESO Client and PESO Employee. Before registration, the user should be asked if they are a PESO Client or PESO Employee. This will help to categorize the users better and also help the trainers to assign the relevant courses to the users based on their category.
+- [ ] There registration flow for PESO Employee should be different from PESO Client. For PESO Employee, they should be asked to enter their employee ID and Physical ID and the Admin and Trainers should be able to verify it before allowing them to register. This will ensure that only valid employees can register and access the courses.
+- [ ] PESO Employee should still be able to register their credentials and onboarding process but their email should be different (PESO domain email) than PESO Client (@gmail, @yahoo, etc.) to easily differentiate between the two types of users in the system.
+- [ ] Both PESO Client and PESO Employee should have the same access to courses and modules, but they cannot take courses if their account is not verified by the admin or trainer. This will ensure that only valid users can access the courses and also help to maintain the integrity of the system.
+- [ ] Also, make the onboarding process for trainees (PESO Client and PESO Employee) after the registration process, once they're in the dashboard a modal should pop up to guide them through the onboarding process and also to encourage them to complete their profile and start taking courses. This will help to improve the user experience and also increase the engagement of the users with the platform.
+
 
 ## Regarding the quiz and assessment
 - [ ] Assessment section in module creation tab should not exists because the quiz blocks in the content tab should be the source of truth for the assessment questions and answers. The current setup creates confusion and extra work for the trainers because they have to enter the same information in two different places. Removing the separate assessment section will streamline the authoring process and reduce the chances of discrepancies between quiz content and recorded assessments.
@@ -238,8 +47,63 @@ User credentials:
 ### Courses Module
 - [ ] Learners Enrolled shows 0 even though there are learners enrolled in the course
 
-
+## Create a markdown plan to implement the following changes in the system, make it a phase by phase implementation plan:
+- [x] Plan created in `temp_markdowns/assessment_workflow_and_platform_updates_plan.md`
+- [ ] Add a new quiz type which is Essay, where the trainee can write a long answer and the trainer can review and give feedback on it. This will allow for more in-depth assessment of the trainee's understanding of the course material and also provide an opportunity for personalized feedback from the trainer.
+- [ ] No automated certificate due to the trainer needing to validate the essay in every course needed
+- [ ] Duration (hours) - recommended to be removed to lessen the pressure for trainees
+- [ ] Admin should also be able to see the progress of each user (similar to trainer side) in the enrollment management page, this is to help the admin to monitor the progress of the trainees and also to identify if there are any issues with the courses or modules that need to be addressed. 
+- [ ] Add a functionality where if trainee finished a course, even under the stated hours or duration of the course, it should still record the hours stated in the course, this is to help the trainees to not feel pressured to complete the course within a certain time frame and also to help the trainers to assess the average time completed for each course.
+- [ ] New Features recommendation: Enlistment of Courses due to face-to-face learning
+- [ ] New features recommendation: Pre-Filtering/Approval of certain courses to specific type of people
+- [ ] The system should be able to switch between English and Tagalog language, this is to cater to the different types of users and also to improve the accessibility of the platform for users who are more comfortable with Tagalog.
+- [ ] The modules needs to be grayed/pre-requisite in order to proceed
+- [ ] The quiz should be shuffled every attempt, and should not be copy and pasted
+- [ ] Remove mark as complete in trainee side, it should be handled by trainers, this is to ensure that the trainees have completed the course and also to provide an opportunity for the trainers to give feedback and guidance to the trainees before marking the course as complete.
+- [ ] Change the on boarding assessment from registration to after registration, once they're in the dashboard a modal should pop up to guide them through the onboarding process and also to encourage them to complete their profile and start taking courses. This will help to improve the user experience and also increase the engagement of the users with the platform. The only thing that is in the registration process is the basic information needed for the account creation and the categorization of the users (PESO Client or PESO Employee) and the verification of the PESO Employees. This will help to streamline the registration process and also to ensure that only valid users can access the platform.
+- [ ] Verify if all the texts in the system uses varchar and the phone should limit to 11 digits, standardize using 09 for the phone number format
 
 <!-- 
-git clone -b peso https://github.com/CAP101G1/peso-academy.git
+
+Trainer's Section:
+
+- Essays - Still Needs Validation 
+- No automated certificate due to they need to validate the essay in every course needed
+- Duration (hours) - recommended to be removed to lessen the pressure for trainees
+- New Features recommendation: Enlistment of Courses due to face-to-face learning
+- New features recommendation: Pre-Filtering/Approval of certain courses to specific type of people
+- New features recommendation: PESO Employees different sign up page due to PESO Employees has different modules/courses, needs employee id
+- New features recommendation: Preview progress of trainee in Enrollment Management of Admin account 
+- When the course is complete, it should show the duration of hours overall to assess the average time completed
+
+
+Assessment of Google Form:
+
+- Needs to send Memo through email through employees to answer the Peso Academy forms
+- Their target users is internal employees
+- Long Module
+- Some module needs face to face
+- Google forms needs visual like video and pictures
+- The system needs the saved progress even if refreshed or lost connection
+- The duration of hours makes them pressured and needs to be removed 
+- they made Peso Academy based on Internal approach 
+- It is based on conducted trainings and looking for an intervention
+
+General Section:
+
+- Change language: English and Tagalog
+
+Trainee's Section
+
+Modules Page:
+
+- The modules needs to be grayed/pre-requisite in order to proceed
+- The quiz should be shuffled every attempt, and should not be copy and pasted
+- The "mark as completed" should be handled by trainers
+
+Registration Page:
+
+- The name should be validated as text only, not text and numbers
+- The details must be filled before proceeding to the next page
+
  -->

@@ -7,7 +7,8 @@ import {
 } from "@/lib/contentBlocks";
 import { analyticsService } from "@/services/analyticsService";
 import { notificationHelpers } from "@/services/notificationService";
-import { refreshEnrollmentProgress } from "@/services/supabaseDatabaseService";
+import { notificationService } from "@/services/notificationService";
+import { moduleCompletionService, refreshEnrollmentProgress } from "@/services/supabaseDatabaseService";
 import { deriveSkillTags, deriveTopicTags } from "@/lib/taxonomy";
 
 export interface Assessment {
@@ -41,6 +42,8 @@ export interface AssessmentQuestion {
   derivedFromModuleQuiz?: boolean;
 }
 
+export type AssessmentReviewStatus = "submitted" | "under_review" | "needs_revision" | "approved";
+
 interface AssessmentSyncSettings {
   title?: string;
   description?: string;
@@ -58,6 +61,7 @@ const unsupportedAssessmentQuestionColumns = new Set<string>();
 const unsupportedAssessmentModuleColumns = new Set<string>();
 const unsupportedAssessmentAttemptColumns = new Set<string>();
 const unsupportedAssessmentAnswerColumns = new Set<string>();
+const MANUAL_REVIEW_QUESTION_TYPES = new Set<AssessmentQuestion["questionType"]>(["short_answer", "essay"]);
 
 const normalizeMissingColumnName = (columnName: string | null | undefined): string | null => {
   const normalized = String(columnName || "")
@@ -203,6 +207,24 @@ const mapAssessmentQuestionRow = (row: any): AssessmentQuestion => ({
   derivedFromModuleQuiz: row.derived_from_module_quiz ?? false,
 });
 
+const mapAssessmentAttemptRow = (row: any): AssessmentAttempt => ({
+  id: row.id,
+  assessmentId: row.assessment_id,
+  enrollmentId: row.enrollment_id,
+  userId: row.user_id,
+  startedAt: row.started_at,
+  submittedAt: row.submitted_at || undefined,
+  score: row.score === null || row.score === undefined ? undefined : row.score,
+  passed: row.passed === null || row.passed === undefined ? undefined : row.passed,
+  answers: row.answers || {},
+  timeSpent: row.time_spent === null || row.time_spent === undefined ? undefined : row.time_spent,
+  reviewStatus: row.review_status || undefined,
+  reviewedAt: row.reviewed_at || undefined,
+  reviewedBy: row.reviewed_by || undefined,
+  reviewFeedback: row.review_feedback || undefined,
+  requiresManualReview: row.requires_manual_review ?? false,
+});
+
 const buildDerivedAssessmentDefaults = (moduleTitle: string, settings?: AssessmentSyncSettings): Required<AssessmentSyncSettings> => ({
   title: settings?.title?.trim() || `${moduleTitle.trim() || "Module"} Assessment`,
   description: settings?.description || "",
@@ -236,13 +258,17 @@ const normalizeStoredCorrectAnswer = (
   return trimmed;
 };
 
+const requiresManualReview = (questionType: AssessmentQuestion["questionType"] | ContentBlock["questionType"] | undefined) => {
+  return questionType !== undefined && MANUAL_REVIEW_QUESTION_TYPES.has(questionType as AssessmentQuestion["questionType"]);
+};
+
 const toDerivedQuestionPayload = (block: ContentBlock, index: number) => ({
   sourceQuestionKey: block.sourceQuestionKey || block.id,
   question: block.content.trim(),
-  questionType: block.questionType === "true_false" ? "true_false" : "multiple_choice",
-  options: block.options || [],
+  questionType: block.questionType === "essay" ? "essay" : block.questionType === "true_false" ? "true_false" : "multiple_choice",
+  options: block.questionType === "essay" ? [] : block.options || [],
   correctAnswer:
-    block.correctAnswer !== undefined && (block.options || [])[block.correctAnswer] !== undefined
+    block.questionType !== "essay" && block.correctAnswer !== undefined && (block.options || [])[block.correctAnswer] !== undefined
       ? (block.options || [])[block.correctAnswer]
       : null,
   points: block.points || 1,
@@ -372,6 +398,46 @@ export interface AssessmentAttempt {
   passed?: boolean;
   answers: Record<string, string>;
   timeSpent?: number;
+  reviewStatus?: AssessmentReviewStatus;
+  reviewedAt?: string;
+  reviewedBy?: string;
+  reviewFeedback?: string;
+  requiresManualReview?: boolean;
+}
+
+export type AssessmentReviewDecision = "approved" | "needs_revision";
+
+export interface AssessmentReviewQueueItem {
+  attemptId: string;
+  assessmentId: string;
+  assessmentTitle: string;
+  moduleId: string;
+  moduleTitle: string;
+  enrollmentId: string;
+  courseId: string;
+  courseTitle: string;
+  learnerId: string;
+  learnerName: string;
+  learnerEmail?: string;
+  submittedAt?: string;
+  reviewStatus: AssessmentReviewStatus;
+  reviewFeedback?: string;
+}
+
+export interface AssessmentReviewAnswer {
+  questionId: string;
+  question: string;
+  questionType: AssessmentQuestion["questionType"];
+  answer: string;
+  points: number;
+  explanation?: string;
+  reviewStatus?: AssessmentReviewStatus;
+}
+
+export interface AssessmentReviewDetail extends AssessmentReviewQueueItem {
+  reviewedAt?: string;
+  reviewedBy?: string;
+  questions: AssessmentReviewAnswer[];
 }
 
 export const assessmentService = {
@@ -477,20 +543,342 @@ export const assessmentService = {
       return [];
     }
 
-    return (
-      data?.map((a) => ({
-        id: a.id,
-        assessmentId: a.assessment_id,
-        enrollmentId: a.enrollment_id,
-        userId: a.user_id,
-        startedAt: a.started_at,
-        submittedAt: a.submitted_at || undefined,
-        score: a.score === null || a.score === undefined ? undefined : a.score,
-        passed: a.passed === null || a.passed === undefined ? undefined : a.passed,
-        answers: a.answers || {},
-        timeSpent: a.time_spent === null || a.time_spent === undefined ? undefined : a.time_spent,
-      })) || []
+    return data?.map(mapAssessmentAttemptRow) || [];
+  },
+
+  getManualReviewQueue: async (options?: {
+    learnerId?: string;
+    enrollmentId?: string;
+    courseId?: string;
+    statuses?: AssessmentReviewStatus[];
+  }): Promise<AssessmentReviewQueueItem[]> => {
+    if (!supabase) {
+      return [];
+    }
+
+    let query = supabase
+      .from("assessment_attempts")
+      .select(`
+        id,
+        assessment_id,
+        enrollment_id,
+        user_id,
+        submitted_at,
+        review_status,
+        review_feedback,
+        assessments:assessment_id (
+          id,
+          title,
+          module_id,
+          modules:module_id (
+            id,
+            title,
+            course_id,
+            courses:course_id (title)
+          )
+        ),
+        users:user_id (name, email)
+      `)
+      .eq("requires_manual_review", true)
+      .order("submitted_at", { ascending: false });
+
+    if (options?.learnerId) {
+      query = query.eq("user_id", options.learnerId);
+    }
+
+    if (options?.enrollmentId) {
+      query = query.eq("enrollment_id", options.enrollmentId);
+    }
+
+    if (options?.statuses && options.statuses.length > 0) {
+      query = query.in("review_status", options.statuses);
+    } else {
+      query = query.in("review_status", ["submitted", "under_review", "needs_revision"]);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      handleSupabaseError(error);
+      return [];
+    }
+
+    const items = (data || []).map((row: any) => {
+      const assessment = row.assessments || {};
+      const module = assessment.modules || {};
+      const course = module.courses || {};
+      const learner = row.users || {};
+
+      return {
+        attemptId: row.id,
+        assessmentId: row.assessment_id,
+        assessmentTitle: assessment.title || "Module Assessment",
+        moduleId: module.id,
+        moduleTitle: module.title || "Module",
+        enrollmentId: row.enrollment_id,
+        courseId: module.course_id,
+        courseTitle: course.title || "Course",
+        learnerId: row.user_id,
+        learnerName: learner.name || "Learner",
+        learnerEmail: learner.email || undefined,
+        submittedAt: row.submitted_at || undefined,
+        reviewStatus: row.review_status || "submitted",
+        reviewFeedback: row.review_feedback || undefined,
+      } satisfies AssessmentReviewQueueItem;
+    });
+
+    if (!options?.courseId) {
+      return items;
+    }
+
+    return items.filter((item) => item.courseId === options.courseId);
+  },
+
+  getAssessmentAttemptReviewDetail: async (attemptId: string): Promise<AssessmentReviewDetail | null> => {
+    if (!supabase) {
+      return null;
+    }
+
+    const { data, error } = await supabase
+      .from("assessment_attempts")
+      .select(`
+        id,
+        assessment_id,
+        enrollment_id,
+        user_id,
+        submitted_at,
+        review_status,
+        review_feedback,
+        reviewed_at,
+        reviewed_by,
+        assessments:assessment_id (
+          id,
+          title,
+          module_id,
+          modules:module_id (
+            id,
+            title,
+            course_id,
+            courses:course_id (title)
+          )
+        ),
+        users:user_id (name, email)
+      `)
+      .eq("id", attemptId)
+      .single();
+
+    if (error) {
+      handleSupabaseError(error);
+      return null;
+    }
+
+    const reviewQueueItem = await assessmentService.getManualReviewQueue({
+      learnerId: data.user_id,
+      enrollmentId: data.enrollment_id,
+      statuses: ["submitted", "under_review", "needs_revision", "approved"],
+    });
+
+    const baseItem = reviewQueueItem.find((item) => item.attemptId === attemptId);
+    if (!baseItem) {
+      const assessment = (data as any).assessments || {};
+      const module = assessment.modules || {};
+      const course = module.courses || {};
+      const learner = (data as any).users || {};
+      const fallbackItem: AssessmentReviewQueueItem = {
+        attemptId: data.id,
+        assessmentId: data.assessment_id,
+        assessmentTitle: assessment.title || "Module Assessment",
+        moduleId: module.id,
+        moduleTitle: module.title || "Module",
+        enrollmentId: data.enrollment_id,
+        courseId: module.course_id,
+        courseTitle: course.title || "Course",
+        learnerId: data.user_id,
+        learnerName: learner.name || "Learner",
+        learnerEmail: learner.email || undefined,
+        submittedAt: data.submitted_at || undefined,
+        reviewStatus: data.review_status || "submitted",
+        reviewFeedback: data.review_feedback || undefined,
+      };
+
+      const questions = await assessmentService.getAssessmentQuestions(data.assessment_id);
+      const { data: answers } = await supabase
+        .from("assessment_answers")
+        .select("question_id, answer, review_status")
+        .eq("attempt_id", attemptId);
+      const answerMap = new Map((answers || []).map((answer: any) => [answer.question_id, answer]));
+
+      return {
+        ...fallbackItem,
+        reviewedAt: data.reviewed_at || undefined,
+        reviewedBy: data.reviewed_by || undefined,
+        questions: questions
+          .filter((question) => requiresManualReview(question.questionType))
+          .map((question) => {
+            const answer = answerMap.get(question.id);
+            return {
+              questionId: question.id,
+              question: question.question,
+              questionType: question.questionType,
+              answer: answer?.answer || "",
+              points: question.points,
+              explanation: question.explanation,
+              reviewStatus: answer?.review_status || undefined,
+            };
+          }),
+      };
+    }
+
+    const questions = await assessmentService.getAssessmentQuestions(baseItem.assessmentId);
+    const { data: answers, error: answersError } = await supabase
+      .from("assessment_answers")
+      .select("question_id, answer, review_status")
+      .eq("attempt_id", attemptId);
+
+    if (answersError) {
+      handleSupabaseError(answersError);
+      return null;
+    }
+
+    const answerMap = new Map((answers || []).map((answer: any) => [answer.question_id, answer]));
+
+    return {
+      ...baseItem,
+      reviewedAt: data.reviewed_at || undefined,
+      reviewedBy: data.reviewed_by || undefined,
+      questions: questions
+        .filter((question) => requiresManualReview(question.questionType))
+        .map((question) => {
+          const answer = answerMap.get(question.id);
+          return {
+            questionId: question.id,
+            question: question.question,
+            questionType: question.questionType,
+            answer: answer?.answer || "",
+            points: question.points,
+            explanation: question.explanation,
+            reviewStatus: answer?.review_status || undefined,
+          } satisfies AssessmentReviewAnswer;
+        }),
+    };
+  },
+
+  beginManualReview: async (attemptId: string): Promise<void> => {
+    if (!supabase) {
+      throw new Error("Supabase not initialized");
+    }
+
+    const reviewedAt = new Date().toISOString();
+
+    const { error } = await executeWriteWithFallback(
+      (payload) => supabase
+        .from("assessment_attempts")
+        .update(payload)
+        .eq("id", attemptId)
+        .eq("review_status", "submitted"),
+      {
+        review_status: "under_review",
+        reviewed_at: reviewedAt,
+      },
+      "assessment_attempts",
+      unsupportedAssessmentAttemptColumns,
     );
+
+    if (error) {
+      handleSupabaseError(error);
+      throw error;
+    }
+
+    await supabase
+      .from("assessment_answers")
+      .update({ review_status: "under_review" })
+      .eq("attempt_id", attemptId)
+      .eq("review_status", "submitted");
+  },
+
+  reviewManualAttempt: async (
+    attemptId: string,
+    options: {
+      reviewerId: string;
+      decision: AssessmentReviewDecision;
+      feedback: string;
+    },
+  ): Promise<void> => {
+    if (!supabase) {
+      throw new Error("Supabase not initialized");
+    }
+
+    const detail = await assessmentService.getAssessmentAttemptReviewDetail(attemptId);
+    if (!detail) {
+      throw new Error("Assessment attempt not found");
+    }
+
+    const finalStatus: AssessmentReviewStatus = options.decision === "approved" ? "approved" : "needs_revision";
+    const reviewedAt = new Date().toISOString();
+    const passed = options.decision === "approved";
+
+    const { error: updateAttemptError } = await executeWriteWithFallback(
+      (payload) => supabase
+        .from("assessment_attempts")
+        .update(payload)
+        .eq("id", attemptId),
+      {
+        review_status: finalStatus,
+        reviewed_at: reviewedAt,
+        reviewed_by: options.reviewerId,
+        review_feedback: options.feedback.trim() || null,
+        passed,
+        score: passed ? 100 : 0,
+      },
+      "assessment_attempts",
+      unsupportedAssessmentAttemptColumns,
+    );
+
+    if (updateAttemptError) {
+      handleSupabaseError(updateAttemptError);
+      throw updateAttemptError;
+    }
+
+    const { error: updateAnswersError } = await executeWriteWithFallback(
+      (payload) => supabase
+        .from("assessment_answers")
+        .update(payload)
+        .eq("attempt_id", attemptId),
+      {
+        review_status: finalStatus,
+        reviewed_at: reviewedAt,
+        reviewed_by: options.reviewerId,
+      },
+      "assessment_answers",
+      unsupportedAssessmentAnswerColumns,
+    );
+
+    if (updateAnswersError) {
+      handleSupabaseError(updateAnswersError);
+      throw updateAnswersError;
+    }
+
+    if (passed) {
+      await moduleCompletionService.markModuleComplete(detail.enrollmentId, detail.moduleId);
+    }
+
+    await refreshEnrollmentProgress(detail.enrollmentId);
+
+    if (passed) {
+      await notificationHelpers.notifyAssessmentGraded(detail.learnerId, detail.courseTitle, 100, true);
+    } else {
+      await notificationService.createNotification(
+        detail.learnerId,
+        "feedback_received",
+        `Your essay assessment for "${detail.courseTitle}" needs revision. Check your trainer's feedback before requesting completion approval.`,
+        {
+          courseId: detail.courseId,
+          courseTitle: detail.courseTitle,
+          assessmentAttemptId: attemptId,
+          moduleId: detail.moduleId,
+        },
+      );
+    }
   },
 
   /**
@@ -527,18 +915,7 @@ export const assessmentService = {
       throw error;
     }
 
-    return {
-      id: data.id,
-      assessmentId: data.assessment_id,
-      enrollmentId: data.enrollment_id,
-      userId: data.user_id,
-      startedAt: data.started_at,
-      submittedAt: data.submitted_at || undefined,
-      score: data.score === null || data.score === undefined ? undefined : data.score,
-      passed: data.passed === null || data.passed === undefined ? undefined : data.passed,
-      answers: data.answers || {},
-      timeSpent: data.time_spent === null || data.time_spent === undefined ? undefined : data.time_spent,
-    };
+    return mapAssessmentAttemptRow(data);
   },
 
   /**
@@ -549,7 +926,7 @@ export const assessmentService = {
     answers: Record<string, string>,
     timeSpent: number,
     questions: AssessmentQuestion[]
-  ): Promise<{ score: number; passed: boolean }> => {
+  ): Promise<{ score?: number; passed?: boolean; reviewStatus: AssessmentReviewStatus; requiresManualReview: boolean }> => {
     if (!supabase) {
       throw new Error("Supabase not initialized");
     }
@@ -557,8 +934,13 @@ export const assessmentService = {
     // Calculate score
     let totalPoints = 0;
     let earnedPoints = 0;
+    const hasManualReviewQuestions = questions.some((question) => requiresManualReview(question.questionType));
 
     questions.forEach((question) => {
+      if (requiresManualReview(question.questionType)) {
+        return;
+      }
+
       totalPoints += question.points;
       const userAnswer = answers[question.id];
       const normalizedCorrectAnswer = normalizeStoredCorrectAnswer(question.correctAnswer, question.options);
@@ -568,10 +950,13 @@ export const assessmentService = {
           earnedPoints += question.points;
         }
       }
-      // Short answer and essay need manual grading, so we don't count them here
     });
 
-    const score = totalPoints > 0 ? Math.round((earnedPoints / totalPoints) * 100) : 0;
+    const score = hasManualReviewQuestions
+      ? undefined
+      : totalPoints > 0
+        ? Math.round((earnedPoints / totalPoints) * 100)
+        : 0;
 
     // Get assessment and enrollment details to check passing score and get course info
     const { data: attemptData } = await supabase
@@ -580,6 +965,9 @@ export const assessmentService = {
         assessment_id,
         user_id,
         enrollment_id,
+        assessments:assessment_id (
+          module_id
+        ),
         enrollments:enrollment_id (
           course_id,
           courses:course_id (title)
@@ -599,7 +987,8 @@ export const assessmentService = {
       .single();
 
     const passingScore = assessmentData?.passing_score || 70;
-    const passed = score >= passingScore;
+    const passed = score !== undefined ? score >= passingScore : undefined;
+    const reviewStatus: AssessmentReviewStatus = hasManualReviewQuestions ? "submitted" : "approved";
 
     // Update attempt
     const { error: updateError } = await executeWriteWithFallback(
@@ -610,9 +999,11 @@ export const assessmentService = {
       {
         submitted_at: new Date().toISOString(),
         answers,
-        score,
-        passed,
+        score: score ?? null,
+        passed: passed ?? null,
         time_spent: timeSpent,
+        review_status: reviewStatus,
+        requires_manual_review: hasManualReviewQuestions,
       },
       "assessment_attempts",
       unsupportedAssessmentAttemptColumns,
@@ -627,6 +1018,7 @@ export const assessmentService = {
     const answerInserts = questions.map((question) => {
       const userAnswer = answers[question.id];
       const normalizedCorrectAnswer = normalizeStoredCorrectAnswer(question.correctAnswer, question.options);
+      const answerNeedsManualReview = requiresManualReview(question.questionType);
       const isCorrect =
         question.questionType === "multiple_choice" || question.questionType === "true_false"
           ? userAnswer === normalizedCorrectAnswer
@@ -640,6 +1032,7 @@ export const assessmentService = {
         answer: userAnswer || "",
         is_correct: isCorrect,
         points_earned: pointsEarned,
+        review_status: answerNeedsManualReview ? "submitted" : "approved",
       };
     });
 
@@ -674,7 +1067,7 @@ export const assessmentService = {
       const courseTitle = (attemptData as any).enrollments?.courses?.title || "the course";
       const userId = (attemptData as any).user_id;
       
-      if (userId && courseTitle) {
+      if (!hasManualReviewQuestions && userId && courseTitle && score !== undefined && passed !== undefined) {
         await notificationHelpers.notifyAssessmentGraded(
           userId,
           courseTitle,
@@ -691,6 +1084,15 @@ export const assessmentService = {
       const enrollmentId = (attemptData as any).enrollment_id;
       const courseId = (attemptData as any).enrollments?.course_id;
       const userId = (attemptData as any).user_id;
+      const moduleId = (attemptData as any).assessments?.module_id;
+
+      if (!hasManualReviewQuestions && passed && enrollmentId && moduleId) {
+        await moduleCompletionService.markModuleComplete(
+          enrollmentId,
+          moduleId,
+          Math.max(1, Math.ceil(timeSpent / 60)),
+        );
+      }
 
       if (enrollmentId) {
         await refreshEnrollmentProgress(enrollmentId);
@@ -707,6 +1109,8 @@ export const assessmentService = {
           attemptId,
           score,
           passed,
+          reviewStatus,
+          requiresManualReview: hasManualReviewQuestions,
         },
       });
 
@@ -715,7 +1119,7 @@ export const assessmentService = {
       console.error("Error tracking assessment analytics:", analyticsError);
     }
 
-    return { score, passed };
+    return { score, passed, reviewStatus, requiresManualReview: hasManualReviewQuestions };
   },
 
   syncDerivedAssessmentFromQuizBlocks: async (

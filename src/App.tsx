@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { ThemeProvider } from "next-themes";
 import { AuthProvider } from "@/contexts/AuthContext";
+import { LocaleProvider } from "@/contexts/LocaleContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import Index from "./pages/Index";
 import Login from "./pages/Login";
@@ -16,6 +17,7 @@ import Certificates from "./pages/Certificates";
 import CertificateView from "./pages/CertificateView";
 import VerifyCertificate from "./pages/VerifyCertificate";
 import Profile from "./pages/Profile";
+import SettingsPage from "./pages/Settings";
 import AdminDashboardPlaceholder from "./pages/admin/DashboardPlaceholder";
 import AdminUsers from "./pages/admin/Users";
 import AdminCourses from "./pages/admin/Courses";
@@ -29,6 +31,7 @@ import TrainerLearners from "./pages/trainer/Learners";
 import ManageModules from "@/pages/trainer/ManageModules";
 import ModuleEditorPage from "@/pages/trainer/ModuleEditorPage";
 import TaxonomyManagement from "@/pages/TaxonomyManagement";
+import TraineeVerification from "@/pages/TraineeVerification";
 import ProgressDashboard from "./pages/ProgressDashboard";
 import NotFound from "./pages/NotFound";
 import { initializeMockData } from "@/services/mockData";
@@ -62,11 +65,12 @@ const App = () => (
   <QueryClientProvider client={queryClient}>
     <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
       <AuthProvider>
-        <TooltipProvider>
-          <Toaster />
-          <Sonner />
-          <BrowserRouter>
-          <Routes>
+        <LocaleProvider>
+          <TooltipProvider>
+            <Toaster />
+            <Sonner />
+            <BrowserRouter>
+            <Routes>
             <Route path="/" element={<Index />} />
             <Route path="/login" element={<Login />} />
             <Route path="/signup" element={<SignUp />} />
@@ -114,8 +118,24 @@ const App = () => (
                 </ProtectedRoute>
               }
             />
+            <Route
+              path="/settings"
+              element={
+                <ProtectedRoute>
+                  <SettingsPage />
+                </ProtectedRoute>
+              }
+            />
             
             {/* Admin Routes - Permissions checked dynamically from database */}
+            <Route
+              path="/verification"
+              element={
+                <ProtectedRoute allowedRoles={["admin", "trainer"]} requiredPermissions={["users.view", "training.manage"]}>
+                  <TraineeVerification />
+                </ProtectedRoute>
+              }
+            />
             <Route
               path="/admin/dashboard"
               element={
@@ -273,9 +293,10 @@ const App = () => (
             />
             
             <Route path="*" element={<NotFound />} />
-          </Routes>
-        </BrowserRouter>
-      </TooltipProvider>
+            </Routes>
+          </BrowserRouter>
+        </TooltipProvider>
+      </LocaleProvider>
     </AuthProvider>
     </ThemeProvider>
   </QueryClientProvider>

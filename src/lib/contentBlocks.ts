@@ -1,6 +1,6 @@
 export type ContentBlockType = "text" | "code" | "video" | "image" | "quiz" | "document" | "learning_material";
 
-export type QuizBlockQuestionType = "multiple_choice" | "true_false";
+export type QuizBlockQuestionType = "multiple_choice" | "true_false" | "essay";
 
 export interface ContentBlock {
   id: string;
@@ -59,7 +59,7 @@ const normalizeContentBlockType = (type: unknown): ContentBlockType => {
 };
 
 const normalizeQuizQuestionType = (block: Partial<ContentBlock>): QuizBlockQuestionType => {
-  if (block.questionType === "multiple_choice" || block.questionType === "true_false") {
+  if (block.questionType === "multiple_choice" || block.questionType === "true_false" || block.questionType === "essay") {
     return block.questionType;
   }
 
@@ -70,6 +70,10 @@ const normalizeQuizQuestionType = (block: Partial<ContentBlock>): QuizBlockQuest
 };
 
 const normalizeQuizOptions = (options: unknown, questionType: QuizBlockQuestionType): string[] => {
+  if (questionType === "essay") {
+    return [];
+  }
+
   if (questionType === "true_false") {
     return [...TRUE_FALSE_QUIZ_OPTIONS];
   }
@@ -146,7 +150,9 @@ export const normalizeContentBlock = (block: Partial<ContentBlock>, index = 0): 
 
   const questionType = normalizeQuizQuestionType(block);
   const options = normalizeQuizOptions(block.options, questionType);
-  const normalizedCorrectAnswer = normalizeCorrectAnswer(block.correctAnswer, options.length);
+  const normalizedCorrectAnswer = questionType === "essay"
+    ? undefined
+    : normalizeCorrectAnswer(block.correctAnswer, options.length);
   const parsedPoints = typeof block.points === "number" ? block.points : Number(block.points);
 
   return {
@@ -220,6 +226,10 @@ export const validateQuizAssessmentBlocks = (blocks: ContentBlock[]): QuizAssess
       issues.push({ blockId: block.id, blockLabel, message: "Points must be greater than 0." });
     }
 
+    if (block.questionType === "essay") {
+      return issues;
+    }
+
     if (block.questionType === "true_false") {
       if (trimmedOptions.length !== 2) {
         issues.push({ blockId: block.id, blockLabel, message: "True/false questions must have exactly two options." });
@@ -248,8 +258,9 @@ export const getQuizAssessmentSummary = (blocks: ContentBlock[]): QuizAssessment
     gradableQuizBlockCount: gradableQuizBlocks.length,
     totalPoints: gradableQuizBlocks.reduce((sum, block) => sum + (block.points || 0), 0),
     questionTypeCounts: {
-      multiple_choice: gradableQuizBlocks.filter((block) => block.questionType !== "true_false").length,
+      multiple_choice: gradableQuizBlocks.filter((block) => block.questionType === "multiple_choice").length,
       true_false: gradableQuizBlocks.filter((block) => block.questionType === "true_false").length,
+      essay: gradableQuizBlocks.filter((block) => block.questionType === "essay").length,
     },
     invalidIssues,
     readyForAssessment: gradableQuizBlocks.length > 0 && invalidIssues.length === 0,

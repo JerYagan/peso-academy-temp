@@ -1,0 +1,452 @@
+import { useEffect, useMemo, useState } from "react";
+import DashboardLayout from "@/components/DashboardLayout";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Search, ShieldCheck, UserCheck, UserX } from "lucide-react";
+import { toast } from "sonner";
+import TraineeVerificationBadge from "@/components/trainee/TraineeVerificationBadge";
+import { useAuth } from "@/contexts/AuthContext";
+import { downloadPhysicalIdDocument } from "@/lib/traineeVerificationDocuments";
+import { userService } from "@/services/supabaseDatabaseService";
+import type { User, VerificationStatus } from "@/types/auth";
+
+const traineeTypeLabel: Record<NonNullable<User["traineeType"]>, string> = {
+  peso_client: "PESO Client",
+  peso_employee: "PESO Employee",
+};
+
+export default function TraineeVerification() {
+  const { user: currentUser } = useAuth();
+  const [trainees, setTrainees] = useState<User[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [traineeTypeFilter, setTraineeTypeFilter] = useState("all");
+  const [verificationStatusFilter, setVerificationStatusFilter] = useState("all");
+  const [selectedTrainee, setSelectedTrainee] = useState<User | null>(null);
+  const [nextStatus, setNextStatus] = useState<VerificationStatus>("verified");
+  const [reviewerNote, setReviewerNote] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [physicalIdPreviewUrl, setPhysicalIdPreviewUrl] = useState<string | null>(null);
+  const [physicalIdPreviewLoading, setPhysicalIdPreviewLoading] = useState(false);
+
+  const loadTrainees = async () => {
+    try {
+      setLoading(true);
+      const result = await userService.getTraineesForVerification();
+      setTrainees(result);
+    } catch (error) {
+      console.error("Failed to load trainee verification queue:", error);
+      toast.error("Failed to load the trainee verification queue.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadTrainees();
+  }, []);
+
+  const filteredTrainees = useMemo(() => {
+    return trainees.filter((trainee) => {
+      const matchesSearch =
+        trainee.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        trainee.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (trainee.employeeId || "").toLowerCase().includes(searchTerm.toLowerCase());
+
+      const matchesTraineeType = traineeTypeFilter === "all" || trainee.traineeType === traineeTypeFilter;
+      const matchesVerificationStatus =
+        verificationStatusFilter === "all" ||
+        (trainee.verificationStatus || "pending") === verificationStatusFilter;
+
+      return matchesSearch && matchesTraineeType && matchesVerificationStatus;
+    });
+  }, [searchTerm, traineeTypeFilter, trainees, verificationStatusFilter]);
+
+  const stats = useMemo(() => {
+    return trainees.reduce(
+      (acc, trainee) => {
+        const verificationStatus = trainee.verificationStatus || "pending";
+        acc.total += 1;
+        acc[verificationStatus] += 1;
+        return acc;
+      },
+      { total: 0, pending: 0, verified: 0, rejected: 0 } as Record<"total" | VerificationStatus, number>,
+    );
+  }, [trainees]);
+
+  const openStatusDialog = (trainee: User, status: VerificationStatus) => {
+    setSelectedTrainee(trainee);
+    setNextStatus(status);
+    setReviewerNote(trainee.verificationNotes || "");
+    setPhysicalIdPreviewUrl((currentUrl) => {
+      if (currentUrl) {
+        URL.revokeObjectURL(currentUrl);
+      }
+
+      return null;
+    });
+  };
+
+  const closeStatusDialog = () => {
+    setSelectedTrainee(null);
+    setReviewerNote("");
+    setNextStatus("verified");
+    setPhysicalIdPreviewUrl((currentUrl) => {
+      if (currentUrl) {
+        URL.revokeObjectURL(currentUrl);
+      }
+
+      return null;
+    });
+  };
+
+  useEffect(() => {
+    let isActive = true;
+
+    const loadPhysicalIdPreview = async () => {
+      if (!selectedTrainee?.physicalId) {
+        setPhysicalIdPreviewUrl(null);
+        return;
+      }
+
+      try {
+        setPhysicalIdPreviewLoading(true);
+        const fileBlob = await downloadPhysicalIdDocument(selectedTrainee.physicalId, selectedTrainee.id);
+
+        if (!isActive) {
+          return;
+        }
+
+        const objectUrl = URL.createObjectURL(fileBlob);
+        setPhysicalIdPreviewUrl((currentUrl) => {
+          if (currentUrl) {
+            URL.revokeObjectURL(currentUrl);
+          }
+
+          return objectUrl;
+        });
+      } catch (error) {
+        console.error("Failed to load uploaded physical ID image:", error);
+        if (isActive) {
+          toast.error("Failed to load the uploaded physical ID image.");
+        }
+      } finally {
+        if (isActive) {
+          setPhysicalIdPreviewLoading(false);
+        }
+      }
+    };
+
+    void loadPhysicalIdPreview();
+
+    return () => {
+      isActive = false;
+    };
+  }, [selectedTrainee]);
+
+  const handleStatusUpdate = async () => {
+    if (!selectedTrainee) return;
+
+    try {
+      setSaving(true);
+      await userService.updateTraineeVerification(selectedTrainee.id, nextStatus, reviewerNote, currentUser?.id);
+      toast.success(`Trainee marked as ${nextStatus}.`);
+      closeStatusDialog();
+      await loadTrainees();
+    } catch (error) {
+      console.error("Failed to update trainee verification:", error);
+      toast.error("Failed to update trainee verification status.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <DashboardLayout>
+      <div className="space-y-8">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight">Trainee Verification</h1>
+            <p className="mt-2 text-sm text-muted-foreground">
+              Review PESO Client and PESO Employee registrations before unlocking course participation.
+            </p>
+          </div>
+          <Button variant="outline" onClick={() => void loadTrainees()} disabled={loading}>
+            Refresh queue
+          </Button>
+        </div>
+
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium">Total trainees</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{stats.total}</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium">Pending review</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-amber-700">{stats.pending}</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium">Verified</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-emerald-700">{stats.verified}</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium">Rejected</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-rose-700">{stats.rejected}</div>
+            </CardContent>
+          </Card>
+        </div>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Verification Queue</CardTitle>
+            <CardDescription>Filter by trainee type or verification status, then verify or reject the account.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="mb-6 grid gap-4 lg:grid-cols-[1.2fr_0.4fr_0.4fr]">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={searchTerm}
+                  onChange={(event) => setSearchTerm(event.target.value)}
+                  className="pl-10"
+                  placeholder="Search by name, email, or employee ID"
+                />
+              </div>
+
+              <Select value={traineeTypeFilter} onValueChange={setTraineeTypeFilter}>
+                <SelectTrigger>
+                  <SelectValue placeholder="All trainee types" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All trainee types</SelectItem>
+                  <SelectItem value="peso_client">PESO Client</SelectItem>
+                  <SelectItem value="peso_employee">PESO Employee</SelectItem>
+                </SelectContent>
+              </Select>
+
+              <Select value={verificationStatusFilter} onValueChange={setVerificationStatusFilter}>
+                <SelectTrigger>
+                  <SelectValue placeholder="All statuses" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All statuses</SelectItem>
+                  <SelectItem value="pending">Pending</SelectItem>
+                  <SelectItem value="verified">Verified</SelectItem>
+                  <SelectItem value="rejected">Rejected</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {loading ? (
+              <div className="py-10 text-center text-sm text-muted-foreground">Loading trainee verification queue...</div>
+            ) : filteredTrainees.length === 0 ? (
+              <div className="py-10 text-center text-sm text-muted-foreground">No trainees match the current filters.</div>
+            ) : (
+              <div className="rounded-md border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Trainee</TableHead>
+                      <TableHead>Type</TableHead>
+                      <TableHead>Employee details</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Submitted</TableHead>
+                      <TableHead>Reviewer note</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {filteredTrainees.map((trainee) => (
+                      <TableRow key={trainee.id}>
+                        <TableCell>
+                          <div className="space-y-1">
+                            <p className="font-medium">{trainee.name}</p>
+                            <p className="text-sm text-muted-foreground">{trainee.email}</p>
+                          </div>
+                        </TableCell>
+                        <TableCell>{trainee.traineeType ? traineeTypeLabel[trainee.traineeType] : "Not set"}</TableCell>
+                        <TableCell>
+                          {trainee.traineeType === "peso_employee" ? (
+                            <div className="space-y-1 text-sm">
+                              <p><span className="text-muted-foreground">Employee ID:</span> {trainee.employeeId || "Not provided"}</p>
+                              <p><span className="text-muted-foreground">Physical ID:</span> {trainee.physicalId ? "Available" : "Not uploaded"}</p>
+                            </div>
+                          ) : (
+                            <span className="text-sm text-muted-foreground">Not required</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <TraineeVerificationBadge status={trainee.verificationStatus} />
+                        </TableCell>
+                        <TableCell>
+                          <span className="text-sm text-muted-foreground">
+                            {trainee.verificationSubmittedAt
+                              ? new Date(trainee.verificationSubmittedAt).toLocaleDateString()
+                              : new Date(trainee.createdAt).toLocaleDateString()}
+                          </span>
+                        </TableCell>
+                        <TableCell>
+                          <p className="max-w-[240px] truncate text-sm text-muted-foreground">
+                            {trainee.verificationNotes || "No note added"}
+                          </p>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-2">
+                            <Button size="sm" onClick={() => openStatusDialog(trainee, "verified")} className="gap-2">
+                              <UserCheck className="h-4 w-4" />
+                              Verify
+                            </Button>
+                            <Button size="sm" variant="outline" onClick={() => openStatusDialog(trainee, "rejected")} className="gap-2 text-rose-700">
+                              <UserX className="h-4 w-4" />
+                              Reject
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Dialog open={Boolean(selectedTrainee)} onOpenChange={(open) => !open && closeStatusDialog()}>
+          <DialogContent className="max-w-3xl">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <ShieldCheck className="h-5 w-5" />
+                Update trainee verification
+              </DialogTitle>
+              <DialogDescription>
+                {selectedTrainee
+                  ? `Set ${selectedTrainee.name}'s verification status to ${nextStatus}.`
+                  : "Update trainee verification status."}
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4">
+              {selectedTrainee ? (
+                <div className="space-y-3 rounded-2xl border border-border/60 bg-muted/20 p-4">
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Trainee</p>
+                      <p className="mt-1 font-medium text-foreground">{selectedTrainee.name}</p>
+                      <p className="text-sm text-muted-foreground">{selectedTrainee.email}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Employee ID</p>
+                      <p className="mt-1 font-medium text-foreground">
+                        {selectedTrainee.traineeType === "peso_employee"
+                          ? selectedTrainee.employeeId || "Not provided"
+                          : "Not required"}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Physical ID image</p>
+                    {selectedTrainee.traineeType !== "peso_employee" ? (
+                      <div className="rounded-xl border border-border/60 bg-background/70 p-4 text-sm text-muted-foreground">
+                        No employee verification document is required for PESO Client registrations.
+                      </div>
+                    ) : physicalIdPreviewLoading ? (
+                      <div className="rounded-xl border border-border/60 bg-background/70 p-4 text-sm text-muted-foreground">
+                        Loading uploaded physical ID image...
+                      </div>
+                    ) : physicalIdPreviewUrl ? (
+                      <div className="overflow-hidden rounded-xl border border-border/60 bg-background/70 p-3">
+                        <img
+                          src={physicalIdPreviewUrl}
+                          alt={`Uploaded physical ID for ${selectedTrainee.name}`}
+                          className="max-h-[22rem] w-full rounded-lg object-contain"
+                        />
+                      </div>
+                    ) : (
+                      <div className="rounded-xl border border-border/60 bg-background/70 p-4 text-sm text-muted-foreground">
+                        No uploaded physical ID image found.
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : null}
+
+              <div className="space-y-2">
+                <Label htmlFor="verification-status">Status</Label>
+                <Select value={nextStatus} onValueChange={(value) => setNextStatus(value as VerificationStatus)}>
+                  <SelectTrigger id="verification-status">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="verified">Verified</SelectItem>
+                    <SelectItem value="rejected">Rejected</SelectItem>
+                    <SelectItem value="pending">Pending</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="reviewer-note">Reviewer note</Label>
+                <Textarea
+                  id="reviewer-note"
+                  value={reviewerNote}
+                  onChange={(event) => setReviewerNote(event.target.value)}
+                  placeholder="Optional note for the trainee or internal review context"
+                  className="min-h-28"
+                />
+              </div>
+            </div>
+
+            <DialogFooter>
+              <Button variant="outline" onClick={closeStatusDialog} disabled={saving}>Cancel</Button>
+              <Button onClick={() => void handleStatusUpdate()} disabled={saving}>
+                {saving ? "Saving..." : "Save status"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
+    </DashboardLayout>
+  );
+}

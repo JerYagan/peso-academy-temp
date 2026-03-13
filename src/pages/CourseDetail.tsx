@@ -43,7 +43,18 @@ import {
   LogOut,
   AlertCircle,
 } from "lucide-react";
-import { courseService, enrollmentService, getEnrollmentErrorFeedback, moduleService, moduleCompletionService } from "@/services/supabaseDatabaseService";
+import TraineeVerificationBadge from "@/components/trainee/TraineeVerificationBadge";
+import { getOfficialHoursCreditLabel } from "@/lib/courseDuration";
+import { canAccessModuleEntry, getBlockingModules, getRequiredModuleIds } from "@/lib/moduleProgress";
+import {
+  courseService,
+  enrollmentService,
+  getEnrollmentErrorFeedback,
+  getTraineeEnrollmentVerificationFeedback,
+  isTraineeEnrollmentBlocked,
+  moduleService,
+  moduleCompletionService,
+} from "@/services/supabaseDatabaseService";
 import { Course, Module, Enrollment } from "@/types";
 import { toast } from "sonner";
 import ModuleContentViewer from "@/components/course/ModuleContentViewer";
@@ -92,6 +103,32 @@ const CourseDetail = () => {
     typeof locationState?.moduleId === "string" && locationState.moduleId.trim()
       ? locationState.moduleId
       : null;
+  const verificationBlocked = isTraineeEnrollmentBlocked(user);
+  const verificationFeedback = verificationBlocked
+    ? getTraineeEnrollmentVerificationFeedback(user?.verificationStatus, course?.title)
+    : null;
+  const blockedEnrollLabel = user?.verificationStatus === "rejected"
+    ? "Verification rejected"
+    : "Awaiting verification";
+
+  function getPreferredModule(
+    moduleList: Module[],
+    completedIds: string[],
+    preferredModuleId?: string | null,
+  ): Module | null {
+    if (moduleList.length === 0) {
+      return null;
+    }
+
+    if (preferredModuleId) {
+      const preferredModule = moduleList.find((module) => module.id === preferredModuleId) || null;
+      if (preferredModule && canAccessModuleEntry(preferredModule, moduleList, completedIds)) {
+        return preferredModule;
+      }
+    }
+
+    return moduleList.find((module) => canAccessModuleEntry(module, moduleList, completedIds)) || moduleList[0] || null;
+  }
 
   useEffect(() => {
     if (id) {
@@ -185,9 +222,10 @@ const CourseDetail = () => {
         : modulesData[0] || null;
 
       if (isPreviewMode) {
-        const previewModule = !courseData.courseDocument && initialModule
-          ? await loadModuleContent(initialModule.id)
-          : initialModule;
+        const previewTargetModule = getPreferredModule(modulesData, [], requestedModuleId);
+        const previewModule = !courseData.courseDocument && previewTargetModule
+          ? await loadModuleContent(previewTargetModule.id)
+          : previewTargetModule;
         setEnrollment({
           id: previewEnrollmentId,
           userId: user?.id || "preview-user",
@@ -220,12 +258,13 @@ const CourseDetail = () => {
 
       setEnrollment(userEnrollment);
 
-      const [completed, hydratedModule] = await Promise.all([
-        moduleCompletionService.getCompletedModules(userEnrollment.id),
-        !courseData.courseDocument && initialModule
-          ? loadModuleContent(initialModule.id)
-          : Promise.resolve(initialModule),
-      ]);
+      const completed = await moduleCompletionService.getCompletedModules(userEnrollment.id);
+      const preferredModule = getPreferredModule(modulesData, completed, requestedModuleId);
+
+      const hydratedModule = !courseData.courseDocument && preferredModule
+        ? await loadModuleContent(preferredModule.id)
+        : preferredModule;
+
       setCompletedModuleIds(completed);
       
       if (supabase) {
@@ -245,6 +284,16 @@ const CourseDetail = () => {
   };
 
   const handleModuleSelect = async (module: Module) => {
+    if (!canAccessModuleEntry(module, modules, completedModuleIds)) {
+      const blockingModules = getBlockingModules(module, modules, completedModuleIds);
+      toast.info(
+        blockingModules.length > 0
+          ? `Complete ${blockingModules[0].title} before opening ${module.title}.`
+          : "Finish the earlier modules in sequence before opening this module.",
+      );
+      return;
+    }
+
     if (course?.courseDocument || selectedModule?.id === module.id) {
       setSelectedModule(module);
       return;
@@ -257,7 +306,7 @@ const CourseDetail = () => {
     }
   };
 
-  const handleModuleComplete = async (moduleId: string, timeSpentMinutes?: number) => {
+  const handleModuleComplete = async (moduleId: string, timeSpentMinutes?: number, options?: { silent?: boolean }) => {
     if (!enrollment) return;
 
     if (isPreviewMode) {
@@ -280,7 +329,9 @@ const CourseDetail = () => {
           : current,
       );
 
-      toast.success("Preview progress updated");
+      if (!options?.silent) {
+        toast.success("Preview progress updated");
+      }
       if (modules.length > 0 && newCompleted.length >= modules.length) {
         setShowCompletionDialog(true);
       }
@@ -305,7 +356,9 @@ const CourseDetail = () => {
         setEnrollment(updatedEnrollment);
       }
 
-      toast.success("Module marked as completed!");
+      if (!options?.silent) {
+        toast.success("Module progress updated.");
+      }
       // If all modules are now completed, show congratulations dialog
       if (modules.length > 0 && newCompleted.length >= modules.length) {
         setShowCompletionDialog(true);
@@ -337,8 +390,7 @@ const CourseDetail = () => {
   };
 
   const canAccessModule = (module: Module) => {
-    if (module.prerequisites.length === 0) return true;
-    return module.prerequisites.every((prereqId) => completedModuleIds.includes(prereqId));
+    return canAccessModuleEntry(module, modules, completedModuleIds);
   };
 
   const handleEnrollInCourse = async () => {
@@ -429,7 +481,7 @@ const CourseDetail = () => {
                 <Badge variant="outline">{course.level}</Badge>
                 <span className="flex items-center gap-1 text-sm text-muted-foreground">
                   <Clock className="w-4 h-4" />
-                  {course.duration}h
+                  {getOfficialHoursCreditLabel(course.duration)}
                 </span>
                 <span className="flex items-center gap-1 text-sm text-muted-foreground">
                   <Users className="w-4 h-4" />
@@ -490,10 +542,27 @@ const CourseDetail = () => {
                   </AlertDescription>
                 </Alert>
               ) : null}
+              {verificationFeedback ? (
+                <Alert>
+                  <AlertCircle className="h-4 w-4" />
+                  <AlertTitle className="flex items-center gap-2">
+                    {verificationFeedback.title}
+                    <TraineeVerificationBadge status={user?.verificationStatus} />
+                  </AlertTitle>
+                  <AlertDescription>
+                    <div className="space-y-3">
+                      <p>{verificationFeedback.description}</p>
+                      <Button asChild size="sm" variant="outline">
+                        <Link to="/profile">Review profile</Link>
+                      </Button>
+                    </div>
+                  </AlertDescription>
+                </Alert>
+              ) : null}
               <div className="flex flex-wrap gap-3">
                 {isPreviewMode ? null : user ? (
-                  <Button onClick={handleEnrollInCourse} disabled={enrolling}>
-                    {enrolling ? "Enrolling..." : "Enroll in this course"}
+                  <Button onClick={handleEnrollInCourse} disabled={enrolling || verificationBlocked}>
+                    {verificationBlocked ? blockedEnrollLabel : enrolling ? "Enrolling..." : "Enroll in this course"}
                   </Button>
                 ) : (
                   <Button asChild>
@@ -562,7 +631,7 @@ const CourseDetail = () => {
             <Badge variant="outline">{course.level}</Badge>
             <div className="flex items-center gap-1 text-sm text-muted-foreground">
               <Clock className="w-4 h-4" />
-              {course.duration}h
+              {getOfficialHoursCreditLabel(course.duration)}
             </div>
             <div className="flex items-center gap-1 text-sm text-muted-foreground">
               <Users className="w-4 h-4" />
@@ -602,6 +671,14 @@ const CourseDetail = () => {
               <p className="text-sm text-muted-foreground">
                 {completedModuleIds.length} of {modules.length} modules completed
               </p>
+              <p className="mt-2 text-sm text-muted-foreground">
+                Your actual study time is tracked separately from the official course hours credited after trainer approval.
+              </p>
+              {enrollment.progress >= 100 && enrollment.completionApprovalStatus !== "approved" ? (
+                <p className="mt-2 text-sm text-muted-foreground">
+                  Course requirements are complete. Your trainer still needs to approve completion before any certificate can be released.
+                </p>
+              ) : null}
             </CardContent>
           </Card>
         </div>
@@ -621,6 +698,7 @@ const CourseDetail = () => {
                       const completed = isModuleCompleted(module.id);
                       const canAccess = canAccessModule(module);
                       const isSelected = selectedModule?.id === module.id;
+                      const blockingModules = getBlockingModules(module, modules, completedModuleIds);
 
                       return (
                         <button
@@ -661,6 +739,11 @@ const CourseDetail = () => {
                               <p className={`text-sm font-medium ${isSelected ? "text-primary-foreground" : ""}`}>
                                 {module.title}
                               </p>
+                              {!canAccess && blockingModules.length > 0 ? (
+                                <p className={`mt-1 text-xs ${isSelected ? "text-primary-foreground/80" : "text-muted-foreground"}`}>
+                                  Complete earlier module{blockingModules.length === 1 ? "" : "s"} first: {blockingModules.map((blockingModule) => blockingModule.title).join(", ")}
+                                </p>
+                              ) : null}
                             </div>
                           </div>
                         </button>
@@ -707,7 +790,7 @@ const CourseDetail = () => {
                 isCompleted={isModuleCompleted(selectedModule.id)}
                 isPreviewMode={isPreviewMode}
                 entrySource={moduleEntrySource}
-                onComplete={(timeSpentMinutes) => handleModuleComplete(selectedModule.id, timeSpentMinutes)}
+                onComplete={(timeSpentMinutes, options) => handleModuleComplete(selectedModule.id, timeSpentMinutes, options)}
               />
             ) : (
               <Card>
@@ -731,15 +814,15 @@ const CourseDetail = () => {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-green-600">
               <CheckCircle2 className="h-6 w-6" />
-              Congratulations!
+              Course Ready For Review
             </DialogTitle>
             <DialogDescription>
-              You have completed this course. Your certificate is ready to view and download.
+              Your course requirements are complete. A trainer still needs to approve completion, and certificates are released manually after approval.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button asChild>
-              <Link to="/certificates">View Certificate</Link>
+              <Link to="/dashboard">Return to dashboard</Link>
             </Button>
             <Button variant="outline" onClick={() => setShowCompletionDialog(false)}>
               Stay on course

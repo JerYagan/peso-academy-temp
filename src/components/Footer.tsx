@@ -1,6 +1,9 @@
 import { Link } from "react-router-dom";
+import { useLocale } from "@/contexts/LocaleContext";
 
 const Footer = () => {
+  const { t } = useLocale();
+
   return (
     <footer className="bg-primary py-10 text-primary-foreground sm:py-14">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
@@ -14,31 +17,31 @@ const Footer = () => {
               />
             </Link>
             <p className="max-w-xs text-xs leading-6 text-primary-foreground/75 sm:text-sm sm:leading-7">
-              Empowering individuals through quality employment services and training programs.
+              {t("footer.summary")}
             </p>
           </div>
 
           <div>
-            <h4 className="mb-3 text-[11px] font-extrabold uppercase tracking-[0.16em] text-primary-foreground sm:mb-4 sm:text-sm">Quick Links</h4>
+            <h4 className="mb-3 text-[11px] font-extrabold uppercase tracking-[0.16em] text-primary-foreground sm:mb-4 sm:text-sm">{t("footer.quickLinks")}</h4>
             <ul className="space-y-2 text-xs text-primary-foreground/75 sm:space-y-3 sm:text-sm">
-              <li><a href="#features" className="transition-colors hover:text-white">Features</a></li>
-              <li><a href="#how-it-works" className="transition-colors hover:text-white">How It Works</a></li>
-              <li><Link to="/courses" className="transition-colors hover:text-white">Courses</Link></li>
-              <li><a href="#about" className="transition-colors hover:text-white">About</a></li>
+              <li><a href="#features" className="transition-colors hover:text-white">{t("header.nav.features")}</a></li>
+              <li><a href="#how-it-works" className="transition-colors hover:text-white">{t("header.nav.howItWorks")}</a></li>
+              <li><Link to="/courses" className="transition-colors hover:text-white">{t("common.courses")}</Link></li>
+              <li><a href="#about" className="transition-colors hover:text-white">{t("header.nav.about")}</a></li>
             </ul>
           </div>
 
           <div>
-            <h4 className="mb-3 text-[11px] font-extrabold uppercase tracking-[0.16em] text-primary-foreground sm:mb-4 sm:text-sm">Contact</h4>
+            <h4 className="mb-3 text-[11px] font-extrabold uppercase tracking-[0.16em] text-primary-foreground sm:mb-4 sm:text-sm">{t("footer.contact")}</h4>
             <ul className="space-y-1.5 text-xs leading-6 text-primary-foreground/75 sm:space-y-2 sm:text-sm sm:leading-7">
-              <li>City Government of Tacurong</li>
-              <li>Tacurong City, Philippines</li>
+              <li>{t("footer.cityGovernment")}</li>
+              <li>{t("footer.location")}</li>
             </ul>
           </div>
         </div>
 
         <div className="pt-5 text-center text-[11px] text-primary-foreground/65 sm:pt-6 sm:text-sm">
-          <p>© 2026 PESO Academy. All rights reserved.</p>
+          <p>{t("footer.rights")}</p>
         </div>
       </div>
     </footer>

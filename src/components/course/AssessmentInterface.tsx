@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef, type ClipboardEvent, type MouseEvent } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
@@ -7,16 +7,93 @@ import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { CheckCircle2, AlertCircle, Clock, FileQuestion } from "lucide-react";
 import { toast } from "sonner";
-import { assessmentService, AssessmentQuestion, Assessment, AssessmentAttempt } from "@/services/assessmentService";
+import { assessmentService, AssessmentQuestion, Assessment, AssessmentAttempt, type AssessmentReviewStatus } from "@/services/assessmentService";
 import { useAuth } from "@/contexts/AuthContext";
 
 interface AssessmentResultSummary {
-  score: number;
-  passed: boolean;
+  score?: number;
+  passed?: boolean;
   passingScore: number;
   attemptsRemaining: number;
   canRetry: boolean;
+  reviewStatus?: AssessmentReviewStatus;
+  requiresManualReview: boolean;
 }
+
+const ASSESSMENT_DRAFT_STORAGE_PREFIX = "assessment-draft";
+
+const buildAssessmentDraftKey = (attemptId: string) => `${ASSESSMENT_DRAFT_STORAGE_PREFIX}:${attemptId}`;
+
+const hasAnswerValue = (question: AssessmentQuestion, answer: string | undefined) => {
+  if (question.questionType === "essay" || question.questionType === "short_answer") {
+    return Boolean(answer?.trim());
+  }
+
+  return Boolean(answer);
+};
+
+const getResultCardClasses = (result: AssessmentResultSummary) => {
+  if (result.reviewStatus && result.reviewStatus !== "approved") {
+    return "border-sky-500 bg-sky-50 dark:bg-sky-950";
+  }
+
+  return result.passed ? "border-green-500 bg-green-50 dark:bg-green-950" : "border-amber-500 bg-amber-50 dark:bg-amber-950";
+};
+
+const getResultTextClasses = (result: AssessmentResultSummary) => {
+  if (result.reviewStatus && result.reviewStatus !== "approved") {
+    return "text-sky-700 dark:text-sky-300";
+  }
+
+  return result.passed ? "text-green-700 dark:text-green-400" : "text-amber-700 dark:text-amber-400";
+};
+
+const getLatestResultMessage = (result: AssessmentResultSummary, assessment: Assessment) => {
+  if (result.reviewStatus === "submitted") {
+    return "Assessment submitted. Your responses are now waiting for trainer review.";
+  }
+
+  if (result.reviewStatus === "under_review") {
+    return "Assessment is currently under trainer review.";
+  }
+
+  if (result.reviewStatus === "needs_revision") {
+    return "Trainer feedback requested changes before this assessment can be approved.";
+  }
+
+  if (result.passed) {
+    return result.attemptsRemaining > 0 && assessment.allowRetryAfterPassing
+      ? `Assessment passed with ${result.score}%. You may retry again if needed.`
+      : `Assessment passed with ${result.score}%.`;
+  }
+
+  return result.canRetry
+    ? `Assessment not passed. You scored ${result.score}%. You can retry below.`
+    : `Assessment not passed. You scored ${result.score}%. No retries remain.`;
+};
+
+const hasEssayQuestions = (questions: AssessmentQuestion[]) => questions.some((question) => question.questionType === "essay");
+
+const createDeterministicSeed = (value: string) => {
+  let hash = 0;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash * 31 + value.charCodeAt(index)) >>> 0;
+  }
+  return hash;
+};
+
+const deterministicShuffle = <T,>(items: T[], seedSource: string): T[] => {
+  const clone = [...items];
+  let seed = createDeterministicSeed(seedSource);
+
+  for (let index = clone.length - 1; index > 0; index -= 1) {
+    seed = (seed * 1664525 + 1013904223) >>> 0;
+    const swapIndex = seed % (index + 1);
+    [clone[index], clone[swapIndex]] = [clone[swapIndex], clone[index]];
+  }
+
+  return clone;
+};
 
 interface AssessmentInterfaceProps {
   enrollmentId: string;
@@ -42,6 +119,7 @@ const AssessmentInterface = ({
   const [attemptBlockMessage, setAttemptBlockMessage] = useState<string | null>(null);
   const [completedAttemptCount, setCompletedAttemptCount] = useState(0);
   const [latestResult, setLatestResult] = useState<AssessmentResultSummary | null>(null);
+  const clipboardNoticeAtRef = useRef(0);
 
   const loadAssessment = useCallback(async () => {
     if (!user) return;
@@ -74,6 +152,7 @@ const AssessmentInterface = ({
       const activeAttempt = attempts.find((candidate) => !candidate.submittedAt) || null;
       const completedAttempts = attempts.filter((candidate) => candidate.submittedAt);
       const passedAttempt = completedAttempts.find((candidate) => candidate.passed) || null;
+      const essayAttemptPolicy = hasEssayQuestions(questionsData);
       const latestCompletedAttempt = completedAttempts
         .slice()
         .sort((left, right) => {
@@ -81,19 +160,23 @@ const AssessmentInterface = ({
           const rightTime = right.submittedAt ? new Date(right.submittedAt).getTime() : 0;
           return rightTime - leftTime;
         })[0] || null;
-      const attemptsRemaining = Math.max(assessmentData.maxAttempts - completedAttempts.length, 0);
+      const effectiveMaxAttempts = essayAttemptPolicy ? 1 : assessmentData.maxAttempts;
+      const attemptsRemaining = Math.max(effectiveMaxAttempts - completedAttempts.length, 0);
 
       setCompletedAttemptCount(completedAttempts.length);
 
-      if (latestCompletedAttempt && latestCompletedAttempt.score !== undefined && latestCompletedAttempt.passed !== undefined) {
+      if (latestCompletedAttempt) {
         setLatestResult({
           score: latestCompletedAttempt.score,
           passed: latestCompletedAttempt.passed,
           passingScore: assessmentData.passingScore,
           attemptsRemaining,
           canRetry:
+            latestCompletedAttempt.reviewStatus === "approved" &&
             !latestCompletedAttempt.passed &&
-            completedAttempts.length < assessmentData.maxAttempts,
+            completedAttempts.length < effectiveMaxAttempts,
+          reviewStatus: latestCompletedAttempt.reviewStatus,
+          requiresManualReview: latestCompletedAttempt.requiresManualReview ?? false,
         });
       }
 
@@ -104,6 +187,16 @@ const AssessmentInterface = ({
         return;
       }
 
+      if (latestCompletedAttempt?.reviewStatus === "submitted" || latestCompletedAttempt?.reviewStatus === "under_review") {
+        setAttemptBlockMessage("Your latest assessment submission is waiting for trainer review before another attempt can start.");
+        return;
+      }
+
+      if (latestCompletedAttempt?.reviewStatus === "needs_revision") {
+        setAttemptBlockMessage("Trainer feedback requested revisions. Revision resubmission will be enabled once the review workflow is added.");
+        return;
+      }
+
       if (passedAttempt && !assessmentData.allowRetryAfterPassing) {
         setAttemptBlockMessage(
           `You already passed this assessment${passedAttempt.score !== undefined ? ` with ${passedAttempt.score}%` : ""}. Retries after passing are disabled for this module.`,
@@ -111,8 +204,12 @@ const AssessmentInterface = ({
         return;
       }
 
-      if (completedAttempts.length >= assessmentData.maxAttempts) {
-        setAttemptBlockMessage(`You have reached the maximum number of attempts (${assessmentData.maxAttempts}).`);
+      if (completedAttempts.length >= effectiveMaxAttempts) {
+        setAttemptBlockMessage(
+          essayAttemptPolicy
+            ? "Essay assessments allow one learner submission per attempt cycle. A trainer can still keep a higher configured attempt limit for later workflow handling."
+            : `You have reached the maximum number of attempts (${assessmentData.maxAttempts}).`,
+        );
         return;
       }
 
@@ -136,6 +233,51 @@ const AssessmentInterface = ({
   useEffect(() => {
     loadAssessment();
   }, [loadAssessment]);
+
+  useEffect(() => {
+    if (!attempt?.id || attempt.submittedAt) {
+      return;
+    }
+
+    try {
+      const savedDraft = window.localStorage.getItem(buildAssessmentDraftKey(attempt.id));
+      if (!savedDraft) {
+        return;
+      }
+
+      const parsedDraft = JSON.parse(savedDraft) as { answers?: Record<string, string>; timeSpent?: number };
+      if (parsedDraft.answers) {
+        setAnswers((current) => ({ ...current, ...parsedDraft.answers }));
+      }
+      if (typeof parsedDraft.timeSpent === "number") {
+        setTimeSpent((current) => Math.max(current, parsedDraft.timeSpent || 0));
+      }
+    } catch (error) {
+      console.error("Error restoring assessment draft:", error);
+    }
+  }, [attempt?.id, attempt?.submittedAt]);
+
+  useEffect(() => {
+    if (!attempt?.id || attempt.submittedAt || submissionStatus === "success") {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      try {
+        window.localStorage.setItem(
+          buildAssessmentDraftKey(attempt.id),
+          JSON.stringify({
+            answers,
+            timeSpent,
+          }),
+        );
+      } catch (error) {
+        console.error("Error saving assessment draft:", error);
+      }
+    }, 300);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [attempt?.id, attempt?.submittedAt, answers, timeSpent, submissionStatus]);
 
   // Timer effect
   useEffect(() => {
@@ -174,12 +316,61 @@ const AssessmentInterface = ({
     }));
   };
 
+  const notifyClipboardRestriction = useCallback((message: string) => {
+    const now = Date.now();
+    if (now - clipboardNoticeAtRef.current < 1500) {
+      return;
+    }
+
+    clipboardNoticeAtRef.current = now;
+    toast.info(message);
+  }, []);
+
+  const handleRestrictedClipboardEvent = (event: ClipboardEvent<HTMLElement>, action: "copy" | "cut" | "paste") => {
+    event.preventDefault();
+
+    const messageByAction = {
+      copy: "Copy is limited during assessments to discourage answer sharing.",
+      cut: "Cut is limited during assessments to keep answer handling inside the active attempt.",
+      paste: "Paste is disabled during assessments. Please enter responses manually.",
+    } as const;
+
+    notifyClipboardRestriction(`${messageByAction[action]} Client-side controls are a deterrent only.`);
+  };
+
+  const handleRestrictedContextMenu = (event: MouseEvent<HTMLElement>) => {
+    event.preventDefault();
+    notifyClipboardRestriction("Right-click actions are limited during assessments. Client-side controls are a deterrent only.");
+  };
+
+  const presentedQuestions = useMemo(() => {
+    if (!attempt?.id) {
+      return questions;
+    }
+
+    return deterministicShuffle(questions, `${attempt.id}:question-order`);
+  }, [questions, attempt?.id]);
+
+  const getPresentedOptions = useCallback(
+    (question: AssessmentQuestion) => {
+      const baseOptions = question.questionType === "true_false"
+        ? ["True", "False"]
+        : question.options || [];
+
+      if (!attempt?.id || baseOptions.length <= 1) {
+        return baseOptions;
+      }
+
+      return deterministicShuffle(baseOptions, `${attempt.id}:${question.id}:option-order`);
+    },
+    [attempt?.id],
+  );
+
   const handleSubmit = async () => {
     if (!attempt || !assessment) return;
 
-    // Check if all required questions are answered
-    const requiredQuestions = questions.filter((q) => q.questionType !== "essay");
-    const unanswered = requiredQuestions.filter((q) => !answers[q.id]);
+    // Check if all questions are answered, including long-form responses.
+    const unanswered = questions.filter((question) => !hasAnswerValue(question, answers[question.id]));
 
     if (unanswered.length > 0) {
       toast.error(`Please answer all required questions. ${unanswered.length} remaining.`);
@@ -197,19 +388,26 @@ const AssessmentInterface = ({
         questions
       );
 
+      window.localStorage.removeItem(buildAssessmentDraftKey(attempt.id));
+
       setSubmissionStatus("success");
       const nextCompletedAttemptCount = completedAttemptCount + 1;
-      const attemptsRemaining = Math.max(assessment.maxAttempts - nextCompletedAttemptCount, 0);
+      const effectiveMaxAttempts = hasEssayQuestions(questions) ? 1 : assessment.maxAttempts;
+      const attemptsRemaining = Math.max(effectiveMaxAttempts - nextCompletedAttemptCount, 0);
       setLatestResult({
         score: result.score,
         passed: result.passed,
         passingScore: assessment.passingScore,
         attemptsRemaining,
-        canRetry: !result.passed && nextCompletedAttemptCount < assessment.maxAttempts,
+        canRetry: result.reviewStatus === "approved" && !result.passed && nextCompletedAttemptCount < effectiveMaxAttempts,
+        reviewStatus: result.reviewStatus,
+        requiresManualReview: result.requiresManualReview,
       });
-      const message = result.passed
-        ? `Assessment passed! Your score: ${result.score}%`
-        : `Assessment not passed. Your score: ${result.score}% (Passing: ${assessment.passingScore}%)`;
+      const message = result.reviewStatus !== "approved"
+        ? "Assessment submitted for trainer review. Your final result will appear after review."
+        : result.passed
+          ? `Assessment passed! Your score: ${result.score}%`
+          : `Assessment not passed. Your score: ${result.score}% (Passing: ${assessment.passingScore}%)`;
       toast.success(message);
       
       // Reload to show results
@@ -252,16 +450,18 @@ const AssessmentInterface = ({
     return (
       <div className="space-y-6">
         {latestResult && submissionStatus !== "error" && (
-          <Card className={latestResult.passed ? "border-green-500 bg-green-50 dark:bg-green-950" : "border-amber-500 bg-amber-50 dark:bg-amber-950"}>
+          <Card className={getResultCardClasses(latestResult)}>
             <CardContent className="pt-6">
-              <div className={`flex items-center gap-2 ${latestResult.passed ? "text-green-700 dark:text-green-400" : "text-amber-700 dark:text-amber-400"}`}>
+              <div className={`flex items-center gap-2 ${getResultTextClasses(latestResult)}`}>
                 <CheckCircle2 className="w-5 h-5" />
                 <p className="text-sm font-medium">
-                  {latestResult.passed
-                    ? `Assessment passed. Final score: ${latestResult.score}%`
-                    : latestResult.canRetry
-                      ? `Assessment not passed. Score: ${latestResult.score}%. You can retry.`
-                      : `Assessment not passed. Score: ${latestResult.score}%. No attempts remain.`}
+                  {latestResult.reviewStatus && latestResult.reviewStatus !== "approved"
+                    ? getLatestResultMessage(latestResult, assessment)
+                    : latestResult.passed
+                      ? `Assessment passed. Final score: ${latestResult.score}%`
+                      : latestResult.canRetry
+                        ? `Assessment not passed. Score: ${latestResult.score}%. You can retry.`
+                        : `Assessment not passed. Score: ${latestResult.score}%. No attempts remain.`}
                 </p>
               </div>
             </CardContent>
@@ -282,24 +482,20 @@ const AssessmentInterface = ({
   }
 
   const totalPoints = questions.reduce((sum, q) => sum + q.points, 0);
-  const answeredCount = Object.keys(answers).length;
+  const answeredCount = questions.filter((question) => hasAnswerValue(question, answers[question.id])).length;
+  const essayAttemptPolicy = hasEssayQuestions(questions);
+  const effectiveMaxAttempts = essayAttemptPolicy ? 1 : assessment.maxAttempts;
   const showLatestResult = latestResult && submissionStatus !== "error";
 
   return (
     <div className="space-y-6">
       {showLatestResult && (
-        <Card className={latestResult.passed ? "border-green-500 bg-green-50 dark:bg-green-950" : "border-amber-500 bg-amber-50 dark:bg-amber-950"}>
+        <Card className={getResultCardClasses(latestResult)}>
           <CardContent className="pt-6">
-            <div className={`flex items-center gap-2 ${latestResult.passed ? "text-green-700 dark:text-green-400" : "text-amber-700 dark:text-amber-400"}`}>
+            <div className={`flex items-center gap-2 ${getResultTextClasses(latestResult)}`}>
               <CheckCircle2 className="w-5 h-5" />
               <p className="text-sm font-medium">
-                {latestResult.passed
-                  ? latestResult.attemptsRemaining > 0 && assessment.allowRetryAfterPassing
-                    ? `Assessment passed with ${latestResult.score}%. You may retry again if needed.`
-                    : `Assessment passed with ${latestResult.score}%.`
-                  : latestResult.canRetry
-                    ? `Assessment not passed. You scored ${latestResult.score}%. You can retry below.`
-                    : `Assessment not passed. You scored ${latestResult.score}%. No retries remain.`}
+                {getLatestResultMessage(latestResult, assessment)}
               </p>
             </div>
           </CardContent>
@@ -343,7 +539,7 @@ const AssessmentInterface = ({
                 Passing Score: {assessment.passingScore}%
               </span>
               <span className="text-muted-foreground">
-                Attempts Left: {Math.max(assessment.maxAttempts - completedAttemptCount, 0)}
+                Attempts Left: {Math.max(effectiveMaxAttempts - completedAttemptCount, 0)}
               </span>
               <span className="text-muted-foreground">
                 {assessment.allowRetryAfterPassing ? "Retry after pass: allowed" : "Retry after pass: locked"}
@@ -351,12 +547,29 @@ const AssessmentInterface = ({
               <span className="font-medium">Total Points: {totalPoints}</span>
             </div>
           </div>
+          <p className="mt-3 text-sm text-muted-foreground">
+            Draft responses save automatically on this device while you work.
+          </p>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Question order and answer choices are shuffled for each attempt. Copy, paste, and similar browser shortcuts are limited to discourage casual sharing, but client-side controls are not a full security boundary.
+          </p>
+          {essayAttemptPolicy && assessment.maxAttempts > 1 && (
+            <p className="mt-2 text-sm text-muted-foreground">
+              This assessment includes an essay, so learners get one submission even though trainers can still configure a higher attempt count for later review workflow handling.
+            </p>
+          )}
         </CardContent>
       </Card>
 
       {/* Questions */}
-      <div className="space-y-6">
-        {questions.map((question, index) => (
+      <div
+        className="space-y-6"
+        onCopyCapture={(event) => handleRestrictedClipboardEvent(event, "copy")}
+        onCutCapture={(event) => handleRestrictedClipboardEvent(event, "cut")}
+        onPasteCapture={(event) => handleRestrictedClipboardEvent(event, "paste")}
+        onContextMenuCapture={handleRestrictedContextMenu}
+      >
+        {presentedQuestions.map((question, index) => (
           <Card key={question.id}>
             <CardHeader>
               <CardTitle className="text-lg">
@@ -373,7 +586,7 @@ const AssessmentInterface = ({
                   value={answers[question.id] || ""}
                   onValueChange={(value) => handleAnswerChange(question.id, value)}
                 >
-                  {question.options.map((option, optIndex) => (
+                  {getPresentedOptions(question).map((option, optIndex) => (
                     <div key={optIndex} className="flex items-center space-x-2">
                       <RadioGroupItem value={option} id={`${question.id}-${optIndex}`} />
                       <Label
@@ -392,18 +605,14 @@ const AssessmentInterface = ({
                   value={answers[question.id] || ""}
                   onValueChange={(value) => handleAnswerChange(question.id, value)}
                 >
-                  <div className="flex items-center space-x-2">
-                    <RadioGroupItem value="True" id={`${question.id}-true`} />
-                    <Label htmlFor={`${question.id}-true`} className="cursor-pointer flex-1">
-                      True
-                    </Label>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <RadioGroupItem value="False" id={`${question.id}-false`} />
-                    <Label htmlFor={`${question.id}-false`} className="cursor-pointer flex-1">
-                      False
-                    </Label>
-                  </div>
+                  {getPresentedOptions(question).map((option, optIndex) => (
+                    <div key={option} className="flex items-center space-x-2">
+                      <RadioGroupItem value={option} id={`${question.id}-tf-${optIndex}`} />
+                      <Label htmlFor={`${question.id}-tf-${optIndex}`} className="cursor-pointer flex-1">
+                        {option}
+                      </Label>
+                    </div>
+                  ))}
                 </RadioGroup>
               )}
 
@@ -416,12 +625,17 @@ const AssessmentInterface = ({
               )}
 
               {question.questionType === "essay" && (
-                <Textarea
-                  value={answers[question.id] || ""}
-                  onChange={(e) => handleAnswerChange(question.id, e.target.value)}
-                  placeholder="Enter your detailed answer"
-                  rows={6}
-                />
+                <div className="space-y-2">
+                  <Textarea
+                    value={answers[question.id] || ""}
+                    onChange={(e) => handleAnswerChange(question.id, e.target.value)}
+                    placeholder="Enter your detailed answer"
+                    rows={8}
+                  />
+                  <p className="text-sm text-muted-foreground">
+                    Essay responses are reviewed by a trainer before a final assessment result is issued.
+                  </p>
+                </div>
               )}
             </CardContent>
           </Card>

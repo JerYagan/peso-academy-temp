@@ -45,6 +45,14 @@ import {
 } from "@/lib/onboarding";
 import { recommendationSyncService } from "@/services/recommendationSyncService";
 import { Link } from "react-router-dom";
+import {
+  sanitizeAddressInput,
+  sanitizeDigitsOnlyInput,
+  sanitizeGeneralTextInput,
+  sanitizeNameInput,
+  validateDigitsOnlyField,
+  validateHumanName,
+} from "@/lib/profileFieldValidation";
 
 const genderOptions: Array<{ value: NonNullable<AuthUser["gender"]>; label: string }> = [
   { value: "male", label: "Male" },
@@ -197,6 +205,23 @@ const Profile = () => {
   });
   const [changingPassword, setChangingPassword] = useState(false);
 
+  const updateFormField = <K extends keyof typeof formData>(field: K, value: (typeof formData)[K]) => {
+    const nextValue = typeof value === "string"
+      ? (() => {
+          if (field === "name") return sanitizeNameInput(value);
+          if (field === "phone" || field === "postalCode") return sanitizeDigitsOnlyInput(value);
+          if (field === "address") return sanitizeAddressInput(value);
+          if (field === "occupation" || field === "educationLevel" || field === "barangay" || field === "cityMunicipality" || field === "province") {
+            return sanitizeGeneralTextInput(value);
+          }
+
+          return value;
+        })()
+      : value;
+
+    setFormData((current) => ({ ...current, [field]: nextValue }));
+  };
+
   const isLearner = user?.role === "trainee";
 
   const loadProfileData = async () => {
@@ -258,6 +283,27 @@ const Profile = () => {
 
     setLoading(true);
     try {
+      const nameValidationError = validateHumanName(formData.name);
+      if (nameValidationError) {
+        toast.error(nameValidationError);
+        setLoading(false);
+        return;
+      }
+
+      const phoneValidationError = validateDigitsOnlyField("Phone", formData.phone);
+      if (phoneValidationError) {
+        toast.error(phoneValidationError);
+        setLoading(false);
+        return;
+      }
+
+      const postalCodeValidationError = validateDigitsOnlyField("Postal code", formData.postalCode);
+      if (postalCodeValidationError) {
+        toast.error(postalCodeValidationError);
+        setLoading(false);
+        return;
+      }
+
       if (formData.dateOfBirth) {
         const birthDate = new Date(formData.dateOfBirth);
         if (Number.isNaN(birthDate.getTime()) || birthDate > new Date()) {
@@ -642,7 +688,7 @@ const Profile = () => {
                           <Input
                             id="name"
                             value={formData.name}
-                            onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                            onChange={(e) => updateFormField("name", e.target.value)}
                           />
                         </div>
 
@@ -652,7 +698,7 @@ const Profile = () => {
                             id="email"
                             type="email"
                             value={formData.email}
-                            onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                            onChange={(e) => updateFormField("email", e.target.value)}
                             disabled
                           />
                           <p className="text-xs text-muted-foreground">Email cannot be changed</p>
@@ -663,7 +709,7 @@ const Profile = () => {
                           <Input
                             id="phone"
                             value={formData.phone}
-                            onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                            onChange={(e) => updateFormField("phone", e.target.value)}
                             placeholder="+63 912 345 6789"
                           />
                         </div>
@@ -684,7 +730,7 @@ const Profile = () => {
                         <Textarea
                           id="address"
                           value={formData.address}
-                          onChange={(e) => setFormData({ ...formData, address: e.target.value })}
+                          onChange={(e) => updateFormField("address", e.target.value)}
                           placeholder="House number, street, subdivision"
                         />
                       </div>
@@ -746,7 +792,7 @@ const Profile = () => {
                           <Input
                             id="occupation"
                             value={formData.occupation}
-                            onChange={(e) => setFormData({ ...formData, occupation: e.target.value })}
+                            onChange={(e) => updateFormField("occupation", e.target.value)}
                             placeholder="Current job or primary occupation"
                           />
                         </div>
@@ -756,7 +802,7 @@ const Profile = () => {
                           <Input
                             id="education-level"
                             value={formData.educationLevel}
-                            onChange={(e) => setFormData({ ...formData, educationLevel: e.target.value })}
+                            onChange={(e) => updateFormField("educationLevel", e.target.value)}
                             placeholder="Highest level completed"
                           />
                         </div>
@@ -766,7 +812,7 @@ const Profile = () => {
                           <Input
                             id="barangay"
                             value={formData.barangay}
-                            onChange={(e) => setFormData({ ...formData, barangay: e.target.value })}
+                            onChange={(e) => updateFormField("barangay", e.target.value)}
                           />
                         </div>
 
@@ -775,7 +821,7 @@ const Profile = () => {
                           <Input
                             id="city-municipality"
                             value={formData.cityMunicipality}
-                            onChange={(e) => setFormData({ ...formData, cityMunicipality: e.target.value })}
+                            onChange={(e) => updateFormField("cityMunicipality", e.target.value)}
                           />
                         </div>
 
@@ -784,7 +830,7 @@ const Profile = () => {
                           <Input
                             id="province"
                             value={formData.province}
-                            onChange={(e) => setFormData({ ...formData, province: e.target.value })}
+                            onChange={(e) => updateFormField("province", e.target.value)}
                           />
                         </div>
 
@@ -793,7 +839,7 @@ const Profile = () => {
                           <Input
                             id="postal-code"
                             value={formData.postalCode}
-                            onChange={(e) => setFormData({ ...formData, postalCode: e.target.value })}
+                            onChange={(e) => updateFormField("postalCode", e.target.value)}
                           />
                         </div>
                       </div>

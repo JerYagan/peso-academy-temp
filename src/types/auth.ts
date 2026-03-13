@@ -1,5 +1,11 @@
 export type UserRole = "admin" | "trainer" | "trainee";
 
+export type TraineeType = "peso_client" | "peso_employee";
+
+export type VerificationStatus = "pending" | "verified" | "rejected";
+
+export type AppLanguage = "en" | "tl";
+
 export const USER_ROLES: UserRole[] = [
   "admin",
   "trainer",
@@ -38,6 +44,14 @@ export interface User {
   email: string;
   name: string;
   role: UserRole;
+  traineeType?: TraineeType;
+  verificationStatus?: VerificationStatus;
+  employeeId?: string;
+  physicalId?: string;
+  verificationSubmittedAt?: string;
+  verifiedAt?: string;
+  verifiedBy?: string;
+  verificationNotes?: string;
   avatar?: string;
   phone?: string;
   address?: string;
@@ -58,7 +72,9 @@ export interface User {
   onboardingWeeklyCommitment?: "under_2" | "2_to_4" | "5_plus";
   onboardingDigitalComfort?: "needs_support" | "comfortable" | "advanced_tools";
   onboardingCompletedAt?: string;
+  onboardingModalSeenAt?: string;
   skills?: string[];
+  languagePreference?: AppLanguage;
   createdAt: string;
 }
 

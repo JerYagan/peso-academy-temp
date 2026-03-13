@@ -29,6 +29,7 @@ export const DerivedAssessmentSummary = ({
           <Badge variant="outline">{summary.totalPoints} total point{summary.totalPoints === 1 ? "" : "s"}</Badge>
           <Badge variant="outline">{summary.questionTypeCounts.multiple_choice} multiple choice</Badge>
           <Badge variant="outline">{summary.questionTypeCounts.true_false} true/false</Badge>
+          <Badge variant="outline">{summary.questionTypeCounts.essay} essay</Badge>
         </div>
 
         {summary.quizBlockCount === 0 ? (

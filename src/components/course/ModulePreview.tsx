@@ -156,34 +156,44 @@ export const ModulePreview = ({ module, allModules = [] }: ModulePreviewProps) =
                       <div className="flex flex-wrap items-center gap-2">
                         <p className="font-medium">{block.content || block.title || "Quiz Question"}</p>
                         <Badge variant="outline" className="text-xs">
-                          {block.questionType === "true_false" ? "True / False" : "Multiple Choice"}
+                          {block.questionType === "essay"
+                            ? "Essay"
+                            : block.questionType === "true_false"
+                              ? "True / False"
+                              : "Multiple Choice"}
                         </Badge>
                         <Badge variant="outline" className="text-xs">
                           {block.points || 1} pt{(block.points || 1) === 1 ? "" : "s"}
                         </Badge>
                       </div>
-                      <div className="space-y-2">
-                        {(block.options || []).map((option, optIdx) => (
-                          <div
-                            key={optIdx}
-                            className={`p-2 rounded border ${
-                              optIdx === block.correctAnswer
-                                ? "border-green-500 bg-green-50 dark:bg-green-950"
-                                : "border-muted"
-                            }`}
-                          >
-                            <div className="flex items-center gap-2">
-                              <span className="font-medium">{String.fromCharCode(65 + optIdx)}.</span>
-                              <span>{option}</span>
-                              {optIdx === block.correctAnswer && (
-                                <Badge variant="outline" className="ml-auto text-xs">
-                                  Correct
-                                </Badge>
-                              )}
+                      {block.questionType === "essay" ? (
+                        <div className="rounded-lg border border-dashed p-3 text-sm text-muted-foreground">
+                          Learners will answer this prompt in a long-form response area during assessment.
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          {(block.options || []).map((option, optIdx) => (
+                            <div
+                              key={optIdx}
+                              className={`p-2 rounded border ${
+                                optIdx === block.correctAnswer
+                                  ? "border-green-500 bg-green-50 dark:bg-green-950"
+                                  : "border-muted"
+                              }`}
+                            >
+                              <div className="flex items-center gap-2">
+                                <span className="font-medium">{String.fromCharCode(65 + optIdx)}.</span>
+                                <span>{option}</span>
+                                {optIdx === block.correctAnswer && (
+                                  <Badge variant="outline" className="ml-auto text-xs">
+                                    Correct
+                                  </Badge>
+                                )}
+                              </div>
                             </div>
-                          </div>
-                        ))}
-                      </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>

@@ -20,7 +20,16 @@ export interface Database {
           id: string
           email: string
           name: string
-          role: 'jobseeker' | 'admin' | 'trainer' | 'employer' | 'validator' | 'spd'
+          role: 'admin' | 'trainer' | 'trainee'
+          trainee_type?: 'peso_client' | 'peso_employee' | null
+          verification_status: 'pending' | 'verified' | 'rejected'
+          employee_id?: string | null
+          physical_id?: string | null
+          verification_submitted_at?: string | null
+          verified_at?: string | null
+          verified_by?: string | null
+          verification_notes?: string | null
+          onboarding_modal_seen_at?: string | null
           avatar?: string | null
           phone?: string | null
           address?: string | null
@@ -45,7 +54,16 @@ export interface Database {
           id?: string
           email: string
           name: string
-          role: 'jobseeker' | 'admin' | 'trainer' | 'employer' | 'validator' | 'spd'
+          role: 'admin' | 'trainer' | 'trainee'
+          trainee_type?: 'peso_client' | 'peso_employee' | null
+          verification_status?: 'pending' | 'verified' | 'rejected'
+          employee_id?: string | null
+          physical_id?: string | null
+          verification_submitted_at?: string | null
+          verified_at?: string | null
+          verified_by?: string | null
+          verification_notes?: string | null
+          onboarding_modal_seen_at?: string | null
           avatar?: string | null
           phone?: string | null
           address?: string | null
@@ -70,7 +88,16 @@ export interface Database {
           id?: string
           email?: string
           name?: string
-          role?: 'jobseeker' | 'admin' | 'trainer' | 'employer' | 'validator' | 'spd'
+          role?: 'admin' | 'trainer' | 'trainee'
+          trainee_type?: 'peso_client' | 'peso_employee' | null
+          verification_status?: 'pending' | 'verified' | 'rejected'
+          employee_id?: string | null
+          physical_id?: string | null
+          verification_submitted_at?: string | null
+          verified_at?: string | null
+          verified_by?: string | null
+          verification_notes?: string | null
+          onboarding_modal_seen_at?: string | null
           avatar?: string | null
           phone?: string | null
           address?: string | null
@@ -88,6 +115,32 @@ export interface Database {
           preferred_categories?: string[] | null
           onboarding_skill_level?: string | null
           skills?: string[] | null
+          created_at?: string
+          updated_at?: string
+        }
+      }
+      system_settings: {
+        Row: {
+          key: string
+          value_json: Json
+          description?: string | null
+          is_public: boolean
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          key: string
+          value_json?: Json
+          description?: string | null
+          is_public?: boolean
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          key?: string
+          value_json?: Json
+          description?: string | null
+          is_public?: boolean
           created_at?: string
           updated_at?: string
         }
@@ -205,6 +258,13 @@ export interface Database {
           enrolled_at: string
           completed_at?: string | null
           certificate_id?: string | null
+          completion_approval_status?: 'not_ready' | 'pending' | 'approved' | 'needs_revision' | null
+          completion_requested_at?: string | null
+          completion_reviewed_at?: string | null
+          completion_reviewed_by?: string | null
+          completion_feedback?: string | null
+          credited_duration_hours?: number | null
+          actual_learning_minutes?: number | null
           updated_at?: string
         }
         Insert: {
@@ -216,6 +276,13 @@ export interface Database {
           enrolled_at?: string
           completed_at?: string | null
           certificate_id?: string | null
+          completion_approval_status?: 'not_ready' | 'pending' | 'approved' | 'needs_revision' | null
+          completion_requested_at?: string | null
+          completion_reviewed_at?: string | null
+          completion_reviewed_by?: string | null
+          completion_feedback?: string | null
+          credited_duration_hours?: number | null
+          actual_learning_minutes?: number | null
           updated_at?: string
         }
         Update: {
@@ -227,6 +294,13 @@ export interface Database {
           enrolled_at?: string
           completed_at?: string | null
           certificate_id?: string | null
+          completion_approval_status?: 'not_ready' | 'pending' | 'approved' | 'needs_revision' | null
+          completion_requested_at?: string | null
+          completion_reviewed_at?: string | null
+          completion_reviewed_by?: string | null
+          completion_feedback?: string | null
+          credited_duration_hours?: number | null
+          actual_learning_minutes?: number | null
           updated_at?: string
         }
       }
@@ -353,6 +427,7 @@ export interface Database {
           certificate_type: 'completion' | 'participation'
           issued_at: string
           verification_code: string
+          issued_by?: string | null
         }
         Insert: {
           id?: string
@@ -362,6 +437,7 @@ export interface Database {
           certificate_type: 'completion' | 'participation'
           issued_at?: string
           verification_code: string
+          issued_by?: string | null
         }
         Update: {
           id?: string
@@ -371,6 +447,7 @@ export interface Database {
           certificate_type?: 'completion' | 'participation'
           issued_at?: string
           verification_code?: string
+          issued_by?: string | null
         }
       }
       notifications: {

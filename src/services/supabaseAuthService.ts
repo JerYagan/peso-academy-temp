@@ -1,5 +1,7 @@
 import { User, normalizeUserRole } from "@/types/auth";
+import { isAllowedEmployeeRegistrationEmail } from "@/lib/employeeRegistration";
 import { supabase, handleSupabaseError } from "@/lib/supabase";
+import { systemSettingsService } from "@/services/systemSettingsService";
 
 if (!supabase) {
   console.warn("Supabase client not initialized. Please set up environment variables.");
@@ -10,6 +12,15 @@ type UserProfileRecord = {
   email: string;
   name: string;
   role?: string | null;
+  trainee_type?: string | null;
+  verification_status?: string | null;
+  employee_id?: string | null;
+  physical_id?: string | null;
+  verification_submitted_at?: string | null;
+  verified_at?: string | null;
+  verified_by?: string | null;
+  verification_notes?: string | null;
+  onboarding_modal_seen_at?: string | null;
   avatar?: string | null;
   phone?: string | null;
   address?: string | null;
@@ -26,6 +37,11 @@ type UserProfileRecord = {
   industry_interests?: string[] | null;
   preferred_categories?: string[] | null;
   onboarding_skill_level?: string | null;
+  onboarding_confidence_level?: string | null;
+  onboarding_weekly_commitment?: string | null;
+  onboarding_digital_comfort?: string | null;
+  onboarding_completed_at?: string | null;
+  language_preference?: string | null;
   skills?: string[] | null;
   created_at: string;
 };
@@ -70,6 +86,18 @@ const buildUserFromSources = (
     email: profileData?.email || authUser.email || "",
     name: displayName,
     role: resolveUserRole(profileData?.role, authUser.user_metadata?.role),
+    traineeType:
+      (profileData?.trainee_type as User["traineeType"] | undefined) ||
+      (getMetadataString(authUser.user_metadata?.trainee_type) as User["traineeType"] | undefined),
+    verificationStatus:
+      (profileData?.verification_status as User["verificationStatus"] | undefined) ||
+      (getMetadataString(authUser.user_metadata?.verification_status) as User["verificationStatus"] | undefined),
+    employeeId: profileData?.employee_id || getMetadataString(authUser.user_metadata?.employee_id),
+    physicalId: profileData?.physical_id || getMetadataString(authUser.user_metadata?.physical_id),
+    verificationSubmittedAt: profileData?.verification_submitted_at || getMetadataString(authUser.user_metadata?.verification_submitted_at),
+    verifiedAt: profileData?.verified_at || getMetadataString(authUser.user_metadata?.verified_at),
+    verifiedBy: profileData?.verified_by || getMetadataString(authUser.user_metadata?.verified_by),
+    verificationNotes: profileData?.verification_notes || getMetadataString(authUser.user_metadata?.verification_notes),
     avatar: profileData?.avatar || undefined,
     phone: profileData?.phone || undefined,
     address: profileData?.address || undefined,
@@ -90,10 +118,20 @@ const buildUserFromSources = (
       (typeof authUser.user_metadata?.onboarding_skill_level === "string"
         ? (authUser.user_metadata.onboarding_skill_level as User["onboardingSkillLevel"])
         : undefined),
-    onboardingConfidenceLevel: getMetadataString(authUser.user_metadata?.onboarding_confidence_level) as User["onboardingConfidenceLevel"] | undefined,
-    onboardingWeeklyCommitment: getMetadataString(authUser.user_metadata?.onboarding_weekly_commitment) as User["onboardingWeeklyCommitment"] | undefined,
-    onboardingDigitalComfort: getMetadataString(authUser.user_metadata?.onboarding_digital_comfort) as User["onboardingDigitalComfort"] | undefined,
-    onboardingCompletedAt: getMetadataString(authUser.user_metadata?.onboarding_completed_at),
+    onboardingConfidenceLevel:
+      (profileData?.onboarding_confidence_level as User["onboardingConfidenceLevel"] | undefined) ||
+      (getMetadataString(authUser.user_metadata?.onboarding_confidence_level) as User["onboardingConfidenceLevel"] | undefined),
+    onboardingWeeklyCommitment:
+      (profileData?.onboarding_weekly_commitment as User["onboardingWeeklyCommitment"] | undefined) ||
+      (getMetadataString(authUser.user_metadata?.onboarding_weekly_commitment) as User["onboardingWeeklyCommitment"] | undefined),
+    onboardingDigitalComfort:
+      (profileData?.onboarding_digital_comfort as User["onboardingDigitalComfort"] | undefined) ||
+      (getMetadataString(authUser.user_metadata?.onboarding_digital_comfort) as User["onboardingDigitalComfort"] | undefined),
+    onboardingCompletedAt: profileData?.onboarding_completed_at || getMetadataString(authUser.user_metadata?.onboarding_completed_at),
+    languagePreference:
+      (profileData?.language_preference as User["languagePreference"] | undefined) ||
+      (getMetadataString(authUser.user_metadata?.language_preference) as User["languagePreference"] | undefined),
+    onboardingModalSeenAt: profileData?.onboarding_modal_seen_at || getMetadataString(authUser.user_metadata?.onboarding_modal_seen_at),
     skills: profileData?.skills || getMetadataStringArray(authUser.user_metadata?.skills),
     createdAt: profileData?.created_at || authUser.created_at || new Date().toISOString(),
   };
@@ -132,6 +170,24 @@ const ensureUserProfileRecord = async (
     "User";
 
   const payload = {
+    trainee_type:
+      normalizeUserRole(authUser.user_metadata?.role) === "trainee"
+        ? getMetadataString(authUser.user_metadata?.trainee_type) || "peso_client"
+        : null,
+    verification_status:
+      normalizeUserRole(authUser.user_metadata?.role) === "trainee"
+        ? getMetadataString(authUser.user_metadata?.verification_status) || "pending"
+        : getMetadataString(authUser.user_metadata?.verification_status) || "verified",
+    employee_id: getMetadataString(authUser.user_metadata?.employee_id) || null,
+    physical_id: getMetadataString(authUser.user_metadata?.physical_id) || null,
+    verification_submitted_at:
+      normalizeUserRole(authUser.user_metadata?.role) === "trainee"
+        ? getMetadataString(authUser.user_metadata?.verification_submitted_at) || authUser.created_at || new Date().toISOString()
+        : null,
+    verified_at: getMetadataString(authUser.user_metadata?.verified_at) || null,
+    verified_by: getMetadataString(authUser.user_metadata?.verified_by) || null,
+    verification_notes: getMetadataString(authUser.user_metadata?.verification_notes) || null,
+    onboarding_modal_seen_at: getMetadataString(authUser.user_metadata?.onboarding_modal_seen_at) || null,
     id: authUser.id,
     email,
     name,
@@ -151,6 +207,11 @@ const ensureUserProfileRecord = async (
     industry_interests: getMetadataStringArray(authUser.user_metadata?.industry_interests) || [],
     preferred_categories: getMetadataStringArray(authUser.user_metadata?.preferred_categories) || [],
     onboarding_skill_level: getMetadataString(authUser.user_metadata?.onboarding_skill_level) || null,
+    onboarding_confidence_level: getMetadataString(authUser.user_metadata?.onboarding_confidence_level) || null,
+    onboarding_weekly_commitment: getMetadataString(authUser.user_metadata?.onboarding_weekly_commitment) || null,
+    onboarding_digital_comfort: getMetadataString(authUser.user_metadata?.onboarding_digital_comfort) || null,
+    onboarding_completed_at: getMetadataString(authUser.user_metadata?.onboarding_completed_at) || null,
+    language_preference: getMetadataString(authUser.user_metadata?.language_preference) || "en",
     skills: getMetadataStringArray(authUser.user_metadata?.skills) || [],
     created_at: authUser.created_at || new Date().toISOString(),
     updated_at: new Date().toISOString(),
@@ -281,6 +342,36 @@ export const supabaseAuthService = {
     
     try {
       const canonicalRole = normalizeUserRole(role);
+      const traineeType = canonicalRole === "trainee" ? profile?.traineeType || "peso_client" : undefined;
+      const verificationStatus = canonicalRole === "trainee" ? profile?.verificationStatus || "pending" : "verified";
+      const verificationSubmittedAt =
+        canonicalRole === "trainee" ? profile?.verificationSubmittedAt || new Date().toISOString() : undefined;
+
+      if (canonicalRole === "trainee" && traineeType === "peso_employee") {
+        const allowedEmployeeDomains = await systemSettingsService.getEmployeeRegistrationAllowedDomains();
+
+        if (!isAllowedEmployeeRegistrationEmail(trimmedEmail, allowedEmployeeDomains)) {
+          return {
+            user: null,
+            error: new Error("PESO Employee registration requires an allowed PESO email domain."),
+          };
+        }
+
+        if (!profile?.employeeId?.trim()) {
+          return {
+            user: null,
+            error: new Error("Employee ID is required for PESO Employee registration."),
+          };
+        }
+
+        if (!profile?.physicalId?.trim()) {
+          return {
+            user: null,
+            error: new Error("An uploaded physical ID image is required for PESO Employee registration."),
+          };
+        }
+      }
+
       const adminCreateInProgress =
         typeof window !== "undefined" && window.sessionStorage.getItem("admin_creating_user") === "1";
 
@@ -300,6 +391,15 @@ export const supabaseAuthService = {
           data: {
             name,
             role: canonicalRole,
+            trainee_type: traineeType ?? null,
+            verification_status: verificationStatus,
+            employee_id: profile?.employeeId ?? null,
+            physical_id: profile?.physicalId ?? null,
+            verification_submitted_at: verificationSubmittedAt ?? null,
+            verified_at: canonicalRole === "trainee" ? profile?.verifiedAt ?? null : profile?.verifiedAt ?? new Date().toISOString(),
+            verified_by: profile?.verifiedBy ?? null,
+            verification_notes: profile?.verificationNotes ?? null,
+            onboarding_modal_seen_at: profile?.onboardingModalSeenAt ?? null,
             phone: profile?.phone ?? null,
             address: profile?.address ?? null,
             date_of_birth: profile?.dateOfBirth ?? null,
@@ -319,6 +419,7 @@ export const supabaseAuthService = {
             onboarding_weekly_commitment: profile?.onboardingWeeklyCommitment ?? null,
             onboarding_digital_comfort: profile?.onboardingDigitalComfort ?? null,
             onboarding_completed_at: profile?.onboardingCompletedAt ?? null,
+            language_preference: profile?.languagePreference ?? "en",
             skills: profile?.skills ?? [],
           },
           // For development: auto-confirm email if email confirmation is disabled
@@ -474,6 +575,15 @@ export const supabaseAuthService = {
             email: authData.user.email!,
             name,
             role: canonicalRole,
+            trainee_type: traineeType ?? null,
+            verification_status: verificationStatus,
+            employee_id: profile?.employeeId ?? null,
+            physical_id: profile?.physicalId ?? null,
+            verification_submitted_at: verificationSubmittedAt ?? null,
+            verified_at: canonicalRole === "trainee" ? profile?.verifiedAt ?? null : profile?.verifiedAt ?? new Date().toISOString(),
+            verified_by: profile?.verifiedBy ?? null,
+            verification_notes: profile?.verificationNotes ?? null,
+            onboarding_modal_seen_at: profile?.onboardingModalSeenAt ?? null,
             phone: profile?.phone,
             address: profile?.address,
             date_of_birth: profile?.dateOfBirth,
@@ -556,6 +666,15 @@ export const supabaseAuthService = {
       }
 
       const onboardingUpdateData: Record<string, unknown> = {};
+  if (profile?.traineeType !== undefined) onboardingUpdateData.trainee_type = profile.traineeType || null;
+  if (profile?.verificationStatus !== undefined) onboardingUpdateData.verification_status = profile.verificationStatus || null;
+  if (profile?.employeeId !== undefined) onboardingUpdateData.employee_id = profile.employeeId || null;
+  if (profile?.physicalId !== undefined) onboardingUpdateData.physical_id = profile.physicalId || null;
+  if (profile?.verificationSubmittedAt !== undefined) onboardingUpdateData.verification_submitted_at = profile.verificationSubmittedAt || null;
+  if (profile?.verifiedAt !== undefined) onboardingUpdateData.verified_at = profile.verifiedAt || null;
+  if (profile?.verifiedBy !== undefined) onboardingUpdateData.verified_by = profile.verifiedBy || null;
+  if (profile?.verificationNotes !== undefined) onboardingUpdateData.verification_notes = profile.verificationNotes || null;
+  if (profile?.onboardingModalSeenAt !== undefined) onboardingUpdateData.onboarding_modal_seen_at = profile.onboardingModalSeenAt || null;
       if (profile?.industryInterests !== undefined) onboardingUpdateData.industry_interests = profile.industryInterests;
       if (profile?.preferredCategories !== undefined) onboardingUpdateData.preferred_categories = profile.preferredCategories;
       if (profile?.onboardingSkillLevel !== undefined) onboardingUpdateData.onboarding_skill_level = profile.onboardingSkillLevel || null;
@@ -594,6 +713,15 @@ export const supabaseAuthService = {
           email: authData.user.email!,
           name: name,
           role: canonicalRole,
+          traineeType,
+          verificationStatus,
+          employeeId: profile?.employeeId,
+          physicalId: profile?.physicalId,
+          verificationSubmittedAt,
+          verifiedAt: canonicalRole === "trainee" ? profile?.verifiedAt : profile?.verifiedAt ?? new Date().toISOString(),
+          verifiedBy: profile?.verifiedBy,
+          verificationNotes: profile?.verificationNotes,
+          onboardingModalSeenAt: profile?.onboardingModalSeenAt,
           phone: profile?.phone,
           address: profile?.address,
           dateOfBirth: profile?.dateOfBirth,
@@ -624,6 +752,14 @@ export const supabaseAuthService = {
         email: profileData.email,
         name: profileData.name,
         role: normalizeUserRole(profileData.role),
+        traineeType: (profileData.trainee_type as User["traineeType"] | undefined) || undefined,
+        verificationStatus: (profileData.verification_status as User["verificationStatus"] | undefined) || undefined,
+        employeeId: profileData.employee_id || undefined,
+        physicalId: profileData.physical_id || undefined,
+        verificationSubmittedAt: profileData.verification_submitted_at || undefined,
+        verifiedAt: profileData.verified_at || undefined,
+        verifiedBy: profileData.verified_by || undefined,
+        verificationNotes: profileData.verification_notes || undefined,
         avatar: profileData.avatar || undefined,
         phone: profileData.phone || undefined,
         address: profileData.address || undefined,
@@ -644,6 +780,7 @@ export const supabaseAuthService = {
         onboardingWeeklyCommitment: getMetadataString(authData.user.user_metadata?.onboarding_weekly_commitment) as User["onboardingWeeklyCommitment"] | undefined,
         onboardingDigitalComfort: getMetadataString(authData.user.user_metadata?.onboarding_digital_comfort) as User["onboardingDigitalComfort"] | undefined,
         onboardingCompletedAt: getMetadataString(authData.user.user_metadata?.onboarding_completed_at),
+        onboardingModalSeenAt: profileData.onboarding_modal_seen_at || undefined,
         skills: profileData.skills || undefined,
         createdAt: profileData.created_at,
       };
@@ -884,6 +1021,14 @@ export const supabaseAuthService = {
       };
 
       if (updates.name !== undefined) updateData.name = updates.name;
+      if (updates.traineeType !== undefined) updateData.trainee_type = updates.traineeType || null;
+      if (updates.verificationStatus !== undefined) updateData.verification_status = updates.verificationStatus || null;
+      if (updates.employeeId !== undefined) updateData.employee_id = updates.employeeId || null;
+      if (updates.physicalId !== undefined) updateData.physical_id = updates.physicalId || null;
+      if (updates.verificationSubmittedAt !== undefined) updateData.verification_submitted_at = updates.verificationSubmittedAt || null;
+      if (updates.verifiedAt !== undefined) updateData.verified_at = updates.verifiedAt || null;
+      if (updates.verifiedBy !== undefined) updateData.verified_by = updates.verifiedBy || null;
+      if (updates.verificationNotes !== undefined) updateData.verification_notes = updates.verificationNotes || null;
       if (updates.phone !== undefined) updateData.phone = updates.phone;
       if (updates.address !== undefined) updateData.address = updates.address;
       if (updates.dateOfBirth !== undefined) updateData.date_of_birth = updates.dateOfBirth || null;
@@ -899,12 +1044,26 @@ export const supabaseAuthService = {
       if (updates.industryInterests !== undefined) updateData.industry_interests = updates.industryInterests;
       if (updates.preferredCategories !== undefined) updateData.preferred_categories = updates.preferredCategories;
       if (updates.onboardingSkillLevel !== undefined) updateData.onboarding_skill_level = updates.onboardingSkillLevel || null;
+      if (updates.onboardingConfidenceLevel !== undefined) updateData.onboarding_confidence_level = updates.onboardingConfidenceLevel || null;
+      if (updates.onboardingWeeklyCommitment !== undefined) updateData.onboarding_weekly_commitment = updates.onboardingWeeklyCommitment || null;
+      if (updates.onboardingDigitalComfort !== undefined) updateData.onboarding_digital_comfort = updates.onboardingDigitalComfort || null;
+      if (updates.onboardingCompletedAt !== undefined) updateData.onboarding_completed_at = updates.onboardingCompletedAt || null;
+      if (updates.languagePreference !== undefined) updateData.language_preference = updates.languagePreference || "en";
+      if (updates.onboardingModalSeenAt !== undefined) updateData.onboarding_modal_seen_at = updates.onboardingModalSeenAt || null;
       if (updates.avatar !== undefined) updateData.avatar = updates.avatar;
       if (updates.skills !== undefined) updateData.skills = updates.skills;
       if (updates.role !== undefined) updateData.role = updates.role;
 
       const metadataUpdates: Record<string, unknown> = {};
       if (updates.name !== undefined) metadataUpdates.name = updates.name;
+      if (updates.traineeType !== undefined) metadataUpdates.trainee_type = updates.traineeType || null;
+      if (updates.verificationStatus !== undefined) metadataUpdates.verification_status = updates.verificationStatus || null;
+      if (updates.employeeId !== undefined) metadataUpdates.employee_id = updates.employeeId || null;
+      if (updates.physicalId !== undefined) metadataUpdates.physical_id = updates.physicalId || null;
+      if (updates.verificationSubmittedAt !== undefined) metadataUpdates.verification_submitted_at = updates.verificationSubmittedAt || null;
+      if (updates.verifiedAt !== undefined) metadataUpdates.verified_at = updates.verifiedAt || null;
+      if (updates.verifiedBy !== undefined) metadataUpdates.verified_by = updates.verifiedBy || null;
+      if (updates.verificationNotes !== undefined) metadataUpdates.verification_notes = updates.verificationNotes || null;
       if (updates.phone !== undefined) metadataUpdates.phone = updates.phone || null;
       if (updates.address !== undefined) metadataUpdates.address = updates.address || null;
       if (updates.dateOfBirth !== undefined) metadataUpdates.date_of_birth = updates.dateOfBirth || null;
@@ -924,6 +1083,8 @@ export const supabaseAuthService = {
       if (updates.onboardingWeeklyCommitment !== undefined) metadataUpdates.onboarding_weekly_commitment = updates.onboardingWeeklyCommitment || null;
       if (updates.onboardingDigitalComfort !== undefined) metadataUpdates.onboarding_digital_comfort = updates.onboardingDigitalComfort || null;
       if (updates.onboardingCompletedAt !== undefined) metadataUpdates.onboarding_completed_at = updates.onboardingCompletedAt || null;
+      if (updates.languagePreference !== undefined) metadataUpdates.language_preference = updates.languagePreference || "en";
+      if (updates.onboardingModalSeenAt !== undefined) metadataUpdates.onboarding_modal_seen_at = updates.onboardingModalSeenAt || null;
       if (updates.skills !== undefined) metadataUpdates.skills = updates.skills || [];
 
       if (Object.keys(metadataUpdates).length > 0) {
@@ -966,6 +1127,14 @@ export const supabaseAuthService = {
         email: data.email,
         name: data.name,
         role: data.role as User["role"],
+        traineeType: (data.trainee_type as User["traineeType"] | undefined) || undefined,
+        verificationStatus: (data.verification_status as User["verificationStatus"] | undefined) || undefined,
+        employeeId: data.employee_id || undefined,
+        physicalId: data.physical_id || undefined,
+        verificationSubmittedAt: data.verification_submitted_at || undefined,
+        verifiedAt: data.verified_at || undefined,
+        verifiedBy: data.verified_by || undefined,
+        verificationNotes: data.verification_notes || undefined,
         avatar: data.avatar || undefined,
         phone: data.phone || undefined,
         address: data.address || undefined,
@@ -982,6 +1151,12 @@ export const supabaseAuthService = {
         industryInterests: data.industry_interests || undefined,
         preferredCategories: data.preferred_categories || undefined,
         onboardingSkillLevel: (data.onboarding_skill_level as User["onboardingSkillLevel"] | undefined) || undefined,
+        onboardingConfidenceLevel: (data.onboarding_confidence_level as User["onboardingConfidenceLevel"] | undefined) || undefined,
+        onboardingWeeklyCommitment: (data.onboarding_weekly_commitment as User["onboardingWeeklyCommitment"] | undefined) || undefined,
+        onboardingDigitalComfort: (data.onboarding_digital_comfort as User["onboardingDigitalComfort"] | undefined) || undefined,
+        onboardingCompletedAt: data.onboarding_completed_at || undefined,
+        languagePreference: (data.language_preference as User["languagePreference"] | undefined) || undefined,
+        onboardingModalSeenAt: data.onboarding_modal_seen_at || undefined,
         skills: data.skills || undefined,
         createdAt: data.created_at,
       };

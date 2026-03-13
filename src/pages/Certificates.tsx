@@ -113,7 +113,7 @@ const Certificates = () => {
         <div className="space-y-2">
           <h1 className="text-3xl font-bold">My Certificates</h1>
           <p className="text-muted-foreground">
-            View and download your earned certificates
+            View and download certificates that have already been manually released by your trainer or admin
           </p>
         </div>
 
@@ -242,7 +242,7 @@ const Certificates = () => {
                 You don't have any certificates yet
               </p>
               <p className="text-sm text-muted-foreground text-center">
-                Complete courses to earn certificates
+                Course completion now goes through trainer approval first, and certificates are released manually after approval
               </p>
             </CardContent>
           </Card>

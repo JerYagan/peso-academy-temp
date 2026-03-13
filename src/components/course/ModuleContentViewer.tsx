@@ -17,6 +17,7 @@ import { ContentBlock } from "./ContentBlock";
 import { assessmentService, type Assessment } from "@/services/assessmentService";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { parseModuleContentBlocks } from "@/lib/contentBlocks";
 
 interface ModuleContentViewerProps {
@@ -25,7 +26,7 @@ interface ModuleContentViewerProps {
   isCompleted: boolean;
   isPreviewMode?: boolean;
   entrySource?: string;
-  onComplete: (timeSpentMinutes?: number) => void | Promise<void>;
+  onComplete: (timeSpentMinutes?: number, options?: { silent?: boolean }) => void | Promise<void>;
 }
 
 const ModuleContentViewer = ({
@@ -44,13 +45,14 @@ const ModuleContentViewer = ({
   const [quizResults, setQuizResults] = useState<Record<string, boolean>>({});
   const [moduleAssessment, setModuleAssessment] = useState<Assessment | null>(null);
   const [assessmentLoaded, setAssessmentLoaded] = useState(isPreviewMode);
-  const [completingModule, setCompletingModule] = useState(false);
+  const [autoCompletingModule, setAutoCompletingModule] = useState(false);
   const sessionIdRef = useRef<string | null>(null);
   const sessionStartedAtRef = useRef<number | null>(null);
   const heartbeatIntervalRef = useRef<number | null>(null);
   const displayIntervalRef = useRef<number | null>(null);
   const endingSessionRef = useRef(false);
   const latestResumePositionRef = useRef<number | undefined>(undefined);
+  const autoCompletionRequestedRef = useRef(false);
 
   const loadTimeSpent = useCallback(async () => {
     if (!supabase || isPreviewMode) return;
@@ -286,6 +288,45 @@ const ModuleContentViewer = ({
     return firstDerivedBlock?.id || null;
   }, [contentBlocks]);
 
+  const requiresAssessmentReview = useMemo(
+    () => contentBlocks.some((block) => block.type === "quiz" && block.isGradable !== false),
+    [contentBlocks],
+  );
+
+  useEffect(() => {
+    autoCompletionRequestedRef.current = false;
+  }, [module.id]);
+
+  useEffect(() => {
+    if (isPreviewMode || isCompleted || autoCompletingModule || !assessmentLoaded || moduleAssessment) {
+      return;
+    }
+
+    if (autoCompletionRequestedRef.current) {
+      return;
+    }
+
+    if (currentTimeSpent < 60) {
+      return;
+    }
+
+    const totalMinutes = timeSpent !== null
+      ? timeSpent + Math.ceil(currentTimeSpent / 60)
+      : Math.ceil(currentTimeSpent / 60);
+
+    autoCompletionRequestedRef.current = true;
+    setAutoCompletingModule(true);
+
+    void onComplete(totalMinutes, { silent: true })
+      .catch((error) => {
+        console.error("Error auto-completing content-only module:", error);
+        autoCompletionRequestedRef.current = false;
+      })
+      .finally(() => {
+        setAutoCompletingModule(false);
+      });
+  }, [assessmentLoaded, autoCompletingModule, currentTimeSpent, isCompleted, isPreviewMode, moduleAssessment, onComplete, timeSpent]);
+
   // Get first heading (h1/h2/h3) text from HTML for use as section title
   const getFirstHeadingFromHtml = (html: string): string | null => {
     if (!html?.trim()) return null;
@@ -433,7 +474,8 @@ const ModuleContentViewer = ({
         const isDerivedAssessmentQuestion = !isPreviewMode && Boolean(moduleAssessment) && block.isGradable !== false;
         const userAnswer = quizAnswers[blockId];
         const hasAnswered = userAnswer !== undefined;
-        const isCorrect = hasAnswered && quizResults[blockId];
+        const isEssayQuestion = block.questionType === "essay";
+        const isCorrect = !isEssayQuestion && hasAnswered && quizResults[blockId];
         const correctAnswerIndex = block.correctAnswer?.toString();
 
         if (isDerivedAssessmentQuestion) {
@@ -488,7 +530,21 @@ const ModuleContentViewer = ({
               <div>
                 <Label className="text-base font-semibold">{block.content || "Question"}</Label>
               </div>
-              {block.options && block.options.length > 0 && (
+              {isEssayQuestion ? (
+                <div className="space-y-3">
+                  <Textarea
+                    value={userAnswer || ""}
+                    onChange={(event) => {
+                      setQuizAnswers((prev) => ({ ...prev, [blockId]: event.target.value }));
+                    }}
+                    placeholder="Write your response here"
+                    rows={6}
+                  />
+                  <p className="text-sm text-muted-foreground">
+                    Essay responses entered here are for content preview only. Graded essay submissions happen through the module assessment above.
+                  </p>
+                </div>
+              ) : block.options && block.options.length > 0 && (
                 <RadioGroup 
                   disabled={hasAnswered}
                   value={userAnswer || ""}
@@ -542,7 +598,7 @@ const ModuleContentViewer = ({
                   })}
                 </RadioGroup>
               )}
-              {hasAnswered && (
+              {hasAnswered && !isEssayQuestion && (
                 <div className={`mt-4 p-3 rounded-lg ${
                   isCorrect 
                     ? "bg-green-50 dark:bg-green-950 border border-green-200 dark:border-green-800" 
@@ -564,6 +620,11 @@ const ModuleContentViewer = ({
                       {block.explanation}
                     </p>
                   )}
+                </div>
+              )}
+              {hasAnswered && isEssayQuestion && block.explanation && (
+                <div className="mt-4 rounded-lg border border-border bg-muted/40 p-3 text-sm text-muted-foreground">
+                  {block.explanation}
                 </div>
               )}
             </CardContent>
@@ -751,40 +812,18 @@ const ModuleContentViewer = ({
         )}
       </Tabs>
 
-      {/* Complete Module Button */}
       {!isCompleted && (
         <Card>
           <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <p className="text-sm text-muted-foreground">
-                {isPreviewMode
-                  ? "Preview the learner completion flow without saving progress to the database"
-                  : "Mark this module as complete when you're done reviewing all content"}
-              </p>
-              <Button 
-                onClick={async () => {
-                  if (completingModule) {
-                    return;
-                  }
-
-                  setCompletingModule(true);
-                  const totalMinutes = timeSpent !== null 
-                    ? timeSpent + Math.ceil(currentTimeSpent / 60)
-                    : Math.ceil(currentTimeSpent / 60);
-                  try {
-                    await endActiveSession("completed");
-                    await onComplete(totalMinutes);
-                  } finally {
-                    setCompletingModule(false);
-                  }
-                }} 
-                className="gap-2"
-                disabled={completingModule}
-              >
-                <CheckCircle2 className="w-4 h-4" />
-                {completingModule ? "Completing..." : "Mark as Complete"}
-              </Button>
-            </div>
+            <p className="text-sm text-muted-foreground">
+              {isPreviewMode
+                ? "Preview mode keeps completion changes local to this tab."
+                : requiresAssessmentReview
+                ? "Module progress updates after you submit and pass the assessment. Essay-based assessments stay pending until a trainer reviews them."
+                : autoCompletingModule
+                ? "Recording module progress from your current learning session..."
+                : "Content-only modules record progress automatically after you spend time reviewing the material."}
+            </p>
           </CardContent>
         </Card>
       )}

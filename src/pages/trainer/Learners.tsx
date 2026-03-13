@@ -11,8 +11,10 @@ import {
 } from "@/components/ui/dialog";
 import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Textarea } from "@/components/ui/textarea";
 import { Users, BookOpen, Loader2, RefreshCw, Award, CheckCircle2, Clock3 } from "lucide-react";
-import { courseService, moduleService, userService } from "@/services/supabaseDatabaseService";
+import { assessmentService, type AssessmentReviewDecision, type AssessmentReviewDetail, type AssessmentReviewQueueItem } from "@/services/assessmentService";
+import { certificateService, courseService, enrollmentService, moduleService, userService } from "@/services/supabaseDatabaseService";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
 import { useState, useEffect, useMemo } from "react";
@@ -32,6 +34,7 @@ interface LearnerCourseProgress {
   course: Course | null;
   certificateReleased: boolean;
   certificateIssuedAt?: string;
+  pendingReviews: AssessmentReviewQueueItem[];
   modules: Array<{
     module: Module;
     completed: boolean;
@@ -116,20 +119,43 @@ const loadManagerEnrollments = async (courseIds: string[], learnerId?: string): 
     ? rpcData
     : (await supabase
         .from("enrollments")
-        .select("id, user_id, course_id, progress, status, enrolled_at, completed_at, certificate_id")
+        .select("id, user_id, course_id, progress, status, enrolled_at, completed_at, certificate_id, completion_approval_status, completion_requested_at, completion_reviewed_at, completion_reviewed_by, completion_feedback, updated_at")
         .in("course_id", courseIds)
         .order("enrolled_at", { ascending: false })).data || [];
 
-  return rows.map((enrollment: any) => ({
-    id: enrollment.id,
-    userId: enrollment.user_id,
-    courseId: enrollment.course_id,
-    progress: enrollment.progress,
-    status: enrollment.status,
-    enrolledAt: enrollment.enrolled_at,
-    completedAt: enrollment.completed_at || undefined,
-    certificateId: enrollment.certificate_id || undefined,
-  }));
+  const enrollmentIds = rows.map((enrollment: any) => enrollment.id).filter(Boolean);
+  const detailMap = new Map<string, any>();
+
+  if (enrollmentIds.length > 0) {
+    const { data: enrollmentDetails } = await supabase
+      .from("enrollments")
+      .select("id, completion_approval_status, completion_requested_at, completion_reviewed_at, completion_reviewed_by, completion_feedback, updated_at")
+      .in("id", enrollmentIds);
+
+    for (const enrollmentDetail of enrollmentDetails || []) {
+      detailMap.set(enrollmentDetail.id, enrollmentDetail);
+    }
+  }
+
+  return rows.map((enrollment: any) => {
+    const details = detailMap.get(enrollment.id) || {};
+    return {
+      id: enrollment.id,
+      userId: enrollment.user_id,
+      courseId: enrollment.course_id,
+      progress: enrollment.progress,
+      status: enrollment.status,
+      enrolledAt: enrollment.enrolled_at,
+      completedAt: enrollment.completed_at || undefined,
+      certificateId: enrollment.certificate_id || undefined,
+      completionApprovalStatus: details.completion_approval_status || enrollment.completion_approval_status || undefined,
+      completionRequestedAt: details.completion_requested_at || undefined,
+      completionReviewedAt: details.completion_reviewed_at || undefined,
+      completionReviewedBy: details.completion_reviewed_by || undefined,
+      completionFeedback: details.completion_feedback || undefined,
+      lastActivityAt: details.updated_at || enrollment.updated_at || enrollment.enrolled_at,
+    } satisfies Enrollment;
+  });
 };
 
 const loadManagerCertificates = async (courseIds: string[], learnerId: string) => {
@@ -169,6 +195,13 @@ const TrainerLearners = () => {
   const [learnerSessionInsights, setLearnerSessionInsights] = useState<Record<string, LearnerSessionInsight>>({});
   const [selectedLearnerSessionSummaries, setSelectedLearnerSessionSummaries] = useState<Record<string, TrainerLearnerSessionSummary>>({});
   const [selectedLearnerRecentSessions, setSelectedLearnerRecentSessions] = useState<RecentLearnerSessionCard[]>([]);
+  const [selectedReview, setSelectedReview] = useState<AssessmentReviewDetail | null>(null);
+  const [reviewDialogOpen, setReviewDialogOpen] = useState(false);
+  const [reviewDecision, setReviewDecision] = useState<AssessmentReviewDecision>("approved");
+  const [reviewFeedback, setReviewFeedback] = useState("");
+  const [reviewLoading, setReviewLoading] = useState(false);
+  const [reviewSubmitting, setReviewSubmitting] = useState(false);
+  const [courseActionEnrollmentId, setCourseActionEnrollmentId] = useState<string | null>(null);
   const focusedCourseId = searchParams.get("courseId");
   const attentionOnly = searchParams.get("attention") === "1";
   const focusedCourse = focusedCourseId ? visibleCourses.find((course) => course.id === focusedCourseId) || null : null;
@@ -299,12 +332,13 @@ const TrainerLearners = () => {
 
     try {
       const managerCourseIds = visibleCourses.map((course) => course.id);
-      const [learnerEnrollments, learnerCertificates, allCourses, trainerSessionSummaries, recentSessions] = await Promise.all([
+      const [learnerEnrollments, learnerCertificates, allCourses, trainerSessionSummaries, recentSessions, pendingReviewQueue] = await Promise.all([
         loadManagerEnrollments(managerCourseIds, learner.id),
         loadManagerCertificates(managerCourseIds, learner.id),
         courseService.getCourses(),
         moduleSessionService.getTrainerLearnerSessionSummaries({ learnerId: learner.id, limit: 50 }),
         moduleSessionService.getLearnerSessionsForTrainer(user?.id || "", learner.id, 8),
+        assessmentService.getManualReviewQueue({ learnerId: learner.id }),
       ]);
 
       const normalizedLearnerCertificates = learnerCertificates.map((certificate) => ({
@@ -356,6 +390,13 @@ const TrainerLearners = () => {
         }
       });
 
+      const pendingReviewsByEnrollment = pendingReviewQueue.reduce<Record<string, AssessmentReviewQueueItem[]>>((acc, reviewItem) => {
+        const current = acc[reviewItem.enrollmentId] || [];
+        current.push(reviewItem);
+        acc[reviewItem.enrollmentId] = current;
+        return acc;
+      }, {});
+
       const progressRows = learnerEnrollments
         .map((enrollment) => {
           const course = courseLookup.get(enrollment.courseId) || null;
@@ -376,6 +417,7 @@ const TrainerLearners = () => {
             course,
             certificateReleased: Boolean(enrollment.certificateId || certificate),
             certificateIssuedAt: certificate?.issuedAt,
+            pendingReviews: pendingReviewsByEnrollment[enrollment.id] || [],
             modules,
           } satisfies LearnerCourseProgress;
         })
@@ -416,6 +458,10 @@ const TrainerLearners = () => {
       setProgressLoading(false);
       setSelectedLearnerSessionSummaries({});
       setSelectedLearnerRecentSessions([]);
+      setSelectedReview(null);
+      setReviewFeedback("");
+      setReviewDialogOpen(false);
+      setCourseActionEnrollmentId(null);
     }
   };
 
@@ -430,6 +476,108 @@ const TrainerLearners = () => {
     if (minutes < 60) return `${minutes} min`;
     const hours = minutes / 60;
     return `${Number.isInteger(hours) ? hours : hours.toFixed(1)} hr`;
+  };
+
+  const refreshSelectedLearnerProgress = async () => {
+    if (selectedLearner) {
+      await handleViewProgress(selectedLearner);
+    }
+  };
+
+  const handleOpenReview = async (reviewItem: AssessmentReviewQueueItem) => {
+    setReviewLoading(true);
+    setReviewDialogOpen(true);
+    setReviewDecision(reviewItem.reviewStatus === "needs_revision" ? "needs_revision" : "approved");
+    setReviewFeedback(reviewItem.reviewFeedback || "");
+
+    try {
+      if (reviewItem.reviewStatus === "submitted") {
+        await assessmentService.beginManualReview(reviewItem.attemptId);
+      }
+
+      const detail = await assessmentService.getAssessmentAttemptReviewDetail(reviewItem.attemptId);
+      if (!detail) {
+        throw new Error("Review details are not available.");
+      }
+
+      setSelectedReview(detail);
+      setReviewFeedback(detail.reviewFeedback || "");
+      setReviewDecision(detail.reviewStatus === "needs_revision" ? "needs_revision" : "approved");
+    } catch (error) {
+      console.error("Error opening assessment review:", error);
+      toast.error("Failed to load assessment review");
+      setReviewDialogOpen(false);
+    } finally {
+      setReviewLoading(false);
+    }
+  };
+
+  const handleSubmitReview = async () => {
+    if (!selectedReview || !user) {
+      return;
+    }
+
+    if (!reviewFeedback.trim()) {
+      toast.error("Feedback is required before you finish this review.");
+      return;
+    }
+
+    setReviewSubmitting(true);
+
+    try {
+      await assessmentService.reviewManualAttempt(selectedReview.attemptId, {
+        reviewerId: user.id,
+        decision: reviewDecision,
+        feedback: reviewFeedback,
+      });
+      toast.success(reviewDecision === "approved" ? "Essay review approved" : "Essay review returned for follow-up");
+      setReviewDialogOpen(false);
+      setSelectedReview(null);
+      await refreshSelectedLearnerProgress();
+    } catch (error) {
+      console.error("Error submitting assessment review:", error);
+      toast.error("Failed to submit assessment review");
+    } finally {
+      setReviewSubmitting(false);
+    }
+  };
+
+  const handleCompletionReview = async (enrollmentId: string, decision: "approved" | "needs_revision") => {
+    if (!user) {
+      return;
+    }
+
+    setCourseActionEnrollmentId(enrollmentId);
+
+    try {
+      await enrollmentService.reviewCompletion(enrollmentId, user.id, decision);
+      toast.success(decision === "approved" ? "Course completion approved" : "Course returned for follow-up");
+      await refreshSelectedLearnerProgress();
+    } catch (error: any) {
+      console.error("Error reviewing course completion:", error);
+      toast.error(error?.message || "Failed to review course completion");
+    } finally {
+      setCourseActionEnrollmentId(null);
+    }
+  };
+
+  const handleIssueCertificate = async (enrollmentId: string) => {
+    if (!user) {
+      return;
+    }
+
+    setCourseActionEnrollmentId(enrollmentId);
+
+    try {
+      await certificateService.issueCertificateForEnrollment(enrollmentId, user.id);
+      toast.success("Certificate issued manually");
+      await refreshSelectedLearnerProgress();
+    } catch (error: any) {
+      console.error("Error issuing certificate:", error);
+      toast.error(error?.message || "Failed to issue certificate");
+    } finally {
+      setCourseActionEnrollmentId(null);
+    }
   };
 
   return (
@@ -686,6 +834,15 @@ const TrainerLearners = () => {
                             </div>
                             <div className="flex flex-wrap gap-2">
                               <Badge variant="outline">{item.enrollment.status}</Badge>
+                              <Badge variant={item.enrollment.completionApprovalStatus === "approved" ? "default" : item.enrollment.completionApprovalStatus === "pending" ? "secondary" : "outline"}>
+                                {item.enrollment.completionApprovalStatus === "approved"
+                                  ? "Completion Approved"
+                                  : item.enrollment.completionApprovalStatus === "pending"
+                                  ? "Awaiting Approval"
+                                  : item.enrollment.completionApprovalStatus === "needs_revision"
+                                  ? "Needs Follow-up"
+                                  : "Not Ready"}
+                              </Badge>
                               <Badge variant={item.certificateReleased ? "default" : "secondary"}>
                                 {item.certificateReleased ? "Certificate Released" : "Certificate Not Released"}
                               </Badge>
@@ -753,9 +910,85 @@ const TrainerLearners = () => {
                             </div>
                             <div className="rounded-lg border p-3">
                               <p className="text-muted-foreground">Completion Status</p>
-                              <p className="mt-1 font-medium">{item.enrollment.status}</p>
+                              <p className="mt-1 font-medium">
+                                {item.enrollment.completionApprovalStatus === "approved"
+                                  ? "Approved"
+                                  : item.enrollment.completionApprovalStatus === "pending"
+                                  ? "Pending trainer approval"
+                                  : item.enrollment.completionApprovalStatus === "needs_revision"
+                                  ? "Needs follow-up"
+                                  : item.enrollment.status}
+                              </p>
                             </div>
                           </div>
+
+                          {item.enrollment.completionFeedback ? (
+                            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                              <p className="font-medium">Latest trainer feedback</p>
+                              <p className="mt-1 whitespace-pre-wrap">{item.enrollment.completionFeedback}</p>
+                            </div>
+                          ) : null}
+
+                          {item.pendingReviews.length > 0 ? (
+                            <div className="space-y-3">
+                              <div className="flex items-center gap-2">
+                                <Award className="h-4 w-4 text-muted-foreground" />
+                                <p className="font-medium">Essay Reviews</p>
+                              </div>
+                              <div className="space-y-2">
+                                {item.pendingReviews.map((reviewItem) => (
+                                  <div key={reviewItem.attemptId} className="flex flex-col gap-3 rounded-lg border p-3 md:flex-row md:items-center md:justify-between">
+                                    <div>
+                                      <p className="font-medium">{reviewItem.assessmentTitle}</p>
+                                      <p className="text-sm text-muted-foreground">{reviewItem.moduleTitle}</p>
+                                      <p className="text-xs text-muted-foreground">
+                                        {reviewItem.submittedAt
+                                          ? `Submitted ${new Date(reviewItem.submittedAt).toLocaleString()}`
+                                          : "Awaiting submission timestamp"}
+                                      </p>
+                                    </div>
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      <Badge variant="outline">{reviewItem.reviewStatus.replace(/_/g, " ")}</Badge>
+                                      <Button variant="outline" onClick={() => void handleOpenReview(reviewItem)}>
+                                        Review Essay
+                                      </Button>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ) : null}
+
+                          {item.enrollment.progress >= 100 ? (
+                            <div className="flex flex-wrap gap-2">
+                              {item.enrollment.completionApprovalStatus !== "approved" ? (
+                                <>
+                                  <Button
+                                    onClick={() => void handleCompletionReview(item.enrollment.id, "approved")}
+                                    disabled={courseActionEnrollmentId === item.enrollment.id || item.pendingReviews.length > 0}
+                                  >
+                                    Approve Completion
+                                  </Button>
+                                  <Button
+                                    variant="outline"
+                                    onClick={() => void handleCompletionReview(item.enrollment.id, "needs_revision")}
+                                    disabled={courseActionEnrollmentId === item.enrollment.id}
+                                  >
+                                    Mark For Follow-up
+                                  </Button>
+                                </>
+                              ) : null}
+                              {item.enrollment.completionApprovalStatus === "approved" && !item.certificateReleased ? (
+                                <Button
+                                  variant="secondary"
+                                  onClick={() => void handleIssueCertificate(item.enrollment.id)}
+                                  disabled={courseActionEnrollmentId === item.enrollment.id}
+                                >
+                                  Release Certificate
+                                </Button>
+                              ) : null}
+                            </div>
+                          ) : null}
 
                           <div className="space-y-3">
                             <div className="flex items-center gap-2">
@@ -806,6 +1039,94 @@ const TrainerLearners = () => {
                   </div>
                 </div>
               </ScrollArea>
+            )}
+          </DialogContent>
+        </Dialog>
+
+        <Dialog
+          open={reviewDialogOpen}
+          onOpenChange={(open) => {
+            setReviewDialogOpen(open);
+            if (!open) {
+              setSelectedReview(null);
+              setReviewFeedback("");
+            }
+          }}
+        >
+          <DialogContent className="max-h-[90vh] max-w-3xl overflow-hidden">
+            <DialogHeader>
+              <DialogTitle>{selectedReview ? `Review: ${selectedReview.assessmentTitle}` : "Review assessment"}</DialogTitle>
+              <DialogDescription>
+                Evaluate the learner's essay response, provide feedback, and decide whether the assessment is approved or needs follow-up.
+              </DialogDescription>
+            </DialogHeader>
+
+            {reviewLoading || !selectedReview ? (
+              <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Loading assessment review...
+              </div>
+            ) : (
+              <div className="space-y-4 overflow-y-auto pr-1">
+                <div className="rounded-lg border p-3 text-sm">
+                  <p className="font-medium">{selectedReview.learnerName}</p>
+                  <p className="text-muted-foreground">{selectedReview.courseTitle} • {selectedReview.moduleTitle}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    {selectedReview.submittedAt ? `Submitted ${new Date(selectedReview.submittedAt).toLocaleString()}` : "Submission time unavailable"}
+                  </p>
+                </div>
+
+                <div className="space-y-3">
+                  {selectedReview.questions.map((question, index) => (
+                    <div key={question.questionId} className="rounded-lg border p-4">
+                      <p className="text-sm font-medium text-muted-foreground">Question {index + 1}</p>
+                      <p className="mt-1 font-medium">{question.question}</p>
+                      <div className="mt-3 rounded-lg bg-muted/50 p-3 text-sm whitespace-pre-wrap">
+                        {question.answer || "No answer submitted"}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="space-y-2">
+                  <p className="text-sm font-medium">Decision</p>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      variant={reviewDecision === "approved" ? "default" : "outline"}
+                      onClick={() => setReviewDecision("approved")}
+                    >
+                      Approve Essay
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={reviewDecision === "needs_revision" ? "default" : "outline"}
+                      onClick={() => setReviewDecision("needs_revision")}
+                    >
+                      Needs Follow-up
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <p className="text-sm font-medium">Feedback</p>
+                  <Textarea
+                    value={reviewFeedback}
+                    onChange={(event) => setReviewFeedback(event.target.value)}
+                    placeholder="Add feedback that the learner will see after this review."
+                    rows={6}
+                  />
+                </div>
+
+                <div className="flex flex-wrap justify-end gap-2 border-t pt-4">
+                  <Button variant="outline" onClick={() => setReviewDialogOpen(false)} disabled={reviewSubmitting}>
+                    Cancel
+                  </Button>
+                  <Button onClick={() => void handleSubmitReview()} disabled={reviewSubmitting}>
+                    {reviewSubmitting ? "Saving review..." : "Submit Review"}
+                  </Button>
+                </div>
+              </div>
             )}
           </DialogContent>
         </Dialog>

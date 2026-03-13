@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import Footer from "@/components/Footer";
 import Header from "@/components/Header";
+import { useLocale } from "@/contexts/LocaleContext";
 
 type AuthPageShellProps = {
   title: string;
@@ -17,6 +18,8 @@ const AuthPageShell = ({
   switchPrompt,
   maxWidthClass = "max-w-xl",
 }: AuthPageShellProps) => {
+  const { t } = useLocale();
+
   return (
     <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(15,118,110,0.12),_transparent_35%),linear-gradient(180deg,_hsl(var(--background))_0%,_hsl(var(--muted)/0.45)_100%)]">
       <Header />
@@ -33,7 +36,7 @@ const AuthPageShell = ({
                 className="mx-auto h-20 w-auto object-contain sm:h-24"
               />
               <p className="mt-4 text-xs font-semibold uppercase tracking-[0.35em] text-primary/80">
-                Peso Academy
+                {t("authShell.brand")}
               </p>
               <h1 className="mt-4 text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">
                 {title}

@@ -1,12 +1,21 @@
 import { useAuth } from "@/contexts/AuthContext";
 import DashboardLayout from "@/components/DashboardLayout";
+import TraineeOnboardingModal from "@/components/trainee/TraineeOnboardingModal";
+import TraineeVerificationBadge from "@/components/trainee/TraineeVerificationBadge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { BookOpen, Users, Award, TrendingUp, ArrowRight, Shield, FileText, FileSpreadsheet, Loader2, CheckCircle2, ArrowUpRight, ArrowDownRight, Brain, Clock3, Target, BarChart3, Sparkles, Eye, AlertCircle, ImageIcon } from "lucide-react";
-import { Link, Navigate, useLocation } from "react-router-dom";
-import { enrollmentService, certificateService, courseService, getEnrollmentErrorFeedback } from "@/services/supabaseDatabaseService";
+import { Link, Navigate } from "react-router-dom";
+import {
+  enrollmentService,
+  certificateService,
+  courseService,
+  getEnrollmentErrorFeedback,
+  getTraineeEnrollmentVerificationFeedback,
+  isTraineeEnrollmentBlocked,
+} from "@/services/supabaseDatabaseService";
 import { dataService } from "@/services/mockData"; // TODO: Replace with Supabase services for admin/training officer dashboards
 import { useEffect, useMemo, useState } from "react";
 import { Course, Enrollment } from "@/types";
@@ -18,6 +27,8 @@ import { buildAssessmentOnlyCourseRecommendations, buildLearnerCourseRecommendat
 import { analyticsService, type PersistedLearnerRecommendation } from "@/services/analyticsService";
 import { moduleSessionService, type EnrichedModuleSession, type ModuleSessionAggregate } from "@/services/moduleSessionService";
 import { getDashboardRoute } from "@/lib/roles";
+import { getOfficialHoursCreditLabel } from "@/lib/courseDuration";
+import { TRAINEE_ONBOARDING_MODAL_PENDING_KEY, type TraineeOnboardingSummary } from "@/lib/onboarding";
 
 interface TraineeDashboardProps {
   user: User;
@@ -26,19 +37,10 @@ interface TraineeDashboardProps {
     completedCourses: number;
     certificates: number;
   };
-  onboardingSummary?: {
-    generatedRecommendationCount: number;
-    onboardingSkillLevel: User["onboardingSkillLevel"] | null;
-    onboardingConfidenceLevel: User["onboardingConfidenceLevel"] | null;
-    onboardingWeeklyCommitment: User["onboardingWeeklyCommitment"] | null;
-    onboardingDigitalComfort: User["onboardingDigitalComfort"] | null;
-    industryInterestCount: number;
-    preferredCategoryCount: number;
-    hasExistingSkills: boolean;
-  } | null;
 }
 
-const TraineeDashboard = ({ user, stats, onboardingSummary }: TraineeDashboardProps) => {
+const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
+  const { updateUser } = useAuth();
   const [allCourses, setAllCourses] = useState<Course[]>([]);
   const [completedCourses, setCompletedCourses] = useState<Array<Course & { enrollment: Enrollment }>>([]);
   const [myCourses, setMyCourses] = useState<Array<Course & { enrollment: Enrollment }>>([]);
@@ -58,6 +60,10 @@ const TraineeDashboard = ({ user, stats, onboardingSummary }: TraineeDashboardPr
     courseTitle: string;
     feedback: ReturnType<typeof getEnrollmentErrorFeedback>;
   } | null>(null);
+  const [showOnboardingModal, setShowOnboardingModal] = useState(false);
+  const [savingOnboardingModal, setSavingOnboardingModal] = useState(false);
+  const [latestOnboardingSummary, setLatestOnboardingSummary] = useState<TraineeOnboardingSummary | null>(null);
+  const hasCompletedOnboarding = Boolean(user.onboardingCompletedAt);
 
   useEffect(() => {
     void loadDashboardData();
@@ -71,6 +77,56 @@ const TraineeDashboard = ({ user, stats, onboardingSummary }: TraineeDashboardPr
     window.addEventListener("focus", onFocus);
     return () => window.removeEventListener("focus", onFocus);
   }, [user]);
+
+  useEffect(() => {
+    if (user.role !== "trainee" || hasCompletedOnboarding) {
+      setShowOnboardingModal(false);
+      return;
+    }
+
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const hasPendingModalFlag = window.sessionStorage.getItem(TRAINEE_ONBOARDING_MODAL_PENDING_KEY) === "1";
+    if (!user.onboardingModalSeenAt || hasPendingModalFlag) {
+      setShowOnboardingModal(true);
+    }
+  }, [hasCompletedOnboarding, user.onboardingModalSeenAt, user.role]);
+
+  const handleDismissOnboardingModal = async () => {
+    if (savingOnboardingModal) {
+      return;
+    }
+
+    setShowOnboardingModal(false);
+
+    if (user.onboardingModalSeenAt) {
+      if (typeof window !== "undefined") {
+        window.sessionStorage.removeItem(TRAINEE_ONBOARDING_MODAL_PENDING_KEY);
+      }
+      return;
+    }
+
+    try {
+      setSavingOnboardingModal(true);
+      await updateUser({ onboardingModalSeenAt: new Date().toISOString() });
+      if (typeof window !== "undefined") {
+        window.sessionStorage.removeItem(TRAINEE_ONBOARDING_MODAL_PENDING_KEY);
+      }
+    } catch (error) {
+      console.error("Failed to persist trainee onboarding modal state:", error);
+      toast.error("We could not save your onboarding modal state. It may appear again until that save succeeds.");
+    } finally {
+      setSavingOnboardingModal(false);
+    }
+  };
+
+  const handleOnboardingCompleted = async (summary: TraineeOnboardingSummary) => {
+    setLatestOnboardingSummary(summary);
+    setShowOnboardingModal(false);
+    await loadDashboardData();
+  };
 
   const loadDashboardData = async () => {
     if (!user) return;
@@ -258,7 +314,7 @@ const TraineeDashboard = ({ user, stats, onboardingSummary }: TraineeDashboardPr
   );
 
   useEffect(() => {
-    if (user.role !== "trainee" || recommendedCourses.length === 0) {
+    if (user.role !== "trainee" || !hasCompletedOnboarding || recommendedCourses.length === 0) {
       setPersistedRecommendations([]);
       return;
     }
@@ -311,10 +367,10 @@ const TraineeDashboard = ({ user, stats, onboardingSummary }: TraineeDashboardPr
     return () => {
       cancelled = true;
     };
-  }, [collaborativeSignals, completedCourses.length, performanceSummary, recommendedCourses, sessionAggregates, user.id, user.role]);
+  }, [collaborativeSignals, completedCourses.length, hasCompletedOnboarding, performanceSummary, recommendedCourses, sessionAggregates, user.id, user.role]);
 
   useEffect(() => {
-    if (user.role !== "trainee" || assessmentOnlyRecommendedCourses.length === 0 || !assessmentOnlyEvidence) {
+    if (user.role !== "trainee" || !hasCompletedOnboarding || assessmentOnlyRecommendedCourses.length === 0 || !assessmentOnlyEvidence) {
       setPersistedAssessmentOnlyRecommendations([]);
       return;
     }
@@ -361,10 +417,10 @@ const TraineeDashboard = ({ user, stats, onboardingSummary }: TraineeDashboardPr
     return () => {
       cancelled = true;
     };
-  }, [assessmentOnlyEvidence, assessmentOnlyRecommendedCourses, user.id, user.role]);
+  }, [assessmentOnlyEvidence, assessmentOnlyRecommendedCourses, hasCompletedOnboarding, user.id, user.role]);
 
   useEffect(() => {
-    if (user.role !== "trainee" || recommendedCourses.length === 0 || assessmentOnlyRecommendedCourses.length === 0) {
+    if (user.role !== "trainee" || !hasCompletedOnboarding || recommendedCourses.length === 0 || assessmentOnlyRecommendedCourses.length === 0) {
       return;
     }
 
@@ -379,14 +435,12 @@ const TraineeDashboard = ({ user, stats, onboardingSummary }: TraineeDashboardPr
         assessmentOnlyModelVersion: assessmentOnlyRecommendedCourses[0]?.modelVersion || null,
       },
     });
-  }, [assessmentOnlyRecommendedCourses, recommendedCourses, user.id, user.role]);
+  }, [assessmentOnlyRecommendedCourses, hasCompletedOnboarding, recommendedCourses, user.id, user.role]);
 
-  const hasRecommendationContext = Boolean(
-    recommendedCourses.length > 0,
-  );
+  const hasRecommendationContext = Boolean(hasCompletedOnboarding && recommendedCourses.length > 0);
 
   const hasAssessmentOnlyRecommendationContext = Boolean(
-    assessmentOnlyRecommendedCourses.length > 0 && assessmentOnlyEvidence,
+    hasCompletedOnboarding && assessmentOnlyRecommendedCourses.length > 0 && assessmentOnlyEvidence,
   );
 
   const hasLearningHistory = Boolean(
@@ -543,8 +597,20 @@ const TraineeDashboard = ({ user, stats, onboardingSummary }: TraineeDashboardPr
       Boolean(user.skills && user.skills.length > 0),
     ].filter(Boolean).length / 4) * 100,
   );
+  const verificationBlocked = isTraineeEnrollmentBlocked(user);
+  const verificationFeedback = verificationBlocked
+    ? getTraineeEnrollmentVerificationFeedback(user.verificationStatus)
+    : null;
   const primaryCourse = myCourses[0] || null;
-  const primaryAction = lastAccessedModule
+  const primaryAction = verificationBlocked
+    ? {
+        title: user.verificationStatus === "rejected" ? "Verification was rejected" : "Verification is in progress",
+        description: verificationFeedback?.description || "Your trainee account must be verified before course enrollment opens.",
+        href: "/courses",
+        label: "Browse courses",
+        state: undefined,
+      }
+    : lastAccessedModule
     ? {
         title: "Resume your latest module",
         description: `${lastAccessedModule.moduleTitle || "Latest module"} in ${lastAccessedModule.courseTitle || "your course"} was last opened ${formatActivityTime(lastAccessedModule.lastSeenAt)}.`,
@@ -575,15 +641,31 @@ const TraineeDashboard = ({ user, stats, onboardingSummary }: TraineeDashboardPr
         };
 
   const nextStepCards = [
-    {
-      title: profileSignalCoverage < 100 ? "Complete your learner profile" : "Profile is recommendation-ready",
-      description:
-        profileSignalCoverage < 100
-          ? "Add interests, preferred categories, stage, and skills so recommendations stay aligned with your goals."
-          : "Your profile has the core signals needed for stronger recommendation and predictive insights.",
-      href: "/profile",
-      label: profileSignalCoverage < 100 ? "Update profile" : "Review profile",
-    },
+    !hasCompletedOnboarding
+      ? {
+          title: "Complete your onboarding profile",
+          description:
+            "Finish the dashboard onboarding flow to unlock recommendation cards, starter course pathways, and stronger cold-start guidance.",
+          href: "#",
+          label: "Open onboarding",
+          onClick: () => setShowOnboardingModal(true),
+        }
+      : verificationBlocked
+      ? {
+          title: user.verificationStatus === "rejected" ? "Review rejected verification details" : "Prepare while approval is pending",
+          description: verificationFeedback?.description || "Keep your profile accurate while the training team reviews your account.",
+          href: "/profile",
+          label: user.verificationStatus === "rejected" ? "Update profile" : "Open profile",
+        }
+      : {
+          title: profileSignalCoverage < 100 ? "Complete your learner profile" : "Profile is recommendation-ready",
+          description:
+            profileSignalCoverage < 100
+              ? "Add interests, preferred categories, stage, and skills so recommendations stay aligned with your goals."
+              : "Your profile has the core signals needed for stronger recommendation and predictive insights.",
+          href: "/profile",
+          label: profileSignalCoverage < 100 ? "Update profile" : "Review profile",
+        },
     {
       title: stats.enrolledCourses > 0 ? "Review progress details" : "See how progress will appear",
       description:
@@ -632,6 +714,25 @@ const TraineeDashboard = ({ user, stats, onboardingSummary }: TraineeDashboardPr
             ))}
           </div>
         </section>
+      );
+    }
+
+    if (!hasCompletedOnboarding) {
+      return (
+        <Card>
+          <CardContent className="py-8 text-center space-y-3">
+            <Sparkles className="h-10 w-10 text-primary/70 mx-auto" />
+            <div>
+              <p className="font-medium">Complete onboarding to unlock recommendations.</p>
+              <p className="text-sm text-muted-foreground">
+                Your dashboard recommendations now wait for your post-login onboarding answers so cold-start suggestions use current interests, category choices, readiness, and skill signals.
+              </p>
+            </div>
+            <div className="flex justify-center">
+              <Button onClick={() => setShowOnboardingModal(true)}>Complete onboarding</Button>
+            </div>
+          </CardContent>
+        </Card>
       );
     }
 
@@ -744,7 +845,7 @@ const TraineeDashboard = ({ user, stats, onboardingSummary }: TraineeDashboardPr
                 <div className="space-y-2 text-sm text-muted-foreground">
                   <div className="flex items-center gap-2">
                     <Clock3 className="h-4 w-4" />
-                    <span>{course.duration} learning hours</span>
+                    <span>{getOfficialHoursCreditLabel(course.duration)}</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <Users className="h-4 w-4" />
@@ -772,9 +873,11 @@ const TraineeDashboard = ({ user, stats, onboardingSummary }: TraineeDashboardPr
                   <Button
                     className="flex-1"
                     onClick={() => void handleRecommendationEnroll(course, persisted)}
-                    disabled={enrollingRecommendationCourseId === course.id}
+                    disabled={verificationBlocked || enrollingRecommendationCourseId === course.id}
                   >
-                    {enrollingRecommendationCourseId === course.id ? (
+                    {verificationBlocked ? (
+                      user.verificationStatus === "rejected" ? "Verification rejected" : "Awaiting verification"
+                    ) : enrollingRecommendationCourseId === course.id ? (
                       <>
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                         Enrolling...
@@ -808,6 +911,10 @@ const TraineeDashboard = ({ user, stats, onboardingSummary }: TraineeDashboardPr
 
   const renderAssessmentOnlyRecommendations = () => {
     if (loadingCourses || loadingPerformance) {
+      return null;
+    }
+
+    if (!hasCompletedOnboarding) {
       return null;
     }
 
@@ -903,7 +1010,7 @@ const TraineeDashboard = ({ user, stats, onboardingSummary }: TraineeDashboardPr
                 <div className="space-y-2 text-sm text-muted-foreground">
                   <div className="flex items-center gap-2">
                     <Clock3 className="h-4 w-4" />
-                    <span>{course.duration} learning hours</span>
+                    <span>{getOfficialHoursCreditLabel(course.duration)}</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <BookOpen className="h-4 w-4" />
@@ -927,9 +1034,11 @@ const TraineeDashboard = ({ user, stats, onboardingSummary }: TraineeDashboardPr
                   <Button
                     className="flex-1"
                     onClick={() => void handleRecommendationEnroll(course, persisted)}
-                    disabled={enrollingRecommendationCourseId === course.id}
+                    disabled={verificationBlocked || enrollingRecommendationCourseId === course.id}
                   >
-                    {enrollingRecommendationCourseId === course.id ? (
+                    {verificationBlocked ? (
+                      user.verificationStatus === "rejected" ? "Verification rejected" : "Awaiting verification"
+                    ) : enrollingRecommendationCourseId === course.id ? (
                       <>
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                         Enrolling...
@@ -1275,33 +1384,40 @@ const TraineeDashboard = ({ user, stats, onboardingSummary }: TraineeDashboardPr
   return (
     <DashboardLayout>
       <div className="space-y-8">
-        {onboardingSummary ? (
+        <TraineeOnboardingModal
+          open={showOnboardingModal}
+          user={user}
+          onDismiss={() => {
+            void handleDismissOnboardingModal();
+          }}
+          onCompleted={(summary) => {
+            void handleOnboardingCompleted(summary);
+          }}
+        />
+
+        {!hasCompletedOnboarding ? (
+          <Card className="border-primary/20 bg-primary/5">
+            <CardContent className="flex flex-col gap-4 p-5 md:flex-row md:items-center md:justify-between">
+              <div>
+                <p className="text-sm font-medium text-primary">Post-login onboarding required for recommendations</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Registration is intentionally shorter now. Finish your dashboard onboarding to unlock recommendation cards, starter guidance, and profile-driven analytics context.
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button onClick={() => setShowOnboardingModal(true)}>Complete onboarding</Button>
+                <Button asChild variant="outline">
+                  <Link to="/courses">Browse courses</Link>
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        ) : latestOnboardingSummary ? (
           <Alert>
             <Sparkles className="h-4 w-4" />
-            <AlertTitle>Your first recommendations are ready</AlertTitle>
+            <AlertTitle>Onboarding completed</AlertTitle>
             <AlertDescription>
-              <div className="space-y-3">
-                <p>
-                  We generated {onboardingSummary.generatedRecommendationCount} starter recommendation{onboardingSummary.generatedRecommendationCount === 1 ? "" : "s"} using your onboarding profile
-                  {onboardingSummary.onboardingConfidenceLevel || onboardingSummary.onboardingWeeklyCommitment || onboardingSummary.onboardingDigitalComfort
-                    ? ", initial readiness answers,"
-                    : " and"} and your selected starting level.
-                </p>
-                <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-                  {onboardingSummary.industryInterestCount > 0 ? <Badge variant="outline">{onboardingSummary.industryInterestCount} interests</Badge> : null}
-                  {onboardingSummary.preferredCategoryCount > 0 ? <Badge variant="outline">{onboardingSummary.preferredCategoryCount} preferred categories</Badge> : null}
-                  {onboardingSummary.onboardingSkillLevel ? <Badge variant="outline">{onboardingSummary.onboardingSkillLevel} starting level</Badge> : null}
-                  {onboardingSummary.hasExistingSkills ? <Badge variant="outline">Existing skills included</Badge> : null}
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <Button asChild size="sm">
-                    <Link to="/courses">Review starter courses</Link>
-                  </Button>
-                  <Button asChild size="sm" variant="outline">
-                    <Link to="/profile">Review onboarding profile</Link>
-                  </Button>
-                </div>
-              </div>
+              Your dashboard now has {latestOnboardingSummary.generatedRecommendationCount} starter recommendation{latestOnboardingSummary.generatedRecommendationCount === 1 ? "" : "s"} based on your onboarding profile.
             </AlertDescription>
           </Alert>
         ) : null}
@@ -1311,9 +1427,12 @@ const TraineeDashboard = ({ user, stats, onboardingSummary }: TraineeDashboardPr
             <CardContent className="p-6 sm:p-7">
               <div className="flex flex-col gap-6">
                 <div className="space-y-3">
-                  <Badge className="w-fit rounded-full bg-primary/10 px-3 py-1 text-primary hover:bg-primary/10">
-                    Trainee workspace
-                  </Badge>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge className="w-fit rounded-full bg-primary/10 px-3 py-1 text-primary hover:bg-primary/10">
+                      Trainee workspace
+                    </Badge>
+                    <TraineeVerificationBadge status={user.verificationStatus} />
+                  </div>
                   <div>
                     <h1 className="text-3xl font-bold tracking-tight">Welcome back, {user.name}!</h1>
                     <p className="mt-2 max-w-2xl text-sm leading-7 text-muted-foreground sm:text-base">
@@ -1340,6 +1459,14 @@ const TraineeDashboard = ({ user, stats, onboardingSummary }: TraineeDashboardPr
                   </div>
                 </div>
 
+                {verificationFeedback ? (
+                  <Alert>
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertTitle>{verificationFeedback.title}</AlertTitle>
+                    <AlertDescription>{verificationFeedback.description}</AlertDescription>
+                  </Alert>
+                ) : null}
+
                 <div className="rounded-3xl border border-primary/15 bg-background/80 p-5">
                   <p className="text-xs font-medium uppercase tracking-[0.18em] text-primary">Primary next step</p>
                   <h2 className="mt-3 text-2xl font-semibold tracking-[-0.03em]">{primaryAction.title}</h2>
@@ -1351,7 +1478,9 @@ const TraineeDashboard = ({ user, stats, onboardingSummary }: TraineeDashboardPr
                       </Link>
                     </Button>
                     <Button asChild variant="outline">
-                      <Link to="/progress">View progress</Link>
+                      <Link to={verificationBlocked ? "/profile" : "/progress"}>
+                        {verificationBlocked ? (user.verificationStatus === "rejected" ? "Update profile" : "Open profile") : "View progress"}
+                      </Link>
                     </Button>
                   </div>
                 </div>
@@ -1369,9 +1498,15 @@ const TraineeDashboard = ({ user, stats, onboardingSummary }: TraineeDashboardPr
                 <div key={item.title} className="rounded-2xl border border-border/70 p-4">
                   <p className="font-medium">{item.title}</p>
                   <p className="mt-2 text-sm leading-6 text-muted-foreground">{item.description}</p>
-                  <Button asChild variant="outline" size="sm" className="mt-4">
-                    <Link to={item.href}>{item.label}</Link>
-                  </Button>
+                  {item.href === "#" ? (
+                    <Button variant="outline" size="sm" className="mt-4" onClick={item.onClick}>
+                      {item.label}
+                    </Button>
+                  ) : (
+                    <Button asChild variant="outline" size="sm" className="mt-4">
+                      <Link to={item.href}>{item.label}</Link>
+                    </Button>
+                  )}
                 </div>
               ))}
             </CardContent>
@@ -1532,6 +1667,7 @@ const TraineeDashboard = ({ user, stats, onboardingSummary }: TraineeDashboardPr
               {myCourses.length > 0 ? (
                 myCourses.map((course) => {
                   const isCompleted = course.enrollment.status === "completed";
+                  const isAwaitingApproval = course.enrollment.progress >= 100 && course.enrollment.completionApprovalStatus !== "approved";
                   return (
                     <Card key={course.id} className={isCompleted ? "border-green-200 dark:border-green-900/30" : ""}>
                       <CardHeader>
@@ -1562,6 +1698,11 @@ const TraineeDashboard = ({ user, stats, onboardingSummary }: TraineeDashboardPr
                               style={{ width: `${course.enrollment.progress}%` }}
                             />
                           </div>
+                          {isAwaitingApproval ? (
+                            <p className="text-xs text-muted-foreground">
+                              Waiting for trainer approval before the course is marked complete.
+                            </p>
+                          ) : null}
                           {isCompleted ? (
                             <Button asChild className="w-full mt-4" variant="secondary">
                               <Link to="/certificates">View Certificate</Link>
@@ -1586,7 +1727,7 @@ const TraineeDashboard = ({ user, stats, onboardingSummary }: TraineeDashboardPr
                       <>
                         <p className="text-muted-foreground mb-2">You have no active in-progress courses right now.</p>
                         <p className="text-sm text-muted-foreground mb-4 max-w-xl">
-                          Review your certificates or enroll in another course if you want a new next step on the dashboard.
+                          Review released certificates or enroll in another course if you want a new next step on the dashboard.
                         </p>
                         <div className="flex flex-wrap items-center justify-center gap-2">
                           <Button asChild variant="outline">
@@ -1643,7 +1784,7 @@ const TraineeDashboard = ({ user, stats, onboardingSummary }: TraineeDashboardPr
                     <Button asChild variant="default" className="w-full gap-2">
                       <Link to="/certificates">
                         <Award className="h-4 w-4" />
-                        View Certificate
+                        View Released Certificate
                       </Link>
                     </Button>
                   </CardContent>
@@ -1845,7 +1986,6 @@ const TrainingOfficerDashboard = ({ user }: TrainingOfficerDashboardProps) => {
 
 const Dashboard = () => {
   const { user } = useAuth();
-  const location = useLocation();
   const [stats, setStats] = useState({
     enrolledCourses: 0,
     completedCourses: 0,
@@ -1881,14 +2021,9 @@ const Dashboard = () => {
     return <Navigate to={canonicalDashboardRoute} replace />;
   }
 
-  const onboardingSummary = (() => {
-    const candidate = (location.state as { onboardingSummary?: TraineeDashboardProps["onboardingSummary"] } | null)?.onboardingSummary;
-    return candidate || null;
-  })();
-
   // Trainee Dashboard (replaces old "jobseeker" role)
   if (user.role === "trainee") {
-    return <TraineeDashboard user={user} stats={stats} onboardingSummary={onboardingSummary} />;
+    return <TraineeDashboard user={user} stats={stats} />;
   }
 
   // Admin Dashboard
