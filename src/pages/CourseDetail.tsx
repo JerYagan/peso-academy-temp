@@ -325,7 +325,7 @@ const CourseDetail = () => {
         setSelectedModule(previewTargetModule);
         setCompletedModuleIds([]);
 
-        if (!courseData.courseDocument && previewTargetModule) {
+        if (previewTargetModule) {
           void loadModuleContent(previewTargetModule.id).then((hydratedModule) => {
             if (hydratedModule) {
               setSelectedModule(hydratedModule);
@@ -358,7 +358,7 @@ const CourseDetail = () => {
       setCompletedModuleIds(completed);
       setSelectedModule(preferredModule);
 
-      if (!courseData.courseDocument && preferredModule) {
+      if (preferredModule) {
         void loadModuleContent(preferredModule.id).then((hydratedModule) => {
           if (hydratedModule) {
             setSelectedModule(hydratedModule);
@@ -384,7 +384,7 @@ const CourseDetail = () => {
       return;
     }
 
-    if (course?.courseDocument || selectedModule?.id === module.id) {
+    if (selectedModule?.id === module.id) {
       setSelectedModule(module);
       return;
     }
@@ -847,23 +847,7 @@ const CourseDetail = () => {
 
           {/* Module Content Area */}
           <div className="lg:col-span-3">
-            {course.courseDocument ? (
-              // Show course document if available
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <FileText className="w-5 h-5" />
-                    Course Document
-                  </CardTitle>
-                  <CardDescription>
-                    {course.title} - Course Material
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <DocumentViewer url={course.courseDocument} title={course.title} />
-                </CardContent>
-              </Card>
-            ) : loadingSelectedModuleId && selectedModule?.id === loadingSelectedModuleId ? (
+            {loadingSelectedModuleId && selectedModule?.id === loadingSelectedModuleId ? (
               <Card>
                 <CardContent className="flex min-h-[400px] items-center justify-center">
                   <div className="text-center">
@@ -873,26 +857,61 @@ const CourseDetail = () => {
                 </CardContent>
               </Card>
             ) : selectedModule ? (
-              // Show module content if no course document
-              <ModuleContentViewer
-                module={selectedModule}
-                enrollment={enrollment}
-                isCompleted={isModuleCompleted(selectedModule.id)}
-                isPreviewMode={isPreviewMode}
-                entrySource={moduleEntrySource}
-                onComplete={(timeSpentMinutes, options) => handleModuleComplete(selectedModule.id, timeSpentMinutes, options)}
-              />
+              <div className="space-y-6">
+                <ModuleContentViewer
+                  module={selectedModule}
+                  enrollment={enrollment}
+                  isCompleted={isModuleCompleted(selectedModule.id)}
+                  isPreviewMode={isPreviewMode}
+                  entrySource={moduleEntrySource}
+                  onComplete={(timeSpentMinutes, options) => handleModuleComplete(selectedModule.id, timeSpentMinutes, options)}
+                />
+
+                {course.courseDocument ? (
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <FileText className="w-5 h-5" />
+                        Course Document
+                      </CardTitle>
+                      <CardDescription>
+                        {course.title} - Course Material
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent>
+                      <DocumentViewer url={course.courseDocument} title={course.title} />
+                    </CardContent>
+                  </Card>
+                ) : null}
+              </div>
             ) : (
-              <Card>
-                <CardContent className="flex flex-col items-center justify-center py-12">
-                  <BookOpen className="w-16 h-16 text-muted-foreground mb-4" />
-                  <p className="text-muted-foreground">
-                    {modules.length > 0 
-                      ? copy.selectModule
-                      : copy.noContent}
-                  </p>
-                </CardContent>
-              </Card>
+              course.courseDocument ? (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <FileText className="w-5 h-5" />
+                      Course Document
+                    </CardTitle>
+                    <CardDescription>
+                      {course.title} - Course Material
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <DocumentViewer url={course.courseDocument} title={course.title} />
+                  </CardContent>
+                </Card>
+              ) : (
+                <Card>
+                  <CardContent className="flex flex-col items-center justify-center py-12">
+                    <BookOpen className="w-16 h-16 text-muted-foreground mb-4" />
+                    <p className="text-muted-foreground">
+                      {modules.length > 0 
+                        ? copy.selectModule
+                        : copy.noContent}
+                    </p>
+                  </CardContent>
+                </Card>
+              )
             )}
           </div>
         </div>
