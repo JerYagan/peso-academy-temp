@@ -21,6 +21,7 @@ import {
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { useLocale } from "@/contexts/LocaleContext";
+import { useThemePreference } from "@/contexts/ThemePreferenceContext";
 
 const featureCardDecor = [
   {
@@ -111,6 +112,8 @@ const audienceDecor = [
 
 const Index = () => {
   const { t, getMessage } = useLocale();
+  const { resolvedTheme } = useThemePreference();
+  const heroLogoSrc = resolvedTheme === "dark" ? "/images/logo_dark.png" : "/images/logo.png";
   const featureCards = getMessage<Array<{ title: string; description: string }>>("home.featureCards").map((item, index) => ({
     ...item,
     ...featureCardDecor[index],
@@ -138,7 +141,7 @@ const Index = () => {
                 <h1 className="max-w-2xl text-[2.45rem] font-extrabold leading-[0.95] tracking-[-0.05em] text-foreground sm:text-6xl lg:text-[4.75rem] lg:leading-[0.95]">
                   {t("home.heroTitlePrefix")} <span className="text-primary">{t("home.heroTitleHighlight")}</span>
                 </h1>
-                <p className="max-w-xl text-[15px] leading-7 text-muted-foreground dark:text-slate-300 sm:text-xl sm:leading-9">
+                <p className="max-w-xl text-[15px] leading-7 text-muted-foreground dark:text-slate-200 sm:text-xl sm:leading-9">
                   {t("home.heroSubtitle")}
                 </p>
               </div>
@@ -159,7 +162,7 @@ const Index = () => {
               <div className="absolute inset-x-2 top-6 h-40 rounded-full bg-primary/10 blur-3xl dark:bg-primary/20 sm:inset-x-0 sm:top-10 sm:h-80" />
               <div className="relative flex w-full max-w-[240px] items-center justify-center px-2 py-6 sm:max-w-[360px] sm:p-8 lg:max-w-[560px] lg:p-10">
                 <img
-                  src="/images/logo_hero.png"
+                  src={heroLogoSrc}
                   alt="PESO Academy"
                   className="h-auto w-full max-w-[220px] object-contain sm:max-w-[320px] lg:max-w-[420px]"
                 />
@@ -174,7 +177,7 @@ const Index = () => {
               <h2 className="text-[2rem] font-extrabold tracking-[-0.03em] text-foreground sm:text-5xl">
                 {t("home.featuresTitle")}
               </h2>
-              <p className="mt-3 text-sm leading-7 text-muted-foreground sm:mt-4 sm:text-lg sm:leading-8">
+              <p className="mt-3 text-sm leading-7 text-muted-foreground dark:text-slate-300 sm:mt-4 sm:text-lg sm:leading-8">
                 {t("home.featuresSubtitle")}
               </p>
             </div>
@@ -192,7 +195,7 @@ const Index = () => {
                     <Icon className="h-4 w-4 sm:h-5 sm:w-5" />
                   </div>
                   <h3 className="text-lg font-bold text-foreground sm:text-xl">{title}</h3>
-                  <p className="mt-2 text-sm leading-6 text-muted-foreground sm:mt-3 sm:text-base sm:leading-7">{description}</p>
+                  <p className="mt-2 text-sm leading-6 text-muted-foreground dark:text-slate-300 sm:mt-3 sm:text-base sm:leading-7">{description}</p>
                 </article>
               ))}
             </div>
@@ -206,7 +209,7 @@ const Index = () => {
               <h2 className="mt-2 text-[2rem] font-extrabold tracking-[-0.03em] text-foreground sm:mt-3 sm:text-5xl">
                 {t("home.howItWorksTitle")}
               </h2>
-              <p className="mt-3 text-sm leading-7 text-muted-foreground sm:mt-4 sm:text-lg sm:leading-8">
+              <p className="mt-3 text-sm leading-7 text-muted-foreground dark:text-slate-300 sm:mt-4 sm:text-lg sm:leading-8">
                 {t("home.howItWorksSubtitle")}
               </p>
             </div>
@@ -226,7 +229,7 @@ const Index = () => {
                     </div>
                   </div>
                   <h3 className="mt-6 text-xl font-bold leading-tight text-foreground sm:mt-8 sm:text-2xl">{title}</h3>
-                  <p className="mt-3 text-sm leading-6 text-muted-foreground sm:mt-4 sm:text-base sm:leading-7">{description}</p>
+                  <p className="mt-3 text-sm leading-6 text-muted-foreground dark:text-slate-300 sm:mt-4 sm:text-base sm:leading-7">{description}</p>
                 </article>
               ))}
             </div>
@@ -240,7 +243,7 @@ const Index = () => {
               <h2 className="mt-2 text-[2rem] font-extrabold tracking-[-0.03em] text-foreground sm:mt-3 sm:text-5xl">
                 {t("home.audiencesTitle")}
               </h2>
-              <p className="mt-3 text-sm leading-7 text-muted-foreground sm:mt-4 sm:text-lg sm:leading-8">
+              <p className="mt-3 text-sm leading-7 text-muted-foreground dark:text-slate-300 sm:mt-4 sm:text-lg sm:leading-8">
                 {t("home.audiencesSubtitle")}
               </p>
             </div>
@@ -257,7 +260,7 @@ const Index = () => {
                     </div>
                     <div>
                       <h3 className="text-base font-bold leading-snug text-foreground sm:text-lg">{title}</h3>
-                      <p className="mt-1.5 text-xs leading-6 text-muted-foreground sm:mt-2 sm:text-sm sm:leading-7">{description}</p>
+                      <p className="mt-1.5 text-xs leading-6 text-muted-foreground dark:text-slate-300 sm:mt-2 sm:text-sm sm:leading-7">{description}</p>
                     </div>
                   </div>
                 </article>

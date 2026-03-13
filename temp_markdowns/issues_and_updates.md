@@ -67,8 +67,8 @@ User credentials:
 ---
 
 ## UI Changes
-- [x] Landing, Login, Register page: use the header logo should use logo_dark.png when in dark mode, and use logo.png when in light mode
-
+- [ ] Landing, Login, Register page: hero logo of PESO Academy should use logo_dark.png when in dark mode, and logo.png in light mode
+- [ ] Landing, Login, Register page: there are some texts with low contrast when in dark mode, please adjust the contrast to make it more readable
 ### Admin & Trainee
 - [ ] In the review modal, only the essay should be graded. Other quiz types (multiple choice, true or false) should be automatically graded and the results should be shown in the progress page. This will help to streamline the grading process for the trainers and also provide immediate feedback to the trainees for the automatically graded quiz types.
 

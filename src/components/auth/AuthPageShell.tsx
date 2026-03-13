@@ -38,22 +38,22 @@ const AuthPageShell = ({
                 alt="PESO Academy"
                 className="mx-auto h-20 w-auto object-contain sm:h-24"
               />
-              <p className="mt-4 text-xs font-semibold uppercase tracking-[0.35em] text-primary/80">
+              <p className="mt-4 text-xs font-semibold uppercase tracking-[0.35em] text-primary/90 dark:text-primary-foreground/85">
                 {t("authShell.brand")}
               </p>
               <h1 className="mt-4 text-3xl font-semibold tracking-tight text-foreground sm:text-4xl">
                 {title}
               </h1>
-              <p className="mx-auto mt-3 max-w-2xl text-sm leading-6 text-muted-foreground sm:text-base">
+              <p className="mx-auto mt-3 max-w-2xl text-sm leading-6 text-muted-foreground dark:text-slate-300 sm:text-base">
                 {subtitle}
               </p>
             </div>
 
             <div className={`mx-auto mt-8 w-full ${maxWidthClass}`}>
-              <div className="rounded-[28px] border border-border/70 bg-background/95 p-6 shadow-[0_28px_90px_-40px_rgba(15,23,42,0.45)] backdrop-blur sm:p-8 lg:p-10">
+              <div className="rounded-[28px] border border-border/70 bg-background/95 p-6 shadow-[0_28px_90px_-40px_rgba(15,23,42,0.45)] backdrop-blur dark:bg-card/95 sm:p-8 lg:p-10">
                 {children}
               </div>
-              <div className="mt-5 text-center text-sm text-muted-foreground">{switchPrompt}</div>
+              <div className="mt-5 text-center text-sm text-muted-foreground dark:text-slate-300">{switchPrompt}</div>
             </div>
           </div>
         </section>

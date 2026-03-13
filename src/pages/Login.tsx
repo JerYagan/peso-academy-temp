@@ -105,7 +105,7 @@ const Login = () => {
       <form onSubmit={handleSubmit} className="space-y-6">
         <div className="space-y-1 text-center">
           <h2 className="text-2xl font-semibold tracking-tight text-foreground">{t("login.heading")}</h2>
-          <p className="text-sm text-muted-foreground">{t("login.headingSubtitle")}</p>
+          <p className="text-sm text-muted-foreground dark:text-slate-300">{t("login.headingSubtitle")}</p>
         </div>
 
             {error && (
@@ -143,7 +143,7 @@ const Login = () => {
             <button
               type="button"
               onClick={() => setShowPassword(!showPassword)}
-              className="absolute right-3 top-1/2 -translate-y-1/2 rounded text-muted-foreground hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+              className="absolute right-3 top-1/2 -translate-y-1/2 rounded text-muted-foreground hover:text-foreground dark:text-slate-300 dark:hover:text-slate-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
               tabIndex={-1}
               aria-label={showPassword ? t("login.hidePassword") : t("login.showPassword")}
             >
@@ -153,7 +153,7 @@ const Login = () => {
         </div>
 
         <div className="flex items-center justify-between gap-4 text-sm">
-          <label htmlFor="remember-me" className="flex items-center gap-2 text-muted-foreground">
+          <label htmlFor="remember-me" className="flex items-center gap-2 text-muted-foreground dark:text-slate-300">
             <Checkbox
               id="remember-me"
               checked={rememberMe}

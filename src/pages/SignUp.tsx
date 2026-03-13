@@ -263,7 +263,7 @@ const SignUp = () => {
             <h2 className="text-2xl font-semibold tracking-tight text-foreground">{t("signup.sectionTitle")}</h2>
             <Badge variant="outline">{t("common.required")}</Badge>
           </div>
-          <p className="text-sm leading-6 text-muted-foreground">
+          <p className="text-sm leading-6 text-muted-foreground dark:text-slate-300">
             {t("signup.sectionSubtitle")}
           </p>
 
@@ -298,7 +298,7 @@ const SignUp = () => {
                     <RadioGroupItem value="peso_client" id="trainee-type-peso-client" className="mt-1" />
                     <span>
                       <span className="block font-medium text-foreground">{t("signup.pesoClient")}</span>
-                      <span className="mt-1 block text-muted-foreground">
+                      <span className="mt-1 block text-muted-foreground dark:text-slate-300">
                         {t("signup.pesoClientDescription")}
                       </span>
                     </span>
@@ -307,7 +307,7 @@ const SignUp = () => {
                     <RadioGroupItem value="peso_employee" id="trainee-type-peso-employee" className="mt-1" />
                     <span>
                       <span className="block font-medium text-foreground">{t("signup.pesoEmployee")}</span>
-                      <span className="mt-1 block text-muted-foreground">
+                      <span className="mt-1 block text-muted-foreground dark:text-slate-300">
                         {t("signup.pesoEmployeeDescription")}
                       </span>
                     </span>
@@ -318,7 +318,7 @@ const SignUp = () => {
               <div className="space-y-2">
                 <Label htmlFor="name">{t("signup.fullName")}</Label>
                 <div className="relative">
-                  <UserRound className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <UserRound className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground dark:text-slate-300" />
                   <Input
                     id="name"
                     type="text"
@@ -334,7 +334,7 @@ const SignUp = () => {
               <div className="space-y-2">
                 <Label htmlFor="email">{t("signup.email")}</Label>
                 <div className="relative">
-                  <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground dark:text-slate-300" />
                   <Input
                     id="email"
                     type="email"
@@ -346,7 +346,7 @@ const SignUp = () => {
                   />
                 </div>
                 {isEmployeeTrainee(formData) ? (
-                  <p className="text-xs text-muted-foreground">{t("signup.employeeDomainHint", { domains: allowedDomainLabel })}</p>
+                  <p className="text-xs text-muted-foreground dark:text-slate-300">{t("signup.employeeDomainHint", { domains: allowedDomainLabel })}</p>
                 ) : null}
               </div>
 
@@ -366,7 +366,7 @@ const SignUp = () => {
                   <button
                     type="button"
                     onClick={() => setShowPassword((current) => !current)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 rounded text-muted-foreground hover:text-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 rounded text-muted-foreground hover:text-foreground dark:text-slate-300 dark:hover:text-slate-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2"
                     tabIndex={-1}
                     aria-label={showPassword ? t("signup.hidePassword") : t("signup.showPassword")}
                   >
@@ -413,7 +413,7 @@ const SignUp = () => {
                               className="h-40 w-full rounded-xl border border-amber-200/80 object-cover md:w-64 dark:border-amber-800/50"
                             />
                           ) : null}
-                          <div className="space-y-2 text-sm text-muted-foreground">
+                          <div className="space-y-2 text-sm text-muted-foreground dark:text-slate-300">
                             <p className="font-medium text-foreground">{physicalIdFile.name}</p>
                             <p className="text-amber-900/75 dark:text-amber-100/80">{(physicalIdFile.size / (1024 * 1024)).toFixed(2)} MB</p>
                             <p className="text-amber-900/75 dark:text-amber-100/80">{t("signup.physicalIdStoredForVerification")}</p>
