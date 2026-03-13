@@ -38,11 +38,36 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
 import { supabaseAuthService } from "@/services/supabaseAuthService";
 import { roleService, DatabaseRole } from "@/services/roleService";
+import {
+  PROFILE_FIELD_LIMITS,
+  normalizePhoneNumber,
+  sanitizeAddressInput,
+  sanitizeDigitsOnlyInput,
+  sanitizeNameInput,
+  validateHumanName,
+  validateMaxLength,
+  validatePhoneNumber,
+} from "@/lib/profileFieldValidation";
 
 const SYSTEM_USER_ROLES: UserRole[] = ["trainee", "trainer", "admin"];
 const ROLE_CHANGE_ELIGIBLE_ROLES: UserRole[] = ["trainer", "admin"];
+const ADMIN_USER_MUTATION_SESSION_KEY = "admin_user_mutation_in_progress";
 
 const normalizeAdminRole = (role: string): UserRole => normalizeUserRole(role);
+
+const markAdminUserMutationInProgress = () => {
+  if (typeof window !== "undefined") {
+    window.sessionStorage.setItem(ADMIN_USER_MUTATION_SESSION_KEY, "1");
+  }
+};
+
+const clearAdminUserMutationInProgress = () => {
+  if (typeof window !== "undefined") {
+    window.setTimeout(() => {
+      window.sessionStorage.removeItem(ADMIN_USER_MUTATION_SESSION_KEY);
+    }, 1500);
+  }
+};
 
 const AdminUsers = () => {
   const { user: currentUser, loading: authLoading } = useAuth();
@@ -250,12 +275,13 @@ const AdminUsers = () => {
     if (!editingUser) return;
 
     try {
+      markAdminUserMutationInProgress();
       // Cast to UserRole for type safety (database will validate)
       await userService.updateUser(editingUser.id, { role: selectedRole as UserRole });
       toast.success(`Role updated to ${getRoleDisplayName(selectedRole)}`);
       setIsRoleDialogOpen(false);
       setEditingUser(null);
-      loadUsers();
+      await loadUsers();
       
       // If editing current user's role, reload the page to update auth context
       if (editingUser.id === currentUser?.id) {
@@ -266,6 +292,8 @@ const AdminUsers = () => {
     } catch (error) {
       console.error("Error updating role:", error);
       toast.error("Failed to update role");
+    } finally {
+      clearAdminUserMutationInProgress();
     }
   };
 
@@ -273,14 +301,17 @@ const AdminUsers = () => {
     if (!editingUser) return;
 
     try {
+      markAdminUserMutationInProgress();
       await userService.updateUser(editingUser.id, updates);
       toast.success("User updated successfully");
       setIsEditDialogOpen(false);
       setEditingUser(null);
-      loadUsers();
+      await loadUsers();
     } catch (error) {
       console.error("Error updating user:", error);
       toast.error("Failed to update user");
+    } finally {
+      clearAdminUserMutationInProgress();
     }
   };
 
@@ -341,6 +372,7 @@ const AdminUsers = () => {
 
     try {
       setDeleting(true);
+      markAdminUserMutationInProgress();
       const result = await userService.deleteUser(deletingUser.id);
 
       if (result.error) {
@@ -353,12 +385,14 @@ const AdminUsers = () => {
       toast.success(`User "${deletingUser.name}" deleted successfully`);
       setIsDeleteDialogOpen(false);
       setDeletingUser(null);
-      loadUsers(); // Refresh the user list
+      await loadUsers(); // Refresh the user list
       setDeleting(false);
     } catch (error) {
       console.error("Error deleting user:", error);
       toast.error("Failed to delete user");
       setDeleting(false);
+    } finally {
+      clearAdminUserMutationInProgress();
     }
   };
 
@@ -980,10 +1014,30 @@ const EditUserForm = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
+
+    const normalizedPhone = normalizePhoneNumber(phone);
+    const nameValidationError = validateHumanName(name);
+    if (nameValidationError) {
+      toast.error(nameValidationError);
+      return;
+    }
+
+    const addressLengthError = validateMaxLength("Address", address, PROFILE_FIELD_LIMITS.address);
+    if (addressLengthError) {
+      toast.error(addressLengthError);
+      return;
+    }
+
+    const phoneValidationError = validatePhoneNumber(phone);
+    if (phoneValidationError) {
+      toast.error(phoneValidationError);
+      return;
+    }
+
     onSave({
-      name,
-      phone: phone || undefined,
-      address: address || undefined,
+      name: name.trim(),
+      phone: normalizedPhone || undefined,
+      address: address.trim() || undefined,
     });
   };
 
@@ -1000,7 +1054,7 @@ const EditUserForm = ({
           <Input
             id="name"
             value={name}
-            onChange={(e) => setName(e.target.value)}
+            onChange={(e) => setName(sanitizeNameInput(e.target.value))}
             required
           />
         </div>
@@ -1009,8 +1063,8 @@ const EditUserForm = ({
           <Input
             id="phone"
             value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-            placeholder="+63 912 345 6789"
+            onChange={(e) => setPhone(sanitizeDigitsOnlyInput(e.target.value))}
+            placeholder="09XXXXXXXXX"
           />
         </div>
         <div className="space-y-2">
@@ -1018,7 +1072,7 @@ const EditUserForm = ({
           <Input
             id="address"
             value={address}
-            onChange={(e) => setAddress(e.target.value)}
+            onChange={(e) => setAddress(sanitizeAddressInput(e.target.value))}
             placeholder="City, Province, Philippines"
           />
         </div>

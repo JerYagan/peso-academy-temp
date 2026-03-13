@@ -5,6 +5,8 @@ import { auditService } from "@/services/auditService";
 import { getUserRole, getUserPermissions, RolePermissions } from "@/lib/roles";
 import { User as SupabaseUser } from "@supabase/supabase-js";
 
+const ADMIN_USER_MUTATION_SESSION_KEY = "admin_user_mutation_in_progress";
+
 interface AuthContextType extends AuthState {
   login: (email: string, password: string) => Promise<{ success: boolean; error?: string; user?: User | null }>;
   loginWithGoogle: (redirectTo?: string) => Promise<{ success: boolean; error?: string }>;
@@ -46,12 +48,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const currentUser = authStateRef.current.user;
       const adminCreateInProgress =
         typeof window !== "undefined" && sessionStorage.getItem("admin_creating_user") === "1";
+      const adminUserMutationInProgress =
+        typeof window !== "undefined" && sessionStorage.getItem(ADMIN_USER_MUTATION_SESSION_KEY) === "1";
 
-      if (adminCreateInProgress && currentUser?.role === "admin") {
+      if ((adminCreateInProgress || adminUserMutationInProgress) && currentUser?.role === "admin") {
         const switchedAwayFromAdmin = !supabaseUser || supabaseUser.id !== currentUser.id;
 
         if (switchedAwayFromAdmin) {
-          console.info("Ignoring transient auth change during admin user creation", {
+          console.info("Ignoring transient auth change during admin user management", {
             event,
             nextUserId: supabaseUser?.id ?? null,
             currentAdminId: currentUser.id,

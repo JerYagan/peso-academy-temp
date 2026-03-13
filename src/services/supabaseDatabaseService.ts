@@ -1,4 +1,5 @@
 import { supabase, handleSupabaseError } from "@/lib/supabase";
+import { normalizePhoneNumber, normalizePostalCode, validatePhoneNumber, validatePostalCode } from "@/lib/profileFieldValidation";
 import { resolveCourseMaterialUrl, resolveCourseMaterialUrls } from "@/lib/courseAssets";
 import { buildCanonicalCourseTaxonomy, canonicalizeCourseCategory, deriveSkillTags, deriveTopicTags } from "@/lib/taxonomy";
 import { analyticsService } from "@/services/analyticsService";
@@ -56,7 +57,7 @@ type CacheEntry<T> = {
 };
 
 const REQUEST_CACHE_TTL_MS = 60_000;
-const COURSE_SELECT_FIELDS = "id, title, description, program_id, category, level, duration, instructor, instructor_id, thumbnail, course_document, is_tesda_accredited, skills, skill_tags, topic_tags, industry_tags, career_paths, enrolled_count, rating, created_at, published";
+const COURSE_SELECT_FIELDS = "*";
 const MODULE_SUMMARY_SELECT_FIELDS = "id, course_id, title, description, order, materials, prerequisites, skill_tags, topic_tags, module_thumbnail, module_document, created_at, updated_at, status";
 const MODULE_FULL_SELECT_FIELDS = `${MODULE_SUMMARY_SELECT_FIELDS}, content`;
 
@@ -1887,6 +1888,24 @@ export const enrollmentService = {
       return [];
     }
 
+    if (userId) {
+      const { data, error } = await supabase
+        .from("enrollments")
+        .select("*")
+        .eq("user_id", userId)
+        .order("enrolled_at", { ascending: false });
+
+      if (!error) {
+        return (data?.map((enrollment: any) => mapEnrollmentRecord(enrollment)) || []);
+      }
+
+      console.warn("Direct enrollment lookup failed, falling back to auth-aware lookup:", {
+        userId,
+        message: error.message,
+        code: error.code,
+      });
+    }
+
     // Get current authenticated user
     const { data: { user: authUser }, error: authError } = await supabase.auth.getUser();
     
@@ -2042,6 +2061,13 @@ export const enrollmentService = {
       throw createEnrollmentError(getTraineeEnrollmentVerificationFeedback(verificationStatus, courseRow.title));
     }
 
+    const resolvedRecommendationId = await analyticsService.resolveRecommendationId(
+      learnerUserId,
+      courseId,
+      options?.sourceSurface,
+      options?.originatingRecommendationId,
+    );
+
     const { data, error } = await supabase
       .from("enrollments")
       .insert({
@@ -2051,7 +2077,7 @@ export const enrollmentService = {
         status: "enrolled",
         enrolled_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
-        originating_recommendation_id: options?.originatingRecommendationId || null,
+        originating_recommendation_id: resolvedRecommendationId || null,
       })
       .select()
       .single();
@@ -2086,13 +2112,13 @@ export const enrollmentService = {
       // Don't throw - notification failure shouldn't block enrollment
     }
 
-    if (options?.originatingRecommendationId) {
+    if (resolvedRecommendationId) {
       await analyticsService.trackEvent({
         eventName: "recommendation_accept",
         userId: learnerUserId,
         courseId,
         enrollmentId: data.id,
-        recommendationId: options.originatingRecommendationId,
+        recommendationId: resolvedRecommendationId,
         surface: options.sourceSurface || "course_recommendations",
         metadata: {
           action: "direct_enroll",
@@ -2105,10 +2131,10 @@ export const enrollmentService = {
       userId: learnerUserId,
       courseId,
       enrollmentId: data.id,
-      recommendationId: options?.originatingRecommendationId,
+      recommendationId: resolvedRecommendationId,
       surface: options?.sourceSurface || "course_catalog",
       metadata: {
-        fromRecommendation: Boolean(options?.originatingRecommendationId),
+        fromRecommendation: Boolean(resolvedRecommendationId),
       },
     });
     await analyticsService.refreshPhase1Analytics(learnerUserId);
@@ -2562,7 +2588,7 @@ export const enrollmentService = {
       moduleIds.length > 0
         ? supabase
             .from("assessments")
-            .select("id, module_id, title, derived_from_module_quiz")
+            .select("id, module_id, title")
             .eq("is_active", true)
             .in("module_id", moduleIds)
         : Promise.resolve({ data: [], error: null }),
@@ -3221,6 +3247,22 @@ export const userService = {
     const updateData: Record<string, any> = {
       updated_at: new Date().toISOString(),
     };
+    const normalizedPhone = updates.phone !== undefined ? normalizePhoneNumber(updates.phone || "") : undefined;
+    const normalizedPostalCode = updates.postalCode !== undefined ? normalizePostalCode(updates.postalCode || "") : undefined;
+
+    if (normalizedPhone !== undefined) {
+      const phoneError = validatePhoneNumber(normalizedPhone);
+      if (phoneError) {
+        throw new Error(phoneError);
+      }
+    }
+
+    if (normalizedPostalCode !== undefined) {
+      const postalCodeError = validatePostalCode(normalizedPostalCode);
+      if (postalCodeError) {
+        throw new Error(postalCodeError);
+      }
+    }
 
     if (updates.name !== undefined) updateData.name = updates.name;
     if (updates.traineeType !== undefined) updateData.trainee_type = updates.traineeType || null;
@@ -3231,7 +3273,7 @@ export const userService = {
     if (updates.verifiedAt !== undefined) updateData.verified_at = updates.verifiedAt || null;
     if (updates.verifiedBy !== undefined) updateData.verified_by = updates.verifiedBy || null;
     if (updates.verificationNotes !== undefined) updateData.verification_notes = updates.verificationNotes || null;
-    if (updates.phone !== undefined) updateData.phone = updates.phone;
+    if (updates.phone !== undefined) updateData.phone = normalizedPhone || null;
     if (updates.address !== undefined) updateData.address = updates.address;
     if (updates.dateOfBirth !== undefined) updateData.date_of_birth = updates.dateOfBirth || null;
     if (updates.gender !== undefined) updateData.gender = updates.gender || null;
@@ -3242,7 +3284,7 @@ export const userService = {
     if (updates.barangay !== undefined) updateData.barangay = updates.barangay || null;
     if (updates.cityMunicipality !== undefined) updateData.city_municipality = updates.cityMunicipality || null;
     if (updates.province !== undefined) updateData.province = updates.province || null;
-    if (updates.postalCode !== undefined) updateData.postal_code = updates.postalCode || null;
+    if (updates.postalCode !== undefined) updateData.postal_code = normalizedPostalCode || null;
     if (updates.industryInterests !== undefined) updateData.industry_interests = updates.industryInterests;
     if (updates.preferredCategories !== undefined) updateData.preferred_categories = updates.preferredCategories;
     if (updates.onboardingSkillLevel !== undefined) updateData.onboarding_skill_level = updates.onboardingSkillLevel || null;

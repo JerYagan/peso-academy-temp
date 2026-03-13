@@ -32,7 +32,7 @@ const CertificateTemplate = ({
         padding: "60px",
         fontFamily: "'Times New Roman', serif",
         position: "relative",
-        background: "linear-gradient(to bottom, #f8f9fa 0%, #ffffff 100%)",
+        background: "#ffffff",
       }}
     >
       {/* Border */}

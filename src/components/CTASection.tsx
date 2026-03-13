@@ -5,8 +5,7 @@ import { Link } from "react-router-dom";
 const CTASection = () => {
   return (
     <section className="py-24 relative overflow-hidden">
-      {/* Background */}
-      <div className="absolute inset-0 hero-gradient" />
+      <div className="absolute inset-0 bg-primary" />
       
       {/* Decorative elements */}
       <div className="absolute top-10 left-10 w-32 h-32 bg-primary-foreground/10 rounded-full blur-2xl" />

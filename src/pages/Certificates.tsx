@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
+import { useLocale } from "@/contexts/LocaleContext";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -8,12 +9,12 @@ import { Download, Award, Calendar, ExternalLink, ImageIcon, Link2 } from "lucid
 import { certificateService } from "@/services/supabaseDatabaseService";
 import { downloadCertificatePDF } from "@/services/certificatePdfService";
 import { Certificate } from "@/types";
-import { format } from "date-fns";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 
 const Certificates = () => {
   const { user } = useAuth();
+  const { t, formatDate } = useLocale();
   const [certificates, setCertificates] = useState<Certificate[]>([]);
   const [loading, setLoading] = useState(true);
   const [userNames, setUserNames] = useState<Record<string, string>>({});
@@ -49,7 +50,7 @@ const Certificates = () => {
       }
     } catch (error) {
       console.error("Error loading certificates:", error);
-      toast.error("Failed to load certificates");
+      toast.error(t("certificates.toasts.loadFailed"));
     } finally {
       setLoading(false);
     }
@@ -73,23 +74,23 @@ const Certificates = () => {
         certificateType: certificate.certificateType || "completion",
         verificationCode: certificate.verificationCode,
       });
-      toast.success("Certificate downloaded successfully!");
+      toast.success(t("certificates.toasts.downloadSuccess"));
     } catch (error) {
       console.error("Error downloading certificate:", error);
-      toast.error("Failed to download certificate");
+      toast.error(t("certificates.toasts.downloadFailed"));
     }
   };
 
   const copyVerificationLink = (certificate: Certificate) => {
     const code = certificate.verificationCode?.trim();
     if (!code) {
-      toast.error("No verification code available for this certificate");
+      toast.error(t("certificates.toasts.missingVerificationCode"));
       return;
     }
     const url = `${window.location.origin}/verify-certificate?code=${encodeURIComponent(code)}`;
     navigator.clipboard.writeText(url).then(
-      () => toast.success("Verification link copied to clipboard"),
-      () => toast.error("Failed to copy link")
+      () => toast.success(t("certificates.toasts.copySuccess")),
+      () => toast.error(t("certificates.toasts.copyFailed"))
     );
   };
 
@@ -99,7 +100,7 @@ const Certificates = () => {
         <div className="flex items-center justify-center min-h-[400px]">
           <div className="text-center">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
-            <p className="text-muted-foreground">Loading certificates...</p>
+            <p className="text-muted-foreground">{t("certificates.loading")}</p>
           </div>
         </div>
       </DashboardLayout>
@@ -111,9 +112,9 @@ const Certificates = () => {
       <div className="space-y-6">
         {/* Header */}
         <div className="space-y-2">
-          <h1 className="text-3xl font-bold">My Certificates</h1>
+          <h1 className="text-3xl font-bold">{t("certificates.title")}</h1>
           <p className="text-muted-foreground">
-            View and download certificates that have already been manually released by your trainer or admin
+            {t("certificates.subtitle")}
           </p>
         </div>
 
@@ -127,7 +128,7 @@ const Certificates = () => {
                 </div>
                 <div>
                   <p className="text-2xl font-bold">{certificates.length}</p>
-                  <p className="text-sm text-muted-foreground">Total Certificates</p>
+                  <p className="text-sm text-muted-foreground">{t("certificates.total")}</p>
                 </div>
               </div>
             </CardContent>
@@ -140,7 +141,7 @@ const Certificates = () => {
                 </div>
                 <div>
                   <p className="text-2xl font-bold">{thisMonthCount}</p>
-                  <p className="text-sm text-muted-foreground">This Month</p>
+                  <p className="text-sm text-muted-foreground">{t("certificates.thisMonth")}</p>
                 </div>
               </div>
             </CardContent>
@@ -180,25 +181,25 @@ const Certificates = () => {
                           )}
                         </div>
                         <span className="shrink-0 rounded-md bg-green-100 px-3 py-1 text-sm font-medium text-green-800 dark:bg-green-900/40 dark:text-green-300">
-                          Excellent
+                          {t("certificates.badge")}
                         </span>
                       </div>
 
                       <div className="mt-4 grid gap-2 text-sm sm:grid-cols-3">
                         <div>
-                          <span className="text-muted-foreground">Certificate ID:</span>
+                          <span className="text-muted-foreground">{t("certificates.certificateId")}:</span>
                           <p className="font-mono font-medium">{certificate.certificateNumber}</p>
                         </div>
                         <div>
-                          <span className="text-muted-foreground">Issue Date:</span>
+                          <span className="text-muted-foreground">{t("certificates.issueDate")}:</span>
                           <p className="font-medium">
-                            {format(new Date(certificate.issuedAt), "MMMM d, yyyy")}
+                            {formatDate(certificate.issuedAt, { year: "numeric", month: "long", day: "numeric" })}
                           </p>
                         </div>
                         <div>
-                          <span className="text-muted-foreground">Completed On:</span>
+                          <span className="text-muted-foreground">{t("certificates.completedOn")}:</span>
                           <p className="font-medium">
-                            {format(new Date(certificate.issuedAt), "MMMM d, yyyy")}
+                            {formatDate(certificate.issuedAt, { year: "numeric", month: "long", day: "numeric" })}
                           </p>
                         </div>
                       </div>
@@ -209,12 +210,12 @@ const Certificates = () => {
                           className="gap-2"
                         >
                           <Download className="h-4 w-4" />
-                          Download PDF
+                          {t("certificates.downloadPdf")}
                         </Button>
                         <Button variant="outline" className="gap-2" asChild>
                           <Link to={`/certificates/view/${certificate.id}`}>
                             <ExternalLink className="h-4 w-4" />
-                            View Certificate
+                            {t("certificates.viewCertificate")}
                           </Link>
                         </Button>
                         {certificate.verificationCode && (
@@ -224,7 +225,7 @@ const Certificates = () => {
                             onClick={() => copyVerificationLink(certificate)}
                           >
                             <Link2 className="h-4 w-4" />
-                            Copy verification link
+                            {t("certificates.copyVerificationLink")}
                           </Button>
                         )}
                       </div>
@@ -239,10 +240,10 @@ const Certificates = () => {
             <CardContent className="flex flex-col items-center justify-center py-12">
               <Award className="h-16 w-16 text-muted-foreground mb-4" />
               <p className="text-muted-foreground text-center mb-2">
-                You don't have any certificates yet
+                {t("certificates.emptyTitle")}
               </p>
               <p className="text-sm text-muted-foreground text-center">
-                Course completion now goes through trainer approval first, and certificates are released manually after approval
+                {t("certificates.emptyBody")}
               </p>
             </CardContent>
           </Card>

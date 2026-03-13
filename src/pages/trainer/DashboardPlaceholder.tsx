@@ -196,7 +196,7 @@ const TrainerDashboardPlaceholder = () => {
         ) : (
           <>
             <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
-              <Card className="overflow-hidden border-primary/15 bg-[linear-gradient(135deg,rgba(15,118,110,0.08)_0%,rgba(29,78,216,0.08)_100%)]">
+              <Card className="overflow-hidden border-primary/15 bg-card">
                 <CardContent className="p-6 sm:p-7">
                   <div className="flex flex-col gap-6">
                     <div className="space-y-2">

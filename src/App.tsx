@@ -6,6 +6,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { ThemeProvider } from "next-themes";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { LocaleProvider } from "@/contexts/LocaleContext";
+import { ThemePreferenceProvider } from "@/contexts/ThemePreferenceContext";
 import { ProtectedRoute } from "@/components/ProtectedRoute";
 import Index from "./pages/Index";
 import Login from "./pages/Login";
@@ -63,13 +64,14 @@ initializeDashboardRoutes().catch((error) => {
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
-    <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+    <ThemeProvider attribute="class" defaultTheme="system" enableSystem storageKey="peso-theme-preference">
       <AuthProvider>
-        <LocaleProvider>
-          <TooltipProvider>
-            <Toaster />
-            <Sonner />
-            <BrowserRouter>
+        <ThemePreferenceProvider>
+          <LocaleProvider>
+            <TooltipProvider>
+              <Toaster />
+              <Sonner />
+              <BrowserRouter>
             <Routes>
             <Route path="/" element={<Index />} />
             <Route path="/login" element={<Login />} />
@@ -147,7 +149,7 @@ const App = () => (
             <Route
               path="/admin/users"
               element={
-                <ProtectedRoute>
+                <ProtectedRoute allowedRoles={["admin"]}>
                   <AdminUsers />
                 </ProtectedRoute>
               }
@@ -155,7 +157,7 @@ const App = () => (
             <Route
               path="/admin/courses"
               element={
-                <ProtectedRoute>
+                <ProtectedRoute allowedRoles={["admin"]}>
                   <AdminCourses />
                 </ProtectedRoute>
               }
@@ -163,7 +165,7 @@ const App = () => (
             <Route
               path="/admin/courses/:courseId/modules"
               element={
-                <ProtectedRoute>
+                <ProtectedRoute allowedRoles={["admin"]}>
                   <ManageModules />
                 </ProtectedRoute>
               }
@@ -171,7 +173,7 @@ const App = () => (
             <Route
               path="/admin/courses/:courseId/modules/new"
               element={
-                <ProtectedRoute>
+                <ProtectedRoute allowedRoles={["admin"]}>
                   <ModuleEditorPage />
                 </ProtectedRoute>
               }
@@ -179,7 +181,7 @@ const App = () => (
             <Route
               path="/admin/courses/:courseId/modules/:moduleId/edit"
               element={
-                <ProtectedRoute>
+                <ProtectedRoute allowedRoles={["admin"]}>
                   <ModuleEditorPage />
                 </ProtectedRoute>
               }
@@ -195,7 +197,7 @@ const App = () => (
             <Route
               path="/admin/roles"
               element={
-                <ProtectedRoute>
+                <ProtectedRoute allowedRoles={["admin"]}>
                   <AdminRoles />
                 </ProtectedRoute>
               }
@@ -203,7 +205,7 @@ const App = () => (
             <Route
               path="/admin/audit-logs"
               element={
-                <ProtectedRoute>
+                <ProtectedRoute allowedRoles={["admin"]}>
                   <AdminAuditLogs />
                 </ProtectedRoute>
               }
@@ -211,7 +213,7 @@ const App = () => (
             <Route
               path="/admin/enrollments"
               element={
-                <ProtectedRoute>
+                <ProtectedRoute allowedRoles={["admin"]}>
                   <AdminEnrollments />
                 </ProtectedRoute>
               }
@@ -219,7 +221,7 @@ const App = () => (
             <Route
               path="/admin/reports"
               element={
-                <ProtectedRoute>
+                <ProtectedRoute allowedRoles={["admin"]}>
                   <AdminReports />
                 </ProtectedRoute>
               }
@@ -237,7 +239,7 @@ const App = () => (
             <Route
               path="/trainer/courses"
               element={
-                <ProtectedRoute>
+                <ProtectedRoute allowedRoles={["trainer", "admin"]}>
                   <TrainerCourses />
                 </ProtectedRoute>
               }
@@ -253,7 +255,7 @@ const App = () => (
             <Route
               path="/trainer/courses/:courseId/modules"
               element={
-                <ProtectedRoute>
+                <ProtectedRoute allowedRoles={["trainer", "admin"]}>
                   <ManageModules />
                 </ProtectedRoute>
               }
@@ -261,7 +263,7 @@ const App = () => (
             <Route
               path="/trainer/courses/:courseId/modules/new"
               element={
-                <ProtectedRoute>
+                <ProtectedRoute allowedRoles={["trainer", "admin"]}>
                   <ModuleEditorPage />
                 </ProtectedRoute>
               }
@@ -269,7 +271,7 @@ const App = () => (
             <Route
               path="/trainer/courses/:courseId/modules/:moduleId/edit"
               element={
-                <ProtectedRoute>
+                <ProtectedRoute allowedRoles={["trainer", "admin"]}>
                   <ModuleEditorPage />
                 </ProtectedRoute>
               }
@@ -294,9 +296,10 @@ const App = () => (
             
             <Route path="*" element={<NotFound />} />
             </Routes>
-          </BrowserRouter>
-        </TooltipProvider>
-      </LocaleProvider>
+              </BrowserRouter>
+            </TooltipProvider>
+          </LocaleProvider>
+        </ThemePreferenceProvider>
     </AuthProvider>
     </ThemeProvider>
   </QueryClientProvider>

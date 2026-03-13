@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams, useNavigate, Link, useSearchParams, useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
+import { useLocale } from "@/contexts/LocaleContext";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -59,7 +60,7 @@ import { Course, Module, Enrollment } from "@/types";
 import { toast } from "sonner";
 import ModuleContentViewer from "@/components/course/ModuleContentViewer";
 import DocumentViewer from "@/components/course/DocumentViewer";
-import { supabase } from "@/lib/supabase";
+import CourseMaterialImage from "@/components/course/CourseMaterialImage";
 
 const COURSE_PREVIEW_STORAGE_PREFIX = "peso-course-preview:";
 
@@ -69,6 +70,7 @@ const CourseDetail = () => {
   const location = useLocation();
   const [searchParams] = useSearchParams();
   const { user } = useAuth();
+  const { language } = useLocale();
   const [course, setCourse] = useState<Course | null>(null);
   const [modules, setModules] = useState<Module[]>([]);
   const [enrollment, setEnrollment] = useState<Enrollment | null>(null);
@@ -107,9 +109,98 @@ const CourseDetail = () => {
   const verificationFeedback = verificationBlocked
     ? getTraineeEnrollmentVerificationFeedback(user?.verificationStatus, course?.title)
     : null;
+  const copy = language === "tl"
+    ? {
+        loadingCourse: "Ikinakarga ang kurso...",
+        courseNotFound: "Hindi makita ang kurso",
+        backToCourses: "Bumalik sa Mga Kurso",
+        backToCatalog: "Bumalik sa Course Catalog",
+        previewMode: "Preview Mode",
+        previewBodyDraft: "Ito ay trainee-style preview ng kasalukuyang draft ng kurso.",
+        previewBodyLocal: "Ginagamit ng preview na ito ang parehong learner course layout habang lokal lang sa tab na ito ang progress changes.",
+        draftPreview: "Draft Preview",
+        enrolledCount: (count: number) => `${count ?? 0} enrolled`,
+        assignedTrainer: (role: string, name: string) => `Assigned ${role.toLowerCase()}: ${name}`,
+        modulesTitle: (count: number) => `Mga Module (${count})`,
+        retryEnrollment: "Subukan muli ang enrollment",
+        updateProfile: "I-update ang profile",
+        reviewProfile: "Suriin ang profile",
+        dismiss: "Isara",
+        enrolling: "Nag-e-enroll...",
+        enrollInCourse: "Mag-enroll sa kursong ito",
+        createAccount: "Gumawa ng Account para Mag-enroll",
+        unenroll: "Mag-alis ng enrollment sa kursong ito",
+        progressTitle: "Iyong Progreso",
+        modulesCompleted: (done: number, total: number) => `${done} sa ${total} module ang tapos na`,
+        learningTimeNote: "Hiwalay na tina-track ang iyong aktuwal na oras ng pag-aaral mula sa opisyal na course hours na kino-credit matapos ang trainer approval.",
+        approvalNote: "Tapos na ang course requirements. Kailangan pa ring aprubahan ng iyong trainer ang completion bago mailabas ang anumang certificate.",
+        modulesCardTitle: "Mga Module",
+        modulesCardDescription: (count: number) => `${count} modules sa kursong ito`,
+        moduleLabel: (index: number) => `Module ${index + 1}`,
+        locked: "Naka-lock",
+        completeEarlier: (count: number, names: string) => `Tapusin muna ang naunang module${count === 1 ? "" : "s"}: ${names}`,
+        loadingModule: "Ikinakarga ang module...",
+        selectModule: "Pumili ng module para magsimulang mag-aral",
+        noContent: "Walang available na course content",
+        completionTitle: "Handa na ang Kurso para sa Review",
+        completionBody: "Kumpleto na ang iyong course requirements. Kailangan pa ring aprubahan ng trainer ang completion, at manu-manong inilalabas ang certificates pagkatapos ng approval.",
+        returnDashboard: "Bumalik sa dashboard",
+        stayOnCourse: "Manatili sa kurso",
+        unenrollTitle: "Mag-alis ng enrollment sa kurso?",
+        unenrollBody: "Aalisin ka sa kursong ito at mawawala ang iyong progreso. Maaari kang mag-enroll muli sa susunod.",
+        cancel: "Kanselahin",
+        unenrolling: "Ina-unenroll...",
+        unenrollAction: "Unenroll",
+        blockedRejected: "Tinanggihan ang verification",
+        blockedPending: "Naghihintay ng verification",
+      }
+    : {
+        loadingCourse: "Loading course...",
+        courseNotFound: "Course not found",
+        backToCourses: "Back to Courses",
+        backToCatalog: "Back to Course Catalog",
+        previewMode: "Preview Mode",
+        previewBodyDraft: "This is a trainee-style preview of the current course draft.",
+        previewBodyLocal: "This preview uses the same learner course layout while keeping progress changes local to this tab.",
+        draftPreview: "Draft Preview",
+        enrolledCount: (count: number) => `${count ?? 0} enrolled`,
+        assignedTrainer: (role: string, name: string) => `Assigned ${role.toLowerCase()}: ${name}`,
+        modulesTitle: (count: number) => `Modules (${count})`,
+        retryEnrollment: "Retry enrollment",
+        updateProfile: "Update profile",
+        reviewProfile: "Review profile",
+        dismiss: "Dismiss",
+        enrolling: "Enrolling...",
+        enrollInCourse: "Enroll in this course",
+        createAccount: "Create Account to Enroll",
+        unenroll: "Unenroll from course",
+        progressTitle: "Your Progress",
+        modulesCompleted: (done: number, total: number) => `${done} of ${total} modules completed`,
+        learningTimeNote: "Your actual study time is tracked separately from the official course hours credited after trainer approval.",
+        approvalNote: "Course requirements are complete. Your trainer still needs to approve completion before any certificate can be released.",
+        modulesCardTitle: "Modules",
+        modulesCardDescription: (count: number) => `${count} modules in this course`,
+        moduleLabel: (index: number) => `Module ${index + 1}`,
+        locked: "Locked",
+        completeEarlier: (count: number, names: string) => `Complete earlier module${count === 1 ? "" : "s"} first: ${names}`,
+        loadingModule: "Loading module...",
+        selectModule: "Select a module to start learning",
+        noContent: "No course content available",
+        completionTitle: "Course Ready For Review",
+        completionBody: "Your course requirements are complete. A trainer still needs to approve completion, and certificates are released manually after approval.",
+        returnDashboard: "Return to dashboard",
+        stayOnCourse: "Stay on course",
+        unenrollTitle: "Unenroll from course?",
+        unenrollBody: "You will be removed from this course and your progress will be lost. You can enroll again later.",
+        cancel: "Cancel",
+        unenrolling: "Unenrolling...",
+        unenrollAction: "Unenroll",
+        blockedRejected: "Verification rejected",
+        blockedPending: "Awaiting verification",
+      };
   const blockedEnrollLabel = user?.verificationStatus === "rejected"
-    ? "Verification rejected"
-    : "Awaiting verification";
+    ? copy.blockedRejected
+    : copy.blockedPending;
 
   function getPreferredModule(
     moduleList: Module[],
@@ -223,9 +314,6 @@ const CourseDetail = () => {
 
       if (isPreviewMode) {
         const previewTargetModule = getPreferredModule(modulesData, [], requestedModuleId);
-        const previewModule = !courseData.courseDocument && previewTargetModule
-          ? await loadModuleContent(previewTargetModule.id)
-          : previewTargetModule;
         setEnrollment({
           id: previewEnrollmentId,
           userId: user?.id || "preview-user",
@@ -234,9 +322,16 @@ const CourseDetail = () => {
           status: "enrolled",
           enrolledAt: new Date().toISOString(),
         });
-        setSelectedModule(previewModule);
+        setSelectedModule(previewTargetModule);
         setCompletedModuleIds([]);
-        setLoading(false);
+
+        if (!courseData.courseDocument && previewTargetModule) {
+          void loadModuleContent(previewTargetModule.id).then((hydratedModule) => {
+            if (hydratedModule) {
+              setSelectedModule(hydratedModule);
+            }
+          });
+        }
         return;
       }
 
@@ -260,21 +355,16 @@ const CourseDetail = () => {
 
       const completed = await moduleCompletionService.getCompletedModules(userEnrollment.id);
       const preferredModule = getPreferredModule(modulesData, completed, requestedModuleId);
-
-      const hydratedModule = !courseData.courseDocument && preferredModule
-        ? await loadModuleContent(preferredModule.id)
-        : preferredModule;
-
       setCompletedModuleIds(completed);
-      
-      if (supabase) {
-        await supabase
-          .from("module_completions")
-          .select("module_id, time_spent")
-          .eq("enrollment_id", userEnrollment.id);
-      }
+      setSelectedModule(preferredModule);
 
-      setSelectedModule(hydratedModule);
+      if (!courseData.courseDocument && preferredModule) {
+        void loadModuleContent(preferredModule.id).then((hydratedModule) => {
+          if (hydratedModule) {
+            setSelectedModule(hydratedModule);
+          }
+        });
+      }
     } catch (error) {
       console.error("Error loading course data:", error);
       toast.error("Failed to load course data");
@@ -420,7 +510,7 @@ const CourseDetail = () => {
         <div className="flex items-center justify-center min-h-[400px]">
           <div className="text-center">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
-            <p className="text-muted-foreground">Loading course...</p>
+            <p className="text-muted-foreground">{copy.loadingCourse}</p>
           </div>
         </div>
       </DashboardLayout>
@@ -433,9 +523,9 @@ const CourseDetail = () => {
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-12">
             <BookOpen className="w-16 h-16 text-muted-foreground mb-4" />
-            <p className="text-muted-foreground">Course not found</p>
+            <p className="text-muted-foreground">{copy.courseNotFound}</p>
             <Button asChild className="mt-4">
-              <Link to="/courses">Back to Courses</Link>
+              <Link to="/courses">{copy.backToCourses}</Link>
             </Button>
           </CardContent>
         </Card>
@@ -456,17 +546,17 @@ const CourseDetail = () => {
             <Card className="border-primary/30 bg-primary/5">
               <CardContent className="flex items-center justify-between gap-4 py-4">
                 <div>
-                  <p className="font-medium">Preview Mode</p>
-                  <p className="text-sm text-muted-foreground">This is a trainee-style preview of the current course draft.</p>
+                  <p className="font-medium">{copy.previewMode}</p>
+                  <p className="text-sm text-muted-foreground">{copy.previewBodyDraft}</p>
                 </div>
-                <Badge variant="outline">Draft Preview</Badge>
+                <Badge variant="outline">{copy.draftPreview}</Badge>
               </CardContent>
             </Card>
           )}
           <Button variant="ghost" size="sm" asChild>
             <Link to="/courses">
               <ChevronRight className="w-4 h-4 rotate-180 mr-1" />
-              Back to Courses
+              {copy.backToCourses}
             </Link>
           </Button>
           <Card>
@@ -485,18 +575,18 @@ const CourseDetail = () => {
                 </span>
                 <span className="flex items-center gap-1 text-sm text-muted-foreground">
                   <Users className="w-4 h-4" />
-                  {course.enrolledCount ?? 0} enrolled
+                  {copy.enrolledCount(course.enrolledCount ?? 0)}
                 </span>
                 <span className="flex items-center gap-1 text-sm text-muted-foreground">
                   <Users className="w-4 h-4" />
-                  Assigned {assignedTrainerRoleLabel.toLowerCase()}: {assignedTrainerName}
+                  {copy.assignedTrainer(assignedTrainerRoleLabel, assignedTrainerName)}
                 </span>
               </div>
             </CardHeader>
             <CardContent className="space-y-6">
               {course.thumbnail && (
                 <div className="overflow-hidden rounded-xl border bg-muted">
-                  <img
+                  <CourseMaterialImage
                     src={course.thumbnail}
                     alt={course.title}
                     className="h-64 w-full object-cover"
@@ -506,7 +596,7 @@ const CourseDetail = () => {
               )}
               {modules.length > 0 && (
                 <div>
-                  <h3 className="font-semibold mb-2">Modules ({modules.length})</h3>
+                  <h3 className="font-semibold mb-2">{copy.modulesTitle(modules.length)}</h3>
                   <ul className="space-y-2 text-sm text-muted-foreground">
                     {modules.map((m, i) => (
                       <li key={m.id}>
@@ -526,16 +616,16 @@ const CourseDetail = () => {
                       <div className="flex flex-wrap gap-2">
                         {enrollmentRecovery.canRetry ? (
                           <Button size="sm" onClick={() => void handleEnrollInCourse()} disabled={enrolling}>
-                            Retry enrollment
+                            {copy.retryEnrollment}
                           </Button>
                         ) : null}
                         {enrollmentRecovery.suggestedActions.includes("profile") ? (
                           <Button asChild size="sm" variant="outline">
-                            <Link to="/profile">Update profile</Link>
+                            <Link to="/profile">{copy.updateProfile}</Link>
                           </Button>
                         ) : null}
                         <Button size="sm" variant="ghost" onClick={() => setEnrollmentRecovery(null)}>
-                          Dismiss
+                          {copy.dismiss}
                         </Button>
                       </div>
                     </div>
@@ -553,7 +643,7 @@ const CourseDetail = () => {
                     <div className="space-y-3">
                       <p>{verificationFeedback.description}</p>
                       <Button asChild size="sm" variant="outline">
-                        <Link to="/profile">Review profile</Link>
+                        <Link to="/profile">{copy.reviewProfile}</Link>
                       </Button>
                     </div>
                   </AlertDescription>
@@ -562,15 +652,15 @@ const CourseDetail = () => {
               <div className="flex flex-wrap gap-3">
                 {isPreviewMode ? null : user ? (
                   <Button onClick={handleEnrollInCourse} disabled={enrolling || verificationBlocked}>
-                    {verificationBlocked ? blockedEnrollLabel : enrolling ? "Enrolling..." : "Enroll in this course"}
+                    {verificationBlocked ? blockedEnrollLabel : enrolling ? copy.enrolling : copy.enrollInCourse}
                   </Button>
                 ) : (
                   <Button asChild>
-                    <Link to={signupUrl}>Create Account to Enroll</Link>
+                    <Link to={signupUrl}>{copy.createAccount}</Link>
                   </Button>
                 )}
                 <Button variant="outline" asChild>
-                  <Link to="/courses">Back to Course Catalog</Link>
+                  <Link to="/courses">{copy.backToCatalog}</Link>
                 </Button>
               </div>
             </CardContent>
@@ -587,10 +677,10 @@ const CourseDetail = () => {
           <Card className="border-primary/30 bg-primary/5">
             <CardContent className="flex items-center justify-between gap-4 py-4">
               <div>
-                <p className="font-medium">Preview Mode</p>
-                <p className="text-sm text-muted-foreground">This preview uses the same learner course layout while keeping progress changes local to this tab.</p>
+                <p className="font-medium">{copy.previewMode}</p>
+                <p className="text-sm text-muted-foreground">{copy.previewBodyLocal}</p>
               </div>
-              <Badge variant="outline">Draft Preview</Badge>
+              <Badge variant="outline">{copy.draftPreview}</Badge>
             </CardContent>
           </Card>
         )}
@@ -599,7 +689,7 @@ const CourseDetail = () => {
         <div className="space-y-4">
           {course.thumbnail && (
             <div className="overflow-hidden rounded-2xl border bg-muted shadow-sm">
-              <img
+              <CourseMaterialImage
                 src={course.thumbnail}
                 alt={course.title}
                 className="h-64 w-full object-cover lg:h-80"
@@ -614,7 +704,7 @@ const CourseDetail = () => {
                 <Button variant="ghost" size="sm" asChild>
                   <Link to="/courses">
                     <ChevronRight className="w-4 h-4 rotate-180 mr-1" />
-                    Back to Courses
+                    {copy.backToCourses}
                   </Link>
                 </Button>
               </div>
@@ -635,11 +725,11 @@ const CourseDetail = () => {
             </div>
             <div className="flex items-center gap-1 text-sm text-muted-foreground">
               <Users className="w-4 h-4" />
-              {course.enrolledCount} enrolled
+              {copy.enrolledCount(course.enrolledCount)}
             </div>
             <div className="flex items-center gap-1 text-sm text-muted-foreground">
               <Users className="w-4 h-4" />
-              Assigned {assignedTrainerRoleLabel.toLowerCase()}: {assignedTrainerName}
+              {copy.assignedTrainer(assignedTrainerRoleLabel, assignedTrainerName)}
             </div>
             <div className="flex items-center gap-1 text-sm text-muted-foreground">
               <Star className="w-4 h-4 fill-yellow-400 text-yellow-400" />
@@ -653,7 +743,7 @@ const CourseDetail = () => {
                 onClick={() => setShowUnenrollConfirm(true)}
               >
                 <LogOut className="w-4 h-4 mr-1" />
-                Unenroll from course
+                {copy.unenroll}
               </Button>
             )}
           </div>
@@ -662,21 +752,21 @@ const CourseDetail = () => {
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between">
-                <CardTitle className="text-lg">Your Progress</CardTitle>
+                <CardTitle className="text-lg">{copy.progressTitle}</CardTitle>
                 <span className="text-sm font-medium">{enrollment.progress}%</span>
               </div>
             </CardHeader>
             <CardContent>
               <Progress value={enrollment.progress} className="mb-2" />
               <p className="text-sm text-muted-foreground">
-                {completedModuleIds.length} of {modules.length} modules completed
+                {copy.modulesCompleted(completedModuleIds.length, modules.length)}
               </p>
               <p className="mt-2 text-sm text-muted-foreground">
-                Your actual study time is tracked separately from the official course hours credited after trainer approval.
+                {copy.learningTimeNote}
               </p>
               {enrollment.progress >= 100 && enrollment.completionApprovalStatus !== "approved" ? (
                 <p className="mt-2 text-sm text-muted-foreground">
-                  Course requirements are complete. Your trainer still needs to approve completion before any certificate can be released.
+                  {copy.approvalNote}
                 </p>
               ) : null}
             </CardContent>
@@ -688,8 +778,8 @@ const CourseDetail = () => {
           <div className="lg:col-span-1">
             <Card>
               <CardHeader>
-                <CardTitle className="text-lg">Modules</CardTitle>
-                <CardDescription>{modules.length} modules in this course</CardDescription>
+                <CardTitle className="text-lg">{copy.modulesCardTitle}</CardTitle>
+                <CardDescription>{copy.modulesCardDescription(modules.length)}</CardDescription>
               </CardHeader>
               <CardContent className="p-0">
                 <ScrollArea className="h-[600px]">
@@ -728,11 +818,11 @@ const CourseDetail = () => {
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-2 mb-1">
                                 <span className="text-xs font-medium opacity-70">
-                                  Module {index + 1}
+                                  {copy.moduleLabel(index)}
                                 </span>
                                 {!canAccess && (
                                   <Badge variant="outline" className="text-xs">
-                                    Locked
+                                    {copy.locked}
                                   </Badge>
                                 )}
                               </div>
@@ -741,7 +831,7 @@ const CourseDetail = () => {
                               </p>
                               {!canAccess && blockingModules.length > 0 ? (
                                 <p className={`mt-1 text-xs ${isSelected ? "text-primary-foreground/80" : "text-muted-foreground"}`}>
-                                  Complete earlier module{blockingModules.length === 1 ? "" : "s"} first: {blockingModules.map((blockingModule) => blockingModule.title).join(", ")}
+                                  {copy.completeEarlier(blockingModules.length, blockingModules.map((blockingModule) => blockingModule.title).join(", "))}
                                 </p>
                               ) : null}
                             </div>
@@ -778,7 +868,7 @@ const CourseDetail = () => {
                 <CardContent className="flex min-h-[400px] items-center justify-center">
                   <div className="text-center">
                     <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-b-2 border-primary"></div>
-                    <p className="text-sm text-muted-foreground">Loading module...</p>
+                    <p className="text-sm text-muted-foreground">{copy.loadingModule}</p>
                   </div>
                 </CardContent>
               </Card>
@@ -798,8 +888,8 @@ const CourseDetail = () => {
                   <BookOpen className="w-16 h-16 text-muted-foreground mb-4" />
                   <p className="text-muted-foreground">
                     {modules.length > 0 
-                      ? "Select a module to start learning" 
-                      : "No course content available"}
+                      ? copy.selectModule
+                      : copy.noContent}
                   </p>
                 </CardContent>
               </Card>
@@ -814,18 +904,18 @@ const CourseDetail = () => {
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2 text-green-600">
               <CheckCircle2 className="h-6 w-6" />
-              Course Ready For Review
+              {copy.completionTitle}
             </DialogTitle>
             <DialogDescription>
-              Your course requirements are complete. A trainer still needs to approve completion, and certificates are released manually after approval.
+              {copy.completionBody}
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button asChild>
-              <Link to="/dashboard">Return to dashboard</Link>
+              <Link to="/dashboard">{copy.returnDashboard}</Link>
             </Button>
             <Button variant="outline" onClick={() => setShowCompletionDialog(false)}>
-              Stay on course
+              {copy.stayOnCourse}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -835,19 +925,19 @@ const CourseDetail = () => {
       <AlertDialog open={showUnenrollConfirm} onOpenChange={setShowUnenrollConfirm}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Unenroll from course?</AlertDialogTitle>
+            <AlertDialogTitle>{copy.unenrollTitle}</AlertDialogTitle>
             <AlertDialogDescription>
-              You will be removed from this course and your progress will be lost. You can enroll again later.
+              {copy.unenrollBody}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={unenrolling}>Cancel</AlertDialogCancel>
+            <AlertDialogCancel disabled={unenrolling}>{copy.cancel}</AlertDialogCancel>
             <AlertDialogAction
               onClick={handleUnenroll}
               disabled={unenrolling}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              {unenrolling ? "Unenrolling..." : "Unenroll"}
+              {unenrolling ? copy.unenrolling : copy.unenrollAction}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

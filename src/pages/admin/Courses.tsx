@@ -71,7 +71,7 @@ const AdminCourses = () => {
     if (value.includes("technical") || value.includes("web") || value.includes("digital") || value.includes("mobile")) {
       return {
         icon: Laptop2,
-        gradient: "linear-gradient(135deg, #eef2ff 0%, #dbeafe 100%)",
+        surfaceClass: "bg-indigo-50 dark:bg-indigo-950/30",
         iconWrapClass: "bg-indigo-600/10 text-indigo-700 dark:bg-indigo-400/15 dark:text-indigo-300",
       };
     }
@@ -79,7 +79,7 @@ const AdminCourses = () => {
     if (value.includes("business") || value.includes("entrepreneur") || value.includes("bookkeeping") || value.includes("accounting")) {
       return {
         icon: BriefcaseBusiness,
-        gradient: "linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)",
+        surfaceClass: "bg-amber-50 dark:bg-amber-950/30",
         iconWrapClass: "bg-amber-600/10 text-amber-700 dark:bg-amber-400/15 dark:text-amber-300",
       };
     }
@@ -87,14 +87,14 @@ const AdminCourses = () => {
     if (value.includes("customer") || value.includes("communication") || value.includes("career")) {
       return {
         icon: MessageSquareHeart,
-        gradient: "linear-gradient(135deg, #fee2e2 0%, #fecaca 100%)",
+        surfaceClass: "bg-rose-50 dark:bg-rose-950/30",
         iconWrapClass: "bg-rose-600/10 text-rose-700 dark:bg-rose-400/15 dark:text-rose-300",
       };
     }
 
     return {
       icon: GraduationCap,
-      gradient: "linear-gradient(135deg, #e2e8f0 0%, #cbd5e1 100%)",
+      surfaceClass: "bg-slate-100 dark:bg-slate-900/60",
       iconWrapClass: "bg-slate-700/10 text-slate-700 dark:bg-slate-300/15 dark:text-slate-300",
     };
   };
@@ -161,7 +161,7 @@ const AdminCourses = () => {
                       {course.thumbnail ? (
                         <img src={course.thumbnail} alt={course.title} className="h-full w-full object-cover" />
                       ) : (
-                        <div className="flex h-full w-full items-end justify-between p-6" style={{ background: visual.gradient }}>
+                        <div className={`flex h-full w-full items-end justify-between p-6 ${visual.surfaceClass}`}>
                           <div className="max-w-[75%]">
                             <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-700/70">{course.category}</p>
                             <p className="mt-2 text-xl font-extrabold leading-tight text-slate-900">{course.title}</p>

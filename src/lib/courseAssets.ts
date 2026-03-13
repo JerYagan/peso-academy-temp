@@ -30,6 +30,24 @@ const buildPublicUrl = (path: string) => {
   return data.publicUrl;
 };
 
+const buildSignedUrl = async (path: string, expiresInSeconds = 60 * 60) => {
+  const normalizedPath = decodePath(stripLeadingSlashes(path));
+
+  if (!supabase) {
+    return normalizedPath;
+  }
+
+  const { data, error } = await supabase.storage
+    .from(COURSE_MATERIALS_BUCKET)
+    .createSignedUrl(normalizedPath, expiresInSeconds);
+
+  if (error || !data?.signedUrl) {
+    return buildPublicUrl(normalizedPath);
+  }
+
+  return data.signedUrl;
+};
+
 const extractCourseMaterialPath = (value: string): string | null => {
   const trimmedValue = value.trim();
 
@@ -88,6 +106,35 @@ export const resolveCourseMaterialUrl = (value?: string | null): string | undefi
   }
 
   return buildPublicUrl(storagePath);
+};
+
+export const resolveCourseMaterialAccessUrl = async (
+  value?: string | null,
+  expiresInSeconds = 60 * 60,
+): Promise<string | undefined> => {
+  if (!value) {
+    return undefined;
+  }
+
+  const trimmedValue = value.trim();
+  if (!trimmedValue) {
+    return undefined;
+  }
+
+  if (/^(blob:|data:)/i.test(trimmedValue)) {
+    return trimmedValue;
+  }
+
+  const storagePath = extractCourseMaterialPath(trimmedValue);
+  if (storagePath === null) {
+    return trimmedValue;
+  }
+
+  if (/^(blob:|data:)/i.test(storagePath)) {
+    return storagePath;
+  }
+
+  return buildSignedUrl(storagePath, expiresInSeconds);
 };
 
 export const resolveCourseMaterialUrls = (values?: string[] | null): string[] => {

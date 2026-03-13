@@ -10,7 +10,7 @@ const roles = [
   //   description: "Access free training, build your skills portfolio, and earn certifications through structured learning.",
   //   features: ["Free courses & certifications", "Skills assessment", "Learning management"],
   //   cta: "Start Learning",
-  //   gradient: "from-primary to-primary/80",
+  //   toneClass: "bg-primary",
   // },
   {
     icon: User,
@@ -19,7 +19,7 @@ const roles = [
     description: "Access training, track progress, and earn certificates through guided learning and personalized recommendations.",
     features: [],
     cta: "Start Learning",
-    gradient: "from-primary to-primary/80",
+    toneClass: "bg-primary",
   },
   {
     icon: Building2,
@@ -29,7 +29,7 @@ const roles = [
     // features: ["User management", "Analytics dashboard", "Compliance reports", "Program oversight"],
     features: [],
     cta: "Admin Portal",
-    gradient: "from-accent to-accent/80",
+    toneClass: "bg-accent",
   },
   {
     icon: GraduationCap,
@@ -39,7 +39,7 @@ const roles = [
     // features: ["Content management", "Learner analytics", "Certification issuance", "Partner dashboard"],
     features: [],
     cta: "Trainer Portal",
-    gradient: "from-primary to-primary/80",
+    toneClass: "bg-primary",
   },
   // {
   //   icon: Briefcase,
@@ -48,7 +48,7 @@ const roles = [
   //   description: "Access a pool of skill-verified candidates, suggest training needs, and find workers who match your requirements.",
   //   features: ["Skill-ready candidates", "Training suggestions", "Direct hiring", "Workforce insights"],
   //   cta: "Partner With Us",
-  //   gradient: "from-accent to-accent/80",
+  //   toneClass: "bg-accent",
   // },
 ];
 
@@ -63,7 +63,7 @@ const UserRolesSection = () => {
           </span>
           <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-foreground mb-6">
             Built for the{" "}
-            <span className="text-gradient">Entire Ecosystem</span>
+            <span className="text-primary">Entire Ecosystem</span>
           </h2>
           <p className="text-lg text-muted-foreground">
             Whether you're a trainee, trainer, or administrator, PESO Academy has the tools you need.
@@ -78,7 +78,7 @@ const UserRolesSection = () => {
               className="group bg-card rounded-2xl p-8 card-shadow hover:card-shadow-hover transition-all duration-300"
             >
               <div className="flex items-start gap-5">
-                <div className={`w-16 h-16 rounded-2xl bg-gradient-to-br ${role.gradient} flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform duration-300`}>
+                <div className={`w-16 h-16 rounded-2xl ${role.toneClass} flex items-center justify-center flex-shrink-0 group-hover:scale-110 transition-transform duration-300`}>
                   <role.icon className="w-8 h-8 text-primary-foreground" />
                 </div>
                 <div className="flex-1">

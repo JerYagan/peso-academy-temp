@@ -5,8 +5,7 @@ import { Link } from "react-router-dom";
 const HeroSection = () => {
   return (
     <section className="relative min-h-screen flex items-center pt-16 overflow-hidden">
-      {/* Background Gradient */}
-      <div className="absolute inset-0 hero-gradient opacity-[0.03]" />
+      <div className="absolute inset-0 bg-primary/5" />
       
       {/* Decorative Elements */}
       <div className="absolute top-32 right-10 w-72 h-72 bg-primary/10 rounded-full blur-3xl" />
@@ -23,7 +22,7 @@ const HeroSection = () => {
             
             <h1 className="text-4xl md:text-5xl lg:text-6xl font-extrabold leading-tight animate-fade-up" style={{ animationDelay: "0.1s" }}>
               Upskill Your Career with{" "}
-              <span className="text-gradient">PESO Academy</span>
+              <span className="text-primary">PESO Academy</span>
             </h1>
             
             <p className="text-lg md:text-xl text-muted-foreground max-w-xl animate-fade-up" style={{ animationDelay: "0.2s" }}>
@@ -78,7 +77,7 @@ const HeroSection = () => {
               {/* Main Card */}
               <div className="bg-card rounded-2xl card-shadow p-6 max-w-md ml-auto">
                 <div className="flex items-center gap-4 mb-4">
-                  <div className="w-12 h-12 rounded-xl hero-gradient flex items-center justify-center">
+                  <div className="w-12 h-12 rounded-xl bg-primary flex items-center justify-center">
                     <BookOpen className="w-6 h-6 text-primary-foreground" />
                   </div>
                   <div>
@@ -92,7 +91,7 @@ const HeroSection = () => {
                     <span className="font-medium text-primary">75%</span>
                   </div>
                   <div className="h-2 bg-muted rounded-full overflow-hidden">
-                    <div className="h-full w-3/4 hero-gradient rounded-full" />
+                    <div className="h-full w-3/4 rounded-full bg-primary" />
                   </div>
                 </div>
               </div>

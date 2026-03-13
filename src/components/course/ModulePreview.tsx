@@ -5,6 +5,7 @@ import { BookOpen, Code, Video, FileQuestion, Type, ImageIcon, FileText, Link2 }
 import { Module } from "@/types";
 import { ContentBlock } from "./ContentBlock";
 import DocumentViewer from "./DocumentViewer";
+import CourseMaterialImage from "./CourseMaterialImage";
 import { useMemo } from "react";
 import { parseModuleContentBlocks } from "@/lib/contentBlocks";
 
@@ -40,7 +41,7 @@ export const ModulePreview = ({ module, allModules = [] }: ModulePreviewProps) =
             <div className="flex-1">
               {module.module_thumbnail && (
                 <div className="mb-4 overflow-hidden rounded-xl border bg-muted">
-                  <img src={module.module_thumbnail} alt={module.title} className="h-56 w-full object-cover" />
+                  <CourseMaterialImage src={module.module_thumbnail} alt={module.title} className="h-56 w-full object-cover" />
                 </div>
               )}
               <div className="flex items-center gap-2 mb-2">
@@ -126,7 +127,11 @@ export const ModulePreview = ({ module, allModules = [] }: ModulePreviewProps) =
 
                   {block.type === "image" && block.imageUrl && (
                     <figure className="space-y-2">
-                      <img src={block.imageUrl} alt={block.altText || block.title || "Module image"} className="max-h-[420px] w-full rounded-lg object-cover" />
+                      <CourseMaterialImage
+                        src={block.imageUrl}
+                        alt={block.altText || block.title || "Module image"}
+                        className="max-h-[420px] w-full rounded-lg object-cover"
+                      />
                       {(block.caption || block.altText) && (
                         <figcaption className="text-sm text-muted-foreground">{block.caption || block.altText}</figcaption>
                       )}

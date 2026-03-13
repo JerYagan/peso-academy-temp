@@ -1,4 +1,5 @@
 import { useAuth } from "@/contexts/AuthContext";
+import { useLocale } from "@/contexts/LocaleContext";
 import DashboardLayout from "@/components/DashboardLayout";
 import TraineeOnboardingModal from "@/components/trainee/TraineeOnboardingModal";
 import TraineeVerificationBadge from "@/components/trainee/TraineeVerificationBadge";
@@ -41,6 +42,7 @@ interface TraineeDashboardProps {
 
 const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
   const { updateUser } = useAuth();
+  const { language } = useLocale();
   const [allCourses, setAllCourses] = useState<Course[]>([]);
   const [completedCourses, setCompletedCourses] = useState<Array<Course & { enrollment: Enrollment }>>([]);
   const [myCourses, setMyCourses] = useState<Array<Course & { enrollment: Enrollment }>>([]);
@@ -64,6 +66,157 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
   const [savingOnboardingModal, setSavingOnboardingModal] = useState(false);
   const [latestOnboardingSummary, setLatestOnboardingSummary] = useState<TraineeOnboardingSummary | null>(null);
   const hasCompletedOnboarding = Boolean(user.onboardingCompletedAt);
+  const copy = language === "tl"
+    ? {
+        defaultTrainer: "PESO Training Team",
+        browseCourses: "Tingnan ang mga kurso",
+        completeOnboarding: "Tapusin ang onboarding",
+        updateProfile: "I-update ang profile",
+        openProfile: "Buksan ang profile",
+        reviewProfile: "Suriin ang profile",
+        viewProgress: "Tingnan ang progreso",
+        openProgressDashboard: "Buksan ang progress dashboard",
+        viewCertificates: "Tingnan ang certificates",
+        viewAll: "Tingnan Lahat",
+        resumeLearning: "Ipagpatuloy ang pag-aaral",
+        continueCourse: "Ipagpatuloy ang kurso",
+        openOnboarding: "Buksan ang onboarding",
+        continueModule: "Ipagpatuloy ang Module",
+        viewSessionHistory: "Tingnan ang Session History",
+        dismiss: "Isara",
+        retryEnrollment: "Subukan muli ang enrollment",
+        preview: "Preview",
+        enrollNow: "Mag-enroll Ngayon",
+        enrolling: "Nag-e-enroll...",
+        blockedPending: "Naghihintay ng verification",
+        blockedRejected: "Tinanggihan ang verification",
+        postLoginTitle: "Kailangan ang post-login onboarding para sa recommendations",
+        postLoginBody: "Mas maikli na ngayon ang registration. Tapusin ang dashboard onboarding para ma-unlock ang recommendation cards, starter guidance, at profile-driven analytics context.",
+        onboardingCompletedTitle: "Tapos na ang onboarding",
+        onboardingCompletedBody: (count: number) => `Mayroon na ngayong ${count} starter recommendation${count === 1 ? "" : "s"} ang iyong dashboard batay sa onboarding profile mo.`,
+        workspaceBadge: "Trainee workspace",
+        welcome: (name: string) => `Maligayang pagbabalik, ${name}!`,
+        welcomeBody: "Magpatuloy sa iisang malinaw na susunod na hakbang: ipagpatuloy ang pag-aaral, patibayin ang iyong profile signals, o suriin nang detalyado ang iyong progreso.",
+        enrolled: "Enrolled",
+        enrolledBody: "Mga aktibong kurso sa iyong dashboard",
+        completed: "Completed",
+        completedBody: "Mga natapos na kursong nasa record",
+        profileSignals: "Profile signals",
+        profileSignalsBody: "Mga natapos na recommendation inputs",
+        primaryNextStep: "Pangunahing susunod na hakbang",
+        shortcutsTitle: "Mga next-step shortcut",
+        shortcutsBody: "Panatilihing hiwalay ang iyong susunod na aksyon para hindi magsabay ang pag-aaral, pagba-browse, at profile updates.",
+        lastAccessedTitle: "Huling Binuksang Module",
+        lastAccessedBody: "Magpatuloy mula sa pinakahuling module session na na-save sa iyong learning history.",
+        lastOpened: "Huling binuksan",
+        latestSession: "Pinakabagong session",
+        resumePoint: "Resume point",
+        startCurrentModule: "Magsimula sa kasalukuyang module",
+        recentActivityEmpty: "Lalabas dito ang iyong kamakailang module activity pagkatapos mong magbukas ng learning module.",
+        currentFocusTitle: "Kasalukuyang dashboard focus",
+        currentFocusBody: "Gumamit ng iisang destination depende kung kailangan mong magpatuloy, mag-explore, o mag-review.",
+        resumeLearningTitle: "Ipagpatuloy ang pag-aaral",
+        recommendationStrength: "Lakas ng recommendation",
+        progressReview: "Pagsusuri ng progreso",
+        myCourses: "Aking Mga Kurso",
+        myCoursesBody: "Ipagpatuloy muna ang mga aktibong kurso bago lumipat sa detalyadong analytics o review ng natapos na history.",
+        waitingApproval: "Naghihintay ng trainer approval bago markahang complete ang kurso.",
+        noRecentModule: "Wala pang active module. Magsimula sa course catalog.",
+        recommendationGateTitle: "Tapusin ang onboarding para ma-unlock ang recommendations.",
+        recommendationGateBody: "Ang dashboard recommendations mo ay naghihintay muna ng iyong post-login onboarding answers para magamit ang kasalukuyang interests, category choices, readiness, at skill signals.",
+        recommendationActivityTitle: "Magbubukas ang personalized recommendations pagkatapos ng learning activity.",
+        recommendationActivityBody: "Tapusin ang onboarding preferences o magsimula ng module at magpapakita rito ang mga susunod na course suggestion.",
+        personalizedRecommendations: "Personalized Recommendations",
+        triggeredByActivity: "Na-trigger ng iyong dashboard activity",
+        drivenByProfile: "Batay sa iyong onboarding profile",
+        beginnerDefaults: "Gumagamit ng beginner-friendly defaults",
+        learnersEnrolled: (count: number) => `${count || 0} learner ang naka-enroll`,
+        assignedTrainer: (name: string) => `Assigned trainer: ${name}`,
+        assessmentNeedEvidenceTitle: "Kailangan ng assessment-only recommendations ng scored assessment evidence.",
+        assessmentNeedEvidenceBody: "Tapusin ang graded assessment at magsa-suggest ang advisory mode na ito ng mga kurso gamit lang ang score bands, strongest topics, weakest topics, at failed competencies.",
+        assessmentOnlyAdvisory: "Assessment-Only Advisory",
+        strongestTopic: "Pinakamalakas na topic",
+        weakestTopic: "Pinakamahinang topic",
+        failedCompetencies: "Failed competencies",
+        notEnoughEvidence: "Hindi pa sapat ang ebidensya",
+        noClearFocus: "Wala pang malinaw na focus area",
+        noFailedClusters: "Walang failed competency clusters",
+      }
+    : {
+        defaultTrainer: "PESO Training Team",
+        browseCourses: "Browse courses",
+        completeOnboarding: "Complete onboarding",
+        updateProfile: "Update profile",
+        openProfile: "Open profile",
+        reviewProfile: "Review profile",
+        viewProgress: "View progress",
+        openProgressDashboard: "Open progress dashboard",
+        viewCertificates: "View certificates",
+        viewAll: "View All",
+        resumeLearning: "Resume learning",
+        continueCourse: "Continue course",
+        openOnboarding: "Open onboarding",
+        continueModule: "Continue Module",
+        viewSessionHistory: "View Session History",
+        dismiss: "Dismiss",
+        retryEnrollment: "Retry enrollment",
+        preview: "Preview",
+        enrollNow: "Enroll Now",
+        enrolling: "Enrolling...",
+        blockedPending: "Awaiting verification",
+        blockedRejected: "Verification rejected",
+        postLoginTitle: "Post-login onboarding required for recommendations",
+        postLoginBody: "Registration is intentionally shorter now. Finish your dashboard onboarding to unlock recommendation cards, starter guidance, and profile-driven analytics context.",
+        onboardingCompletedTitle: "Onboarding completed",
+        onboardingCompletedBody: (count: number) => `Your dashboard now has ${count} starter recommendation${count === 1 ? "" : "s"} based on your onboarding profile.`,
+        workspaceBadge: "Trainee workspace",
+        welcome: (name: string) => `Welcome back, ${name}!`,
+        welcomeBody: "Keep moving with one clear next step: resume learning, sharpen your profile signals, or review your progress in detail.",
+        enrolled: "Enrolled",
+        enrolledBody: "Active courses in your dashboard",
+        completed: "Completed",
+        completedBody: "Finished courses on record",
+        profileSignals: "Profile signals",
+        profileSignalsBody: "Recommendation inputs completed",
+        primaryNextStep: "Primary next step",
+        shortcutsTitle: "Next-step shortcuts",
+        shortcutsBody: "Keep your next action distinct so learning, browsing, and profile updates do not compete.",
+        lastAccessedTitle: "Last Accessed Module",
+        lastAccessedBody: "Resume from the most recent module session stored in your learning history.",
+        lastOpened: "Last opened",
+        latestSession: "Latest session",
+        resumePoint: "Resume point",
+        startCurrentModule: "Start from current module",
+        recentActivityEmpty: "Your recent module activity will appear here after you open a learning module.",
+        currentFocusTitle: "Current dashboard focus",
+        currentFocusBody: "Use one destination at a time depending on whether you need to resume, explore, or review.",
+        resumeLearningTitle: "Resume learning",
+        recommendationStrength: "Recommendation strength",
+        progressReview: "Progress review",
+        myCourses: "My Courses",
+        myCoursesBody: "Continue active courses first before shifting into detailed analytics or completed-history review.",
+        waitingApproval: "Waiting for trainer approval before the course is marked complete.",
+        noRecentModule: "No active module yet. Start with the course catalog.",
+        recommendationGateTitle: "Complete onboarding to unlock recommendations.",
+        recommendationGateBody: "Your dashboard recommendations now wait for your post-login onboarding answers so cold-start suggestions use current interests, category choices, readiness, and skill signals.",
+        recommendationActivityTitle: "Personalized recommendations unlock after learning activity.",
+        recommendationActivityBody: "Complete your onboarding preferences or start a module and your dashboard will surface next-step course suggestions here.",
+        personalizedRecommendations: "Personalized Recommendations",
+        triggeredByActivity: "Triggered by your dashboard activity",
+        drivenByProfile: "Driven by your onboarding profile",
+        beginnerDefaults: "Using beginner-friendly defaults",
+        learnersEnrolled: (count: number) => `${count || 0} learners enrolled`,
+        assignedTrainer: (name: string) => `Assigned trainer: ${name}`,
+        assessmentNeedEvidenceTitle: "Assessment-only recommendations need scored assessment evidence.",
+        assessmentNeedEvidenceBody: "Finish a graded assessment and this advisory mode will suggest courses using only score bands, strongest topics, weakest topics, and failed competencies.",
+        assessmentOnlyAdvisory: "Assessment-Only Advisory",
+        strongestTopic: "Strongest topic",
+        weakestTopic: "Weakest topic",
+        failedCompetencies: "Failed competencies",
+        notEnoughEvidence: "Not enough evidence yet",
+        noClearFocus: "No clear focus area yet",
+        noFailedClusters: "No failed competency clusters",
+      };
 
   useEffect(() => {
     void loadDashboardData();
@@ -248,7 +401,15 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
   const handleRecommendationEnroll = async (
     course: Course,
     recommendation?: PersistedLearnerRecommendation,
+    sourceSurface: "dashboard_recommendations" | "dashboard_assessment_recommendations" = "dashboard_recommendations",
   ) => {
+    const resolvedRecommendation = recommendation?.id
+      ? recommendation
+      : (sourceSurface === "dashboard_assessment_recommendations"
+          ? persistedAssessmentOnlyRecommendations
+          : persistedRecommendations
+        ).find((item) => item.courseId === course.id);
+
     setEnrollingRecommendationCourseId(course.id);
     setRecommendationRecovery(null);
 
@@ -256,7 +417,7 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
       await enrollmentService.enrollInCourse(
         user.id,
         course.id,
-        analyticsService.getOriginatingRecommendationOptions(recommendation, "dashboard_recommendations"),
+        analyticsService.getOriginatingRecommendationOptions(resolvedRecommendation, sourceSurface),
       );
       toast.success("Successfully enrolled in course!");
       await loadDashboardData();
@@ -607,7 +768,7 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
         title: user.verificationStatus === "rejected" ? "Verification was rejected" : "Verification is in progress",
         description: verificationFeedback?.description || "Your trainee account must be verified before course enrollment opens.",
         href: "/courses",
-        label: "Browse courses",
+        label: copy.browseCourses,
         state: undefined,
       }
     : lastAccessedModule
@@ -615,7 +776,7 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
         title: "Resume your latest module",
         description: `${lastAccessedModule.moduleTitle || "Latest module"} in ${lastAccessedModule.courseTitle || "your course"} was last opened ${formatActivityTime(lastAccessedModule.lastSeenAt)}.`,
         href: `/courses/${lastAccessedModule.courseId}`,
-        label: "Resume learning",
+        label: copy.resumeLearning,
         state: {
           entrySource: "dashboard_primary_resume",
           moduleId: lastAccessedModule.moduleId,
@@ -626,7 +787,7 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
           title: "Continue your active course",
           description: `${primaryCourse.title} is ${primaryCourse.enrollment.progress}% complete and ready for your next lesson.`,
           href: `/courses/${primaryCourse.id}`,
-          label: "Continue course",
+          label: copy.continueCourse,
           state: {
             entrySource: "dashboard_primary_course",
           },
@@ -636,18 +797,20 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
           description:
             "You do not have an active course yet. Browse training paths and begin with a course that matches your goals.",
           href: "/courses",
-          label: "Browse courses",
+          label: copy.browseCourses,
           state: undefined,
         };
 
   const nextStepCards = [
     !hasCompletedOnboarding
       ? {
-          title: "Complete your onboarding profile",
+          title: language === "tl" ? "Kumpletuhin ang iyong onboarding profile" : "Complete your onboarding profile",
           description:
-            "Finish the dashboard onboarding flow to unlock recommendation cards, starter course pathways, and stronger cold-start guidance.",
+            language === "tl"
+              ? "Tapusin ang dashboard onboarding flow para ma-unlock ang recommendation cards, starter course pathways, at mas malinaw na cold-start guidance."
+              : "Finish the dashboard onboarding flow to unlock recommendation cards, starter course pathways, and stronger cold-start guidance.",
           href: "#",
-          label: "Open onboarding",
+          label: copy.openOnboarding,
           onClick: () => setShowOnboardingModal(true),
         }
       : verificationBlocked
@@ -655,7 +818,7 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
           title: user.verificationStatus === "rejected" ? "Review rejected verification details" : "Prepare while approval is pending",
           description: verificationFeedback?.description || "Keep your profile accurate while the training team reviews your account.",
           href: "/profile",
-          label: user.verificationStatus === "rejected" ? "Update profile" : "Open profile",
+          label: user.verificationStatus === "rejected" ? copy.updateProfile : copy.openProfile,
         }
       : {
           title: profileSignalCoverage < 100 ? "Complete your learner profile" : "Profile is recommendation-ready",
@@ -664,7 +827,7 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
               ? "Add interests, preferred categories, stage, and skills so recommendations stay aligned with your goals."
               : "Your profile has the core signals needed for stronger recommendation and predictive insights.",
           href: "/profile",
-          label: profileSignalCoverage < 100 ? "Update profile" : "Review profile",
+          label: profileSignalCoverage < 100 ? copy.updateProfile : copy.reviewProfile,
         },
     {
       title: stats.enrolledCourses > 0 ? "Review progress details" : "See how progress will appear",
@@ -673,7 +836,7 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
           ? "Open the progress dashboard for course-by-course history, recent sessions, and completion detail."
           : "Your progress dashboard becomes more useful after you enroll and begin module activity.",
       href: "/progress",
-      label: stats.enrolledCourses > 0 ? "View progress" : "Open progress dashboard",
+      label: stats.enrolledCourses > 0 ? copy.viewProgress : copy.openProgressDashboard,
     },
     {
       title: completedCourses.length > 0 ? "Claim your completed work" : "Explore another course",
@@ -682,14 +845,14 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
           ? "Review your certificates and completed training records whenever you need proof of completion."
           : "Browse the course library to find another starting point or a follow-on course.",
       href: completedCourses.length > 0 ? "/certificates" : "/courses",
-      label: completedCourses.length > 0 ? "View certificates" : "Browse courses",
+      label: completedCourses.length > 0 ? copy.viewCertificates : copy.browseCourses,
     },
   ];
 
   const renderRecommendedCourses = () => {
     if (loadingCourses || loadingPerformance) {
       return (
-        <section className="space-y-4 rounded-[1.5rem] border border-border bg-[linear-gradient(135deg,rgba(15,118,110,0.06)_0%,rgba(29,78,216,0.06)_100%)] p-5 sm:p-6">
+        <section className="space-y-4 rounded-[1.5rem] border border-border bg-muted/40 p-5 sm:p-6 dark:bg-muted/25">
           <div className="space-y-3">
             <Skeleton className="h-4 w-40" />
             <Skeleton className="h-8 w-80 max-w-full" />
@@ -723,13 +886,13 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
           <CardContent className="py-8 text-center space-y-3">
             <Sparkles className="h-10 w-10 text-primary/70 mx-auto" />
             <div>
-              <p className="font-medium">Complete onboarding to unlock recommendations.</p>
+              <p className="font-medium">{copy.recommendationGateTitle}</p>
               <p className="text-sm text-muted-foreground">
-                Your dashboard recommendations now wait for your post-login onboarding answers so cold-start suggestions use current interests, category choices, readiness, and skill signals.
+                {copy.recommendationGateBody}
               </p>
             </div>
             <div className="flex justify-center">
-              <Button onClick={() => setShowOnboardingModal(true)}>Complete onboarding</Button>
+              <Button onClick={() => setShowOnboardingModal(true)}>{copy.completeOnboarding}</Button>
             </div>
           </CardContent>
         </Card>
@@ -742,13 +905,13 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
           <CardContent className="py-8 text-center space-y-3">
             <Sparkles className="h-10 w-10 text-primary/70 mx-auto" />
             <div>
-              <p className="font-medium">Personalized recommendations unlock after learning activity.</p>
+              <p className="font-medium">{copy.recommendationActivityTitle}</p>
               <p className="text-sm text-muted-foreground">
-                Complete your onboarding preferences or start a module and your dashboard will surface next-step course suggestions here.
+                {copy.recommendationActivityBody}
               </p>
             </div>
             <Button asChild>
-              <Link to="/courses">Browse Courses</Link>
+              <Link to="/courses">{copy.browseCourses}</Link>
             </Button>
           </CardContent>
         </Card>
@@ -760,18 +923,18 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
     }
 
     return (
-      <section className="space-y-4 rounded-[1.5rem] border border-border bg-[linear-gradient(135deg,rgba(15,118,110,0.06)_0%,rgba(29,78,216,0.06)_100%)] p-5 sm:p-6">
+      <section className="space-y-4 rounded-[1.5rem] border border-border bg-muted/40 p-5 sm:p-6 dark:bg-muted/25">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <div className="flex items-center gap-2 text-primary">
               <Sparkles className="h-5 w-5" />
-              <span className="text-sm font-semibold uppercase tracking-[0.18em]">Personalized Recommendations</span>
+              <span className="text-sm font-semibold uppercase tracking-[0.18em]">{copy.personalizedRecommendations}</span>
             </div>
             <h2 className="mt-2 text-2xl font-semibold tracking-[-0.03em] text-foreground">{recommendationHeadline}</h2>
             <p className="mt-2 max-w-3xl text-sm leading-7 text-muted-foreground">{recommendationDescription}</p>
           </div>
           <Badge variant="outline" className="w-fit rounded-full bg-background/80 px-3 py-1 text-xs font-semibold">
-            {hasLearningHistory ? "Triggered by your dashboard activity" : hasOnboardingSignals ? "Driven by your onboarding profile" : "Using beginner-friendly defaults"}
+            {hasLearningHistory ? copy.triggeredByActivity : hasOnboardingSignals ? copy.drivenByProfile : copy.beginnerDefaults}
           </Badge>
         </div>
 
@@ -791,20 +954,26 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
                           (item) => item.course.id === recommendationRecovery.courseId,
                         );
                         if (card) {
-                          void handleRecommendationEnroll(card.course, card.persisted);
+                          void handleRecommendationEnroll(
+                            card.course,
+                            card.persisted,
+                            assessmentOnlyRecommendationCards.some((item) => item.course.id === card.course.id)
+                              ? "dashboard_assessment_recommendations"
+                              : "dashboard_recommendations",
+                          );
                         }
                       }}
                     >
-                      Retry enrollment
+                      {copy.retryEnrollment}
                     </Button>
                   ) : null}
                   {recommendationRecovery.feedback.suggestedActions.includes("profile") ? (
                     <Button asChild size="sm" variant="outline">
-                      <Link to="/profile">Update profile</Link>
+                      <Link to="/profile">{copy.updateProfile}</Link>
                     </Button>
                   ) : null}
                   <Button size="sm" variant="ghost" onClick={() => setRecommendationRecovery(null)}>
-                    Dismiss
+                    {copy.dismiss}
                   </Button>
                 </div>
               </div>
@@ -819,7 +988,7 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
                 {course.thumbnail ? (
                   <img src={course.thumbnail} alt={course.title} className="h-full w-full object-cover" />
                 ) : (
-                  <div className="flex h-full items-center justify-center bg-[linear-gradient(135deg,#eef2ff_0%,#dbeafe_45%,#ecfeff_100%)]">
+                  <div className="flex h-full items-center justify-center bg-muted">
                     <ImageIcon className="h-10 w-10 text-slate-500" />
                   </div>
                 )}
@@ -849,7 +1018,7 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
                   </div>
                   <div className="flex items-center gap-2">
                     <Users className="h-4 w-4" />
-                    <span>{course.enrolledCount || 0} learners enrolled</span>
+                    <span>{copy.learnersEnrolled(course.enrolledCount || 0)}</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <BookOpen className="h-4 w-4" />
@@ -857,7 +1026,7 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
                   </div>
                   <div className="flex items-center gap-2">
                     <Users className="h-4 w-4" />
-                    <span>Assigned trainer: {course.assignedTrainer?.displayName || course.instructor || "PESO Training Team"}</span>
+                    <span>{copy.assignedTrainer(course.assignedTrainer?.displayName || course.instructor || copy.defaultTrainer)}</span>
                   </div>
                 </div>
 
@@ -872,18 +1041,18 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
                 <div className="flex gap-3">
                   <Button
                     className="flex-1"
-                    onClick={() => void handleRecommendationEnroll(course, persisted)}
+                    onClick={() => void handleRecommendationEnroll(course, persisted, "dashboard_recommendations")}
                     disabled={verificationBlocked || enrollingRecommendationCourseId === course.id}
                   >
                     {verificationBlocked ? (
-                      user.verificationStatus === "rejected" ? "Verification rejected" : "Awaiting verification"
+                      user.verificationStatus === "rejected" ? copy.blockedRejected : copy.blockedPending
                     ) : enrollingRecommendationCourseId === course.id ? (
                       <>
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Enrolling...
+                        {copy.enrolling}
                       </>
                     ) : (
-                      "Enroll Now"
+                      copy.enrollNow
                     )}
                   </Button>
                   <Button variant="outline" asChild>
@@ -891,13 +1060,16 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
                       to={`/courses/${course.id}`}
                       state={{ entrySource: "dashboard_recommendations" }}
                       onClick={() => {
-                        if (persisted) {
-                          void analyticsService.logRecommendationClick(user.id, persisted, "dashboard_recommendations");
+                        const resolvedRecommendation = persisted?.id
+                          ? persisted
+                          : persistedRecommendations.find((item) => item.courseId === course.id);
+                        if (resolvedRecommendation) {
+                          void analyticsService.logRecommendationClick(user.id, resolvedRecommendation, "dashboard_recommendations");
                         }
                       }}
                     >
                       <Eye className="mr-2 h-4 w-4" />
-                      Preview
+                      {copy.preview}
                     </Link>
                   </Button>
                 </div>
@@ -924,9 +1096,9 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
           <CardContent className="py-8 text-center space-y-3">
             <Brain className="h-10 w-10 text-primary/70 mx-auto" />
             <div>
-              <p className="font-medium">Assessment-only recommendations need scored assessment evidence.</p>
+              <p className="font-medium">{copy.assessmentNeedEvidenceTitle}</p>
               <p className="text-sm text-muted-foreground">
-                Finish a graded assessment and this advisory mode will suggest courses using only score bands, strongest topics, weakest topics, and failed competencies.
+                {copy.assessmentNeedEvidenceBody}
               </p>
             </div>
           </CardContent>
@@ -939,12 +1111,12 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
     }
 
     return (
-      <section className="space-y-4 rounded-[1.5rem] border border-border bg-[linear-gradient(135deg,rgba(14,116,144,0.06)_0%,rgba(245,158,11,0.10)_100%)] p-5 sm:p-6">
+      <section className="space-y-4 rounded-[1.5rem] border border-border bg-muted/40 p-5 sm:p-6 dark:bg-muted/25">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <div className="flex items-center gap-2 text-primary">
               <Brain className="h-5 w-5" />
-              <span className="text-sm font-semibold uppercase tracking-[0.18em]">Assessment-Only Advisory</span>
+              <span className="text-sm font-semibold uppercase tracking-[0.18em]">{copy.assessmentOnlyAdvisory}</span>
             </div>
             <h2 className="mt-2 text-2xl font-semibold tracking-[-0.03em] text-foreground">{assessmentOnlyHeadline}</h2>
             <p className="mt-2 max-w-3xl text-sm leading-7 text-muted-foreground">{assessmentOnlyDescription}</p>
@@ -962,19 +1134,19 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
         {assessmentOnlyEvidence ? (
           <div className="grid gap-3 md:grid-cols-3">
             <div className="rounded-lg border bg-background/85 p-4">
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Strongest topic</p>
-              <p className="mt-2 font-semibold">{assessmentOnlyEvidence.strongestTopic?.topic || "Not enough evidence yet"}</p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{copy.strongestTopic}</p>
+              <p className="mt-2 font-semibold">{assessmentOnlyEvidence.strongestTopic?.topic || copy.notEnoughEvidence}</p>
             </div>
             <div className="rounded-lg border bg-background/85 p-4">
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Weakest topic</p>
-              <p className="mt-2 font-semibold">{assessmentOnlyEvidence.weakestTopic?.topic || "No clear focus area yet"}</p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{copy.weakestTopic}</p>
+              <p className="mt-2 font-semibold">{assessmentOnlyEvidence.weakestTopic?.topic || copy.noClearFocus}</p>
             </div>
             <div className="rounded-lg border bg-background/85 p-4">
-              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Failed competencies</p>
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{copy.failedCompetencies}</p>
               <p className="mt-2 font-semibold">
                 {assessmentOnlyEvidence.failedCompetencies.length > 0
                   ? assessmentOnlyEvidence.failedCompetencies.map((topic) => topic.topic).join(", ")
-                  : "No failed competency clusters"}
+                  : copy.noFailedClusters}
               </p>
             </div>
           </div>
@@ -987,7 +1159,7 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
                 {course.thumbnail ? (
                   <img src={course.thumbnail} alt={course.title} className="h-full w-full object-cover" />
                 ) : (
-                  <div className="flex h-full items-center justify-center bg-[linear-gradient(135deg,#fef3c7_0%,#dbeafe_50%,#ecfeff_100%)]">
+                  <div className="flex h-full items-center justify-center bg-muted">
                     <ImageIcon className="h-10 w-10 text-slate-500" />
                   </div>
                 )}
@@ -1018,7 +1190,7 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
                   </div>
                   <div className="flex items-center gap-2">
                     <Users className="h-4 w-4" />
-                    <span>Assigned trainer: {course.assignedTrainer?.displayName || course.instructor || "PESO Training Team"}</span>
+                    <span>{copy.assignedTrainer(course.assignedTrainer?.displayName || course.instructor || copy.defaultTrainer)}</span>
                   </div>
                 </div>
 
@@ -1033,18 +1205,20 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
                 <div className="flex gap-3">
                   <Button
                     className="flex-1"
-                    onClick={() => void handleRecommendationEnroll(course, persisted)}
+                    onClick={() =>
+                      void handleRecommendationEnroll(course, persisted, "dashboard_assessment_recommendations")
+                    }
                     disabled={verificationBlocked || enrollingRecommendationCourseId === course.id}
                   >
                     {verificationBlocked ? (
-                      user.verificationStatus === "rejected" ? "Verification rejected" : "Awaiting verification"
+                      user.verificationStatus === "rejected" ? copy.blockedRejected : copy.blockedPending
                     ) : enrollingRecommendationCourseId === course.id ? (
                       <>
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                        Enrolling...
+                        {copy.enrolling}
                       </>
                     ) : (
-                      "Enroll Now"
+                      copy.enrollNow
                     )}
                   </Button>
                   <Button variant="outline" asChild>
@@ -1052,13 +1226,16 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
                       to={`/courses/${course.id}`}
                       state={{ entrySource: "dashboard_assessment_recommendations" }}
                       onClick={() => {
-                        if (persisted) {
-                          void analyticsService.logRecommendationClick(user.id, persisted, "dashboard_assessment_recommendations");
+                        const resolvedRecommendation = persisted?.id
+                          ? persisted
+                          : persistedAssessmentOnlyRecommendations.find((item) => item.courseId === course.id);
+                        if (resolvedRecommendation) {
+                          void analyticsService.logRecommendationClick(user.id, resolvedRecommendation, "dashboard_assessment_recommendations");
                         }
                       }}
                     >
                       <Eye className="mr-2 h-4 w-4" />
-                      Preview
+                      {copy.preview}
                     </Link>
                   </Button>
                 </div>
@@ -1399,15 +1576,15 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
           <Card className="border-primary/20 bg-primary/5">
             <CardContent className="flex flex-col gap-4 p-5 md:flex-row md:items-center md:justify-between">
               <div>
-                <p className="text-sm font-medium text-primary">Post-login onboarding required for recommendations</p>
+                <p className="text-sm font-medium text-primary">{copy.postLoginTitle}</p>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  Registration is intentionally shorter now. Finish your dashboard onboarding to unlock recommendation cards, starter guidance, and profile-driven analytics context.
+                  {copy.postLoginBody}
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
-                <Button onClick={() => setShowOnboardingModal(true)}>Complete onboarding</Button>
+                <Button onClick={() => setShowOnboardingModal(true)}>{copy.completeOnboarding}</Button>
                 <Button asChild variant="outline">
-                  <Link to="/courses">Browse courses</Link>
+                  <Link to="/courses">{copy.browseCourses}</Link>
                 </Button>
               </div>
             </CardContent>
@@ -1415,47 +1592,47 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
         ) : latestOnboardingSummary ? (
           <Alert>
             <Sparkles className="h-4 w-4" />
-            <AlertTitle>Onboarding completed</AlertTitle>
+            <AlertTitle>{copy.onboardingCompletedTitle}</AlertTitle>
             <AlertDescription>
-              Your dashboard now has {latestOnboardingSummary.generatedRecommendationCount} starter recommendation{latestOnboardingSummary.generatedRecommendationCount === 1 ? "" : "s"} based on your onboarding profile.
+              {copy.onboardingCompletedBody(latestOnboardingSummary.generatedRecommendationCount)}
             </AlertDescription>
           </Alert>
         ) : null}
 
         <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
-          <Card className="overflow-hidden border-primary/15 bg-gradient-to-br from-primary/10 via-card to-card">
+          <Card className="overflow-hidden border-primary/15 bg-card">
             <CardContent className="p-6 sm:p-7">
               <div className="flex flex-col gap-6">
                 <div className="space-y-3">
                   <div className="flex flex-wrap items-center gap-2">
                     <Badge className="w-fit rounded-full bg-primary/10 px-3 py-1 text-primary hover:bg-primary/10">
-                      Trainee workspace
+                      {copy.workspaceBadge}
                     </Badge>
                     <TraineeVerificationBadge status={user.verificationStatus} />
                   </div>
                   <div>
-                    <h1 className="text-3xl font-bold tracking-tight">Welcome back, {user.name}!</h1>
+                    <h1 className="text-3xl font-bold tracking-tight">{copy.welcome(user.name)}</h1>
                     <p className="mt-2 max-w-2xl text-sm leading-7 text-muted-foreground sm:text-base">
-                      Keep moving with one clear next step: resume learning, sharpen your profile signals, or review your progress in detail.
+                      {copy.welcomeBody}
                     </p>
                   </div>
                 </div>
 
                 <div className="grid gap-3 sm:grid-cols-3">
                   <div className="rounded-2xl border border-border/60 bg-background/70 p-4">
-                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Enrolled</p>
+                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">{copy.enrolled}</p>
                     <p className="mt-2 text-3xl font-semibold">{stats.enrolledCourses}</p>
-                    <p className="mt-1 text-xs text-muted-foreground">Active courses in your dashboard</p>
+                    <p className="mt-1 text-xs text-muted-foreground">{copy.enrolledBody}</p>
                   </div>
                   <div className="rounded-2xl border border-border/60 bg-background/70 p-4">
-                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Completed</p>
+                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">{copy.completed}</p>
                     <p className="mt-2 text-3xl font-semibold">{stats.completedCourses}</p>
-                    <p className="mt-1 text-xs text-muted-foreground">Finished courses on record</p>
+                    <p className="mt-1 text-xs text-muted-foreground">{copy.completedBody}</p>
                   </div>
                   <div className="rounded-2xl border border-border/60 bg-background/70 p-4">
-                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Profile signals</p>
+                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">{copy.profileSignals}</p>
                     <p className="mt-2 text-3xl font-semibold">{profileSignalCoverage}%</p>
-                    <p className="mt-1 text-xs text-muted-foreground">Recommendation inputs completed</p>
+                    <p className="mt-1 text-xs text-muted-foreground">{copy.profileSignalsBody}</p>
                   </div>
                 </div>
 
@@ -1468,7 +1645,7 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
                 ) : null}
 
                 <div className="rounded-3xl border border-primary/15 bg-background/80 p-5">
-                  <p className="text-xs font-medium uppercase tracking-[0.18em] text-primary">Primary next step</p>
+                  <p className="text-xs font-medium uppercase tracking-[0.18em] text-primary">{copy.primaryNextStep}</p>
                   <h2 className="mt-3 text-2xl font-semibold tracking-[-0.03em]">{primaryAction.title}</h2>
                   <p className="mt-2 max-w-2xl text-sm leading-7 text-muted-foreground">{primaryAction.description}</p>
                   <div className="mt-5 flex flex-wrap gap-2">
@@ -1479,7 +1656,7 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
                     </Button>
                     <Button asChild variant="outline">
                       <Link to={verificationBlocked ? "/profile" : "/progress"}>
-                        {verificationBlocked ? (user.verificationStatus === "rejected" ? "Update profile" : "Open profile") : "View progress"}
+                        {verificationBlocked ? (user.verificationStatus === "rejected" ? copy.updateProfile : copy.openProfile) : copy.viewProgress}
                       </Link>
                     </Button>
                   </div>
@@ -1490,8 +1667,8 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
 
           <Card>
             <CardHeader>
-              <CardTitle>Next-step shortcuts</CardTitle>
-              <CardDescription>Keep your next action distinct so learning, browsing, and profile updates do not compete.</CardDescription>
+              <CardTitle>{copy.shortcutsTitle}</CardTitle>
+              <CardDescription>{copy.shortcutsBody}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
               {nextStepCards.map((item) => (
@@ -1519,10 +1696,10 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
             <div>
               <CardTitle className="flex items-center gap-2 text-xl">
                 <Clock3 className="h-5 w-5 text-primary" />
-                Last Accessed Module
+                {copy.lastAccessedTitle}
               </CardTitle>
               <CardDescription>
-                Resume from the most recent module session stored in your learning history.
+                {copy.lastAccessedBody}
               </CardDescription>
             </div>
             {lastAccessedModule && !loadingSessionHistory ? (
@@ -1549,19 +1726,19 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
 
                 <div className="grid gap-3 md:grid-cols-3">
                   <div className="rounded-lg border p-3">
-                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Last opened</p>
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">{copy.lastOpened}</p>
                     <p className="mt-2 text-sm font-medium">{formatActivityTime(lastAccessedModule.lastSeenAt)}</p>
                   </div>
                   <div className="rounded-lg border p-3">
-                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Latest session</p>
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">{copy.latestSession}</p>
                     <p className="mt-2 text-sm font-medium">{formatSessionDuration(lastAccessedModule.durationSeconds)}</p>
                   </div>
                   <div className="rounded-lg border p-3">
-                    <p className="text-xs uppercase tracking-wide text-muted-foreground">Resume point</p>
+                    <p className="text-xs uppercase tracking-wide text-muted-foreground">{copy.resumePoint}</p>
                     <p className="mt-2 text-sm font-medium">
                       {typeof lastAccessedModule.resumePositionSeconds === "number" && lastAccessedModule.resumePositionSeconds > 0
                         ? formatSessionDuration(lastAccessedModule.resumePositionSeconds)
-                        : "Start from current module"}
+                        : copy.startCurrentModule}
                     </p>
                   </div>
                 </div>
@@ -1575,21 +1752,21 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
                         moduleId: lastAccessedModule.moduleId,
                       }}
                     >
-                      Continue Module
+                      {copy.continueModule}
                     </Link>
                   </Button>
                   <Button asChild variant="outline">
-                    <Link to="/progress">View Session History</Link>
+                    <Link to="/progress">{copy.viewSessionHistory}</Link>
                   </Button>
                 </div>
               </div>
             ) : (
               <div className="space-y-4 py-4 text-center">
                 <p className="text-sm text-muted-foreground">
-                  Your recent module activity will appear here after you open a learning module.
+                  {copy.recentActivityEmpty}
                 </p>
                 <Button asChild variant="outline">
-                  <Link to="/courses">Browse Courses</Link>
+                  <Link to="/courses">{copy.browseCourses}</Link>
                 </Button>
               </div>
             )}
@@ -1598,22 +1775,22 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
 
         <Card>
           <CardHeader>
-            <CardTitle>Current dashboard focus</CardTitle>
-            <CardDescription>Use one destination at a time depending on whether you need to resume, explore, or review.</CardDescription>
+            <CardTitle>{copy.currentFocusTitle}</CardTitle>
+            <CardDescription>{copy.currentFocusBody}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="rounded-2xl border border-border/70 bg-muted/30 p-4">
-              <p className="text-sm text-muted-foreground">Resume learning</p>
+              <p className="text-sm text-muted-foreground">{copy.resumeLearningTitle}</p>
               <p className="mt-2 font-medium">
                 {lastAccessedModule
                   ? `${lastAccessedModule.moduleTitle || "Latest module"} is ready to continue.`
                   : primaryCourse
                     ? `${primaryCourse.title} is your current in-progress course.`
-                    : "No active module yet. Start with the course catalog."}
+                      : copy.noRecentModule}
               </p>
             </div>
             <div className="rounded-2xl border border-border/70 bg-muted/30 p-4">
-              <p className="text-sm text-muted-foreground">Recommendation strength</p>
+                    <p className="text-sm text-muted-foreground">{copy.recommendationStrength}</p>
               <p className="mt-2 font-medium">
                 {profileSignalCoverage >= 75
                   ? "Your dashboard has enough profile context to keep recommendations specific."
@@ -1621,7 +1798,7 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
               </p>
             </div>
             <div className="rounded-2xl border border-border/70 bg-muted/30 p-4">
-              <p className="text-sm text-muted-foreground">Progress review</p>
+              <p className="text-sm text-muted-foreground">{copy.progressReview}</p>
               <p className="mt-2 font-medium">
                 {stats.enrolledCourses > 0
                   ? "Use the progress dashboard when you want course-by-course detail, not when you are trying to resume quickly."
@@ -1639,11 +1816,11 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
         <div>
           <div className="mb-4 flex items-center justify-between">
             <div>
-              <h2 className="text-2xl font-bold">My Courses</h2>
-              <p className="mt-1 text-sm text-muted-foreground">Continue active courses first before shifting into detailed analytics or completed-history review.</p>
+              <h2 className="text-2xl font-bold">{copy.myCourses}</h2>
+              <p className="mt-1 text-sm text-muted-foreground">{copy.myCoursesBody}</p>
             </div>
             <Button asChild variant="outline">
-              <Link to="/courses">View All</Link>
+              <Link to="/courses">{copy.viewAll}</Link>
             </Button>
           </div>
           {loadingCourses ? (
@@ -1700,7 +1877,7 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
                           </div>
                           {isAwaitingApproval ? (
                             <p className="text-xs text-muted-foreground">
-                              Waiting for trainer approval before the course is marked complete.
+                              {copy.waitingApproval}
                             </p>
                           ) : null}
                           {isCompleted ? (

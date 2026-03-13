@@ -15,15 +15,14 @@ const Notifications = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<"all" | "unread">("all");
+  const unreadCount = notifications.filter((notification) => !notification.read).length;
 
   useEffect(() => {
     if (!user) {
       // Clear notifications when user logs out
       setNotifications([]);
-      setUnreadCount(0);
       setLoading(false);
       return;
     }
@@ -32,13 +31,11 @@ const Notifications = () => {
 
     // Load initial data
     loadNotifications();
-    loadUnreadCount();
 
     // Subscribe to real-time notifications
     try {
       unsubscribe = notificationService.subscribeToNotifications(user.id, (newNotification) => {
         setNotifications((prev) => [newNotification, ...prev]);
-        setUnreadCount((prev) => prev + 1);
       });
     } catch (error) {
       console.error("Error subscribing to notifications:", error);
@@ -70,23 +67,11 @@ const Notifications = () => {
     }
   };
 
-  const loadUnreadCount = async () => {
-    if (!user) return;
-
-    try {
-      const count = await notificationService.getUnreadCount(user.id);
-      setUnreadCount(count);
-    } catch (error) {
-      console.error("Error loading unread count:", error);
-    }
-  };
-
   const handleMarkAsRead = async (notificationId: string) => {
     await notificationService.markAsRead(notificationId);
     setNotifications((prev) =>
       prev.map((n) => (n.id === notificationId ? { ...n, read: true } : n))
     );
-    setUnreadCount((prev) => Math.max(0, prev - 1));
   };
 
   const handleMarkAllAsRead = async () => {
@@ -94,7 +79,6 @@ const Notifications = () => {
 
     await notificationService.markAllAsRead(user.id);
     setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
-    setUnreadCount(0);
     toast.success("All notifications marked as read");
   };
 

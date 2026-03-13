@@ -5,6 +5,7 @@ import { Loader2 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
 import { progressTrackingService } from "@/services/progressTrackingService";
+import { resolveCourseMaterialAccessUrl } from "@/lib/courseAssets";
 
 // Type assertion for ReactPlayer to handle type definition issues
 const TypedReactPlayer = ReactPlayer as React.ComponentType<any>;
@@ -22,6 +23,7 @@ const isHostedVideoFile = (value: string) => /\.(mp4|webm|ogg|mov|m4v)(\?|#|$)/i
 const VideoPlayer = ({ url, title, enrollmentId, moduleId, onPlaybackPositionChange }: VideoPlayerProps) => {
   const { user } = useAuth();
   const [isReady, setIsReady] = useState(false);
+  const [resolvedUrl, setResolvedUrl] = useState("");
   const [progress, setProgress] = useState(0);
   const [duration, setDuration] = useState(0);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- ReactPlayer ref type is complex
@@ -75,6 +77,27 @@ const VideoPlayer = ({ url, title, enrollmentId, moduleId, onPlaybackPositionCha
       loadVideoProgress();
     }
   }, [enrollmentId, moduleId, user, loadVideoProgress]);
+
+  useEffect(() => {
+    let isActive = true;
+
+    const resolveUrl = async () => {
+      setIsReady(false);
+      setResolvedUrl("");
+      const nextUrl = await resolveCourseMaterialAccessUrl(url);
+      if (!isActive) {
+        return;
+      }
+
+      setResolvedUrl(nextUrl || url);
+    };
+
+    void resolveUrl();
+
+    return () => {
+      isActive = false;
+    };
+  }, [url]);
 
   // Save progress periodically
   useEffect(() => {
@@ -178,6 +201,16 @@ const VideoPlayer = ({ url, title, enrollmentId, moduleId, onPlaybackPositionCha
     );
   }
 
+  if (!resolvedUrl) {
+    return (
+      <Card className="p-8">
+        <div className="flex items-center justify-center">
+          <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+        </div>
+      </Card>
+    );
+  }
+
   return (
     <div className="w-full">
       <div className="relative w-full" style={{ paddingTop: "56.25%" }}> {/* 16:9 aspect ratio */}
@@ -187,9 +220,9 @@ const VideoPlayer = ({ url, title, enrollmentId, moduleId, onPlaybackPositionCha
               <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
             </div>
           )}
-          {isHostedVideoFile(url) ? (
+          {isHostedVideoFile(resolvedUrl) ? (
             <video
-              src={url}
+              src={resolvedUrl}
               controls
               playsInline
               preload="metadata"
@@ -202,7 +235,7 @@ const VideoPlayer = ({ url, title, enrollmentId, moduleId, onPlaybackPositionCha
           ) : (
             <TypedReactPlayer
               ref={playerRef}
-              url={url}
+              url={resolvedUrl}
               width="100%"
               height="100%"
               controls

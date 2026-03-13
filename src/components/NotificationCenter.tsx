@@ -20,9 +20,9 @@ const NotificationCenter = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [notifications, setNotifications] = useState<Notification[]>([]);
-  const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(false);
   const [open, setOpen] = useState(false);
+  const unreadCount = notifications.filter((notification) => !notification.read).length;
 
   const loadNotifications = useCallback(async () => {
     if (!user) return;
@@ -38,22 +38,10 @@ const NotificationCenter = () => {
     }
   }, [user]);
 
-  const loadUnreadCount = useCallback(async () => {
-    if (!user) return;
-
-    try {
-      const count = await notificationService.getUnreadCount(user.id);
-      setUnreadCount(count);
-    } catch (error) {
-      console.error("Error loading unread count:", error);
-    }
-  }, [user]);
-
   useEffect(() => {
     if (!user) {
       // Clear notifications when user logs out
       setNotifications([]);
-      setUnreadCount(0);
       return;
     }
 
@@ -61,13 +49,11 @@ const NotificationCenter = () => {
 
     // Load initial data
     loadNotifications();
-    loadUnreadCount();
 
     // Subscribe to real-time notifications
     try {
       unsubscribe = notificationService.subscribeToNotifications(user.id, (newNotification) => {
         setNotifications((prev) => [newNotification, ...prev]);
-        setUnreadCount((prev) => prev + 1);
         // Show toast for new notification
         toast.info(newNotification.message, {
           duration: 5000,
@@ -86,14 +72,13 @@ const NotificationCenter = () => {
         }
       }
     };
-  }, [user, loadNotifications, loadUnreadCount]);
+  }, [user, loadNotifications]);
 
   useEffect(() => {
     if (open && user) {
       loadNotifications();
-      loadUnreadCount();
     }
-  }, [open, user, loadNotifications, loadUnreadCount]);
+  }, [open, user, loadNotifications]);
 
   const handleMarkAsRead = async (notificationId: string, e?: React.MouseEvent) => {
     e?.stopPropagation();
@@ -101,7 +86,6 @@ const NotificationCenter = () => {
     setNotifications((prev) =>
       prev.map((n) => (n.id === notificationId ? { ...n, read: true } : n))
     );
-    setUnreadCount((prev) => Math.max(0, prev - 1));
   };
 
   const handleMarkAllAsRead = async (e: React.MouseEvent) => {
@@ -110,7 +94,6 @@ const NotificationCenter = () => {
 
     await notificationService.markAllAsRead(user.id);
     setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
-    setUnreadCount(0);
     toast.success("All notifications marked as read");
   };
 

@@ -42,11 +42,12 @@ import {
 import { Checkbox } from "@/components/ui/checkbox";
 import { Users, Plus, Search, Trash2, Eye, Loader2, Clock3, Award, CheckCircle2, AlertCircle, FileQuestion } from "lucide-react";
 import { Enrollment, Course, EnrollmentProgressDetail, Module } from "@/types";
-import { enrollmentService, courseService } from "@/services/supabaseDatabaseService";
+import { enrollmentService, courseService, certificateService } from "@/services/supabaseDatabaseService";
 import { BulkEnrollmentDialog } from "@/components/enrollment/BulkEnrollmentDialog";
 import { toast } from "sonner";
 import { assessmentService, type AssessmentReviewQueueItem } from "@/services/assessmentService";
 import { moduleSessionService, type ModuleSession } from "@/services/moduleSessionService";
+import { useAuth } from "@/contexts/AuthContext";
 
 type EnrollmentWithDetails = Enrollment & {
   userName?: string;
@@ -94,6 +95,7 @@ const formatSessionStatus = (status: ModuleSession["sessionStatus"]) => {
 };
 
 const AdminEnrollments = () => {
+  const { user } = useAuth();
   const [enrollments, setEnrollments] = useState<EnrollmentWithDetails[]>([]);
   const [courses, setCourses] = useState<Course[]>([]);
   const [loading, setLoading] = useState(true);
@@ -110,6 +112,7 @@ const AdminEnrollments = () => {
   const [progressDetail, setProgressDetail] = useState<EnrollmentProgressDetail | null>(null);
   const [manualReviews, setManualReviews] = useState<AssessmentReviewQueueItem[]>([]);
   const [recentSessions, setRecentSessions] = useState<RecentSessionCard[]>([]);
+  const [courseActionEnrollmentId, setCourseActionEnrollmentId] = useState<string | null>(null);
 
   useEffect(() => {
     void initializePage();
@@ -329,6 +332,52 @@ const AdminEnrollments = () => {
       setManualReviews([]);
       setRecentSessions([]);
       setProgressLoading(false);
+    }
+  };
+
+  const refreshSelectedEnrollmentProgress = async () => {
+    if (selectedEnrollment) {
+      await handleViewProgress(selectedEnrollment);
+    }
+  };
+
+  const handleCompletionReview = async (enrollmentId: string, decision: "approved" | "needs_revision") => {
+    if (!user) {
+      return;
+    }
+
+    setCourseActionEnrollmentId(enrollmentId);
+
+    try {
+      await enrollmentService.reviewCompletion(enrollmentId, user.id, decision);
+      toast.success(decision === "approved" ? "Completion approved" : "Completion returned for follow-up");
+      await refreshSelectedEnrollmentProgress();
+      await loadEnrollments();
+    } catch (error: any) {
+      console.error("Error reviewing completion:", error);
+      toast.error(error?.message || "Failed to review completion");
+    } finally {
+      setCourseActionEnrollmentId(null);
+    }
+  };
+
+  const handleIssueCertificate = async (enrollmentId: string) => {
+    if (!user) {
+      return;
+    }
+
+    setCourseActionEnrollmentId(enrollmentId);
+
+    try {
+      await certificateService.issueCertificateForEnrollment(enrollmentId, user.id);
+      toast.success("Certificate released manually");
+      await refreshSelectedEnrollmentProgress();
+      await loadEnrollments();
+    } catch (error: any) {
+      console.error("Error issuing certificate:", error);
+      toast.error(error?.message || "Failed to release certificate");
+    } finally {
+      setCourseActionEnrollmentId(null);
     }
   };
 
@@ -624,6 +673,36 @@ const AdminEnrollments = () => {
                         <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
                           <p className="font-medium">Latest trainer feedback</p>
                           <p className="mt-1 whitespace-pre-wrap">{progressDetail.enrollment.completionFeedback}</p>
+                        </div>
+                      ) : null}
+                      {progressDetail.enrollment.progress >= 100 ? (
+                        <div className="flex flex-wrap gap-2">
+                          {progressDetail.enrollment.completionApprovalStatus !== "approved" ? (
+                            <>
+                              <Button
+                                onClick={() => void handleCompletionReview(progressDetail.enrollment.id, "approved")}
+                                disabled={courseActionEnrollmentId === progressDetail.enrollment.id || pendingReviewCount > 0}
+                              >
+                                Approve Completion
+                              </Button>
+                              <Button
+                                variant="outline"
+                                onClick={() => void handleCompletionReview(progressDetail.enrollment.id, "needs_revision")}
+                                disabled={courseActionEnrollmentId === progressDetail.enrollment.id}
+                              >
+                                Mark For Follow-up
+                              </Button>
+                            </>
+                          ) : null}
+                          {progressDetail.enrollment.completionApprovalStatus === "approved" && !progressDetail.enrollment.certificateId ? (
+                            <Button
+                              variant="secondary"
+                              onClick={() => void handleIssueCertificate(progressDetail.enrollment.id)}
+                              disabled={courseActionEnrollmentId === progressDetail.enrollment.id}
+                            >
+                              Release Certificate
+                            </Button>
+                          ) : null}
                         </div>
                       ) : null}
                     </CardContent>

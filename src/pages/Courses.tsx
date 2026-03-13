@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
+import { useLocale } from "@/contexts/LocaleContext";
 import { canonicalizeCourseCategory } from "@/lib/taxonomy";
 import DashboardLayout from "@/components/DashboardLayout";
 import Header from "@/components/Header";
@@ -47,13 +48,6 @@ import { toast } from "sonner";
 
 type CourseTab = "all" | "technical" | "business" | "personal";
 
-const courseTabs: Array<{ key: CourseTab; label: string }> = [
-  { key: "all", label: "All Courses" },
-  { key: "technical", label: "Technical Skills" },
-  { key: "business", label: "Business & Management" },
-  { key: "personal", label: "Personal Development" },
-];
-
 const matchesTab = (course: Course, activeTab: CourseTab) => {
   if (activeTab === "all") return true;
 
@@ -82,7 +76,7 @@ const getCourseVisual = (course: Course) => {
   if (value.includes("technical") || value.includes("web") || value.includes("digital") || value.includes("mobile")) {
     return {
       icon: Laptop2,
-      gradient: "linear-gradient(135deg, #eef2ff 0%, #dbeafe 100%)",
+      surfaceClass: "bg-indigo-50 dark:bg-indigo-950/30",
       iconWrapClass: "bg-indigo-600/10 text-indigo-700 dark:bg-indigo-400/15 dark:text-indigo-300",
     };
   }
@@ -90,7 +84,7 @@ const getCourseVisual = (course: Course) => {
   if (value.includes("business") || value.includes("entrepreneur") || value.includes("bookkeeping") || value.includes("accounting")) {
     return {
       icon: BriefcaseBusiness,
-      gradient: "linear-gradient(135deg, #fef3c7 0%, #fde68a 100%)",
+      surfaceClass: "bg-amber-50 dark:bg-amber-950/30",
       iconWrapClass: "bg-amber-600/10 text-amber-700 dark:bg-amber-400/15 dark:text-amber-300",
     };
   }
@@ -98,22 +92,21 @@ const getCourseVisual = (course: Course) => {
   if (value.includes("customer") || value.includes("communication") || value.includes("career")) {
     return {
       icon: MessageSquareHeart,
-      gradient: "linear-gradient(135deg, #fee2e2 0%, #fecaca 100%)",
+      surfaceClass: "bg-rose-50 dark:bg-rose-950/30",
       iconWrapClass: "bg-rose-600/10 text-rose-700 dark:bg-rose-400/15 dark:text-rose-300",
     };
   }
 
   return {
     icon: GraduationCap,
-    gradient: "linear-gradient(135deg, #e2e8f0 0%, #cbd5e1 100%)",
+    surfaceClass: "bg-slate-100 dark:bg-slate-900/60",
     iconWrapClass: "bg-slate-700/10 text-slate-700 dark:bg-slate-300/15 dark:text-slate-300",
   };
 };
 
-const formatLearnerCount = (count: number) => `${count || 0} learners enrolled`;
-
 const Courses = () => {
   const { user } = useAuth();
+  const { language } = useLocale();
   const navigate = useNavigate();
   const [courses, setCourses] = useState<Course[]>([]);
   const [activeTab, setActiveTab] = useState<CourseTab>("all");
@@ -127,6 +120,139 @@ const Courses = () => {
     courseTitle: string;
     feedback: ReturnType<typeof getEnrollmentErrorFeedback>;
   } | null>(null);
+
+  const copy = language === "tl"
+    ? {
+        tabs: {
+          all: "Lahat ng Kurso",
+          technical: "Technical Skills",
+          business: "Business at Management",
+          personal: "Personal Development",
+        },
+        toasts: {
+          loadFailed: "Hindi ma-load ang mga kurso",
+          alreadyEnrolled: "Naka-enroll ka na sa kursong ito",
+          enrolledSuccess: "Matagumpay kang naka-enroll sa kurso!",
+        },
+        actions: {
+          continueLearning: "Ipagpatuloy ang Pag-aaral",
+          enrollNow: "Mag-enroll Ngayon",
+          enrolling: "Nag-e-enroll...",
+          close: "Isara",
+          viewProgress: "Tingnan ang progreso",
+          openDashboard: "Buksan ang dashboard",
+          updateProfile: "I-update ang profile",
+          reviewProfile: "Suriin ang profile",
+          browseAllCourses: "Tingnan ang lahat ng kurso",
+          viewCertificates: "Tingnan ang certificates",
+          dismiss: "Isara",
+          retryEnrollment: "Subukan muli ang enrollment",
+          browseCourses: "Tingnan ang mga kurso",
+        },
+        labels: {
+          learnerCount: (count: number) => `${count || 0} learner ang naka-enroll`,
+          tesdaCertificate: "TESDA-recognized certificate",
+          completionCertificate: "May certificate kapag natapos",
+          modules: (count: number) => `${count} ${count === 1 ? "module" : "modules"}`,
+        },
+        publicPage: {
+          title: "Training Courses",
+          subtitle: "Palawakin ang iyong kakayahan sa pamamagitan ng mga komprehensibong training program na idinisenyo para mapataas ang iyong employability at career prospects.",
+          ctaTitle: "Makakuha ng Kinikilalang Certificates",
+          ctaBody: "Kapag matagumpay mong natapos ang anumang kurso, makakatanggap ka ng opisyal na certificate mula sa PESO Academy na maaari mong idagdag sa iyong resume at professional portfolio.",
+          ctaButton: "Alamin ang Certification",
+        },
+        dashboardPage: {
+          badge: "Course catalog",
+          title: "Training Courses",
+          subtitle: "Tingnan ang mga available na training program, ikumpara ang mga opsyon ayon sa category, at panatilihing malinaw ang susunod mong hakbang.",
+          primaryNextStep: "Pangunahing susunod na hakbang",
+          browseTitle: "Pumili ng kursong bubuo sa susunod mong hakbang",
+          browseDescription: "Mag-browse ayon sa category, i-preview ang course details, at mag-enroll kapag may nakita kang tugma sa iyong kasalukuyang goals.",
+          browseLabel: "Buksan ang dashboard",
+          readinessTitle: "Recommendation readiness",
+          readinessReady: (coverage: number) => `Kumpleto na nang ${coverage}% ang iyong profile signals kaya mas target ang course discovery.`,
+          readinessNeedsWork: (coverage: number) => `Kumpleto na nang ${coverage}% ang iyong profile signals. Magdagdag ng interests, categories, at skills para mas tumalas ang recommendations.`,
+          whenToUseTitle: "Kailan gagamitin ang page na ito",
+          whenToUseBody: "Manatili rito kapag naghahambing ka ng options. Bumalik sa dashboard kapag alam mo na kung aling course o module ang kailangan mong ipagpatuloy.",
+          certificatesTitle: "Makakuha ng Kinikilalang Certificates",
+          certificatesBody: "Tapusin ang mga kurso at idagdag ang PESO Academy certificates sa iyong portfolio.",
+        },
+        states: {
+          noCourses: "Wala pang kurso sa category na ito.",
+          blockedPending: "Naghihintay ng verification",
+          blockedRejected: "Tinanggihan ang verification",
+        },
+      }
+    : {
+        tabs: {
+          all: "All Courses",
+          technical: "Technical Skills",
+          business: "Business & Management",
+          personal: "Personal Development",
+        },
+        toasts: {
+          loadFailed: "Failed to load courses",
+          alreadyEnrolled: "You are already enrolled in this course",
+          enrolledSuccess: "Successfully enrolled in course!",
+        },
+        actions: {
+          continueLearning: "Continue Learning",
+          enrollNow: "Enroll Now",
+          enrolling: "Enrolling...",
+          close: "Close",
+          viewProgress: "View progress",
+          openDashboard: "Open dashboard",
+          updateProfile: "Update profile",
+          reviewProfile: "Review profile",
+          browseAllCourses: "Browse all courses",
+          viewCertificates: "View Certificates",
+          dismiss: "Dismiss",
+          retryEnrollment: "Retry enrollment",
+          browseCourses: "Browse Courses",
+        },
+        labels: {
+          learnerCount: (count: number) => `${count || 0} learners enrolled`,
+          tesdaCertificate: "TESDA-recognized certificate",
+          completionCertificate: "Certificate available upon completion",
+          modules: (count: number) => `${count} ${count === 1 ? "module" : "modules"}`,
+        },
+        publicPage: {
+          title: "Training Courses",
+          subtitle: "Enhance your skills with our comprehensive training programs designed to boost your employability and career prospects.",
+          ctaTitle: "Earn Recognized Certificates",
+          ctaBody: "Upon successful completion of any course, you'll receive an official certificate from PESO Academy that you can add to your resume and professional portfolio.",
+          ctaButton: "Learn More About Certification",
+        },
+        dashboardPage: {
+          badge: "Course catalog",
+          title: "Training Courses",
+          subtitle: "Browse available training programs, compare options by category, and keep your next move explicit: resume a current course or intentionally start a new one.",
+          primaryNextStep: "Primary next step",
+          browseTitle: "Pick a course that creates your next step",
+          browseDescription: "Browse by category, preview the course details, then enroll when you find a fit for your current skill goals.",
+          browseLabel: "Open dashboard",
+          readinessTitle: "Recommendation readiness",
+          readinessReady: (coverage: number) => `Your profile signals are ${coverage}% complete, so course discovery can stay more targeted.`,
+          readinessNeedsWork: (coverage: number) => `Your profile signals are ${coverage}% complete. Add interests, categories, and skills for sharper recommendations.`,
+          whenToUseTitle: "When to use this page",
+          whenToUseBody: "Stay here when you are comparing options. Switch back to the dashboard when you already know which course or module you need to continue.",
+          certificatesTitle: "Earn Recognized Certificates",
+          certificatesBody: "Complete courses and add PESO Academy certificates to your portfolio.",
+        },
+        states: {
+          noCourses: "No courses found for this category yet.",
+          blockedPending: "Awaiting verification",
+          blockedRejected: "Verification rejected",
+        },
+      };
+
+  const courseTabs: Array<{ key: CourseTab; label: string }> = [
+    { key: "all", label: copy.tabs.all },
+    { key: "technical", label: copy.tabs.technical },
+    { key: "business", label: copy.tabs.business },
+    { key: "personal", label: copy.tabs.personal },
+  ];
 
   useEffect(() => {
     loadCourses();
@@ -163,7 +289,7 @@ const Courses = () => {
       setCourses(allCourses.filter((course) => course.published !== false));
     } catch (error) {
       console.error("Error loading courses:", error);
-      toast.error("Failed to load courses");
+      toast.error(copy.toasts.loadFailed);
     } finally {
       setLoading(false);
     }
@@ -195,7 +321,7 @@ const Courses = () => {
     if (!user) return;
 
     if (enrollments.some((enrollment) => enrollment.courseId === course.id)) {
-      toast.info("You are already enrolled in this course");
+      toast.info(copy.toasts.alreadyEnrolled);
       return;
     }
 
@@ -205,7 +331,7 @@ const Courses = () => {
       await enrollmentService.enrollInCourse(user.id, course.id, { sourceSurface: "course_catalog" });
       await loadEnrollments();
       await loadCourses();
-      toast.success("Successfully enrolled in course!");
+      toast.success(copy.toasts.enrolledSuccess);
     } catch (error) {
       console.error("Error enrolling in course:", error);
       const feedback = getEnrollmentErrorFeedback(error, course.title);
@@ -240,8 +366,8 @@ const Courses = () => {
     ? getTraineeEnrollmentVerificationFeedback(user?.verificationStatus)
     : null;
   const blockedEnrollLabel = user?.verificationStatus === "rejected"
-    ? "Verification rejected"
-    : "Awaiting verification";
+    ? copy.states.blockedRejected
+    : copy.states.blockedPending;
 
   const profileSignalCoverage = Math.round(
     ([
@@ -257,13 +383,13 @@ const Courses = () => {
         title: "Choose between resuming and exploring",
         description: "You already have an active course. Resume it first if you want momentum, or stay here if you are intentionally looking for another learning path.",
         href: `/courses/${activeEnrollment.courseId}`,
-        label: "Continue current course",
+        label: copy.actions.continueLearning,
       }
     : {
-        title: "Pick a course that creates your next step",
-        description: "Browse by category, preview the course details, then enroll when you find a fit for your current skill goals.",
+        title: copy.dashboardPage.browseTitle,
+        description: copy.dashboardPage.browseDescription,
         href: "/dashboard",
-        label: "Open dashboard",
+        label: copy.dashboardPage.browseLabel,
       };
 
   const renderCourseCard = (course: Course) => {
@@ -287,7 +413,7 @@ const Courses = () => {
             {course.thumbnail ? (
               <img src={course.thumbnail} alt={course.title} className="h-full w-full object-cover" />
             ) : (
-              <div className="flex h-full w-full items-end justify-between p-6" style={{ background: visual.gradient }}>
+              <div className={`flex h-full w-full items-end justify-between p-6 ${visual.surfaceClass}`}>
                 <div className="max-w-[75%]">
                   <p className="text-xs font-semibold uppercase tracking-[0.22em] text-slate-700/70 dark:text-slate-800/70">
                     {course.category}
@@ -327,11 +453,11 @@ const Courses = () => {
             </div>
             <div className="flex items-center gap-2">
               <Users className="h-4 w-4" />
-              <span>{formatLearnerCount(course.enrolledCount)}</span>
+              <span>{copy.labels.learnerCount(course.enrolledCount)}</span>
             </div>
             <div className="flex items-center gap-2">
               <CalendarDays className="h-4 w-4" />
-              <span>{course.isTESDAAccredited ? "TESDA-recognized certificate" : "Certificate available upon completion"}</span>
+              <span>{course.isTESDAAccredited ? copy.labels.tesdaCertificate : copy.labels.completionCertificate}</span>
             </div>
           </div>
 
@@ -339,7 +465,7 @@ const Courses = () => {
             {isEnrolled ? (
               <Button asChild className="h-12 w-full rounded-xl text-base font-semibold">
                 <Link to={`/courses/${course.id}`} state={{ entrySource: "courses_continue_learning" }}>
-                  Continue Learning
+                  {copy.actions.continueLearning}
                 </Link>
               </Button>
             ) : (
@@ -353,10 +479,10 @@ const Courses = () => {
                 ) : isEnrolling ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Enrolling...
+                    {copy.actions.enrolling}
                   </>
                 ) : (
-                  "Enroll Now"
+                  copy.actions.enrollNow
                 )}
               </Button>
             )}
@@ -379,7 +505,7 @@ const Courses = () => {
                   className="h-52 w-full object-cover"
                 />
               ) : (
-                <div className="flex h-52 items-center justify-center bg-[linear-gradient(135deg,#e2e8f0_0%,#cbd5e1_100%)]">
+                <div className="flex h-52 items-center justify-center bg-muted">
                   <ImageIcon className="h-12 w-12 text-slate-500" />
                 </div>
               )}
@@ -413,11 +539,11 @@ const Courses = () => {
               </div>
               <div className="flex items-center gap-2">
                 <BookOpen className="h-4 w-4" />
-                <span>{previewModuleCount} {previewModuleCount === 1 ? "module" : "modules"}</span>
+                <span>{copy.labels.modules(previewModuleCount)}</span>
               </div>
               <div className="flex items-center gap-2">
                 <Users className="h-4 w-4" />
-                <span>{formatLearnerCount(previewCourse.enrolledCount)}</span>
+                <span>{copy.labels.learnerCount(previewCourse.enrolledCount)}</span>
               </div>
             </div>
 
@@ -438,7 +564,7 @@ const Courses = () => {
                 className="w-full sm:w-auto"
                 onClick={() => setPreviewCourse(null)}
               >
-                Close
+                {copy.actions.close}
               </Button>
               {enrollmentByCourseId[previewCourse.id] ? (
                 <Button asChild className="w-full sm:w-auto">
@@ -447,7 +573,7 @@ const Courses = () => {
                     state={{ entrySource: "courses_continue_learning" }}
                     onClick={() => setPreviewCourse(null)}
                   >
-                    Continue Learning
+                    {copy.actions.continueLearning}
                   </Link>
                 </Button>
               ) : (
@@ -464,10 +590,10 @@ const Courses = () => {
                   ) : enrolling === previewCourse.id ? (
                     <>
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      Enrolling...
+                      {copy.actions.enrolling}
                     </>
                   ) : (
-                    "Enroll Now"
+                    copy.actions.enrollNow
                   )}
                 </Button>
               )}
@@ -503,7 +629,7 @@ const Courses = () => {
         <div className="flex min-h-[260px] items-center justify-center rounded-[1.8rem] border border-border bg-card px-6 text-center">
           <div className="space-y-3">
             <BookOpen className="mx-auto h-10 w-10 text-muted-foreground" />
-            <p className="text-muted-foreground">No courses found for this category yet.</p>
+            <p className="text-muted-foreground">{copy.states.noCourses}</p>
           </div>
         </div>
       );
@@ -516,13 +642,13 @@ const Courses = () => {
     <div className="min-h-screen bg-background">
       <Header />
       <main className="pt-[74px]">
-        <section className="border-b border-border bg-[linear-gradient(180deg,hsl(var(--background))_0%,hsl(var(--muted))_100%)] py-14 sm:py-20">
+        <section className="border-b border-border bg-muted/60 py-14 sm:py-20 dark:bg-muted/35">
           <div className="mx-auto max-w-5xl px-4 text-center sm:px-6 lg:px-8">
             <h1 className="text-4xl font-extrabold tracking-[-0.04em] text-foreground sm:text-6xl">
-              Training <span className="text-primary">Courses</span>
+              {copy.publicPage.title.split(" ")[0]} <span className="text-primary">{copy.publicPage.title.split(" ").slice(1).join(" ")}</span>
             </h1>
             <p className="mx-auto mt-5 max-w-3xl text-base leading-8 text-muted-foreground sm:text-xl">
-              Enhance your skills with our comprehensive training programs designed to boost your employability and career prospects.
+              {copy.publicPage.subtitle}
             </p>
           </div>
         </section>
@@ -555,13 +681,13 @@ const Courses = () => {
                   <Ribbon className="h-8 w-8" />
                 </div>
                 <h2 className="text-3xl font-semibold tracking-[-0.03em] sm:text-5xl">
-                  Earn Recognized Certificates
+                  {copy.publicPage.ctaTitle}
                 </h2>
                 <p className="mt-5 max-w-2xl text-base leading-8 text-primary-foreground/80 sm:text-lg">
-                  Upon successful completion of any course, you'll receive an official certificate from PESO Academy that you can add to your resume and professional portfolio.
+                  {copy.publicPage.ctaBody}
                 </p>
                 <Button asChild variant="secondary" className="mt-8 h-12 rounded-xl bg-white px-8 text-base font-semibold text-primary hover:bg-white/90">
-                  <Link to="/certificates">Learn More About Certification</Link>
+                  <Link to="/certificates">{copy.publicPage.ctaButton}</Link>
                 </Button>
               </div>
             </div>
@@ -582,15 +708,15 @@ const Courses = () => {
     <DashboardLayout>
       <div className="space-y-8">
         <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
-          <div className="rounded-[1.8rem] border border-primary/15 bg-gradient-to-br from-primary/10 via-card to-card p-6 sm:p-7">
-            <p className="text-xs font-medium uppercase tracking-[0.18em] text-primary">Course catalog</p>
-            <h1 className="mt-3 text-3xl font-bold tracking-tight">Training Courses</h1>
+          <div className="rounded-[1.8rem] border border-primary/15 bg-card p-6 sm:p-7">
+            <p className="text-xs font-medium uppercase tracking-[0.18em] text-primary">{copy.dashboardPage.badge}</p>
+            <h1 className="mt-3 text-3xl font-bold tracking-tight">{copy.dashboardPage.title}</h1>
             <p className="mt-3 max-w-2xl text-sm leading-7 text-muted-foreground sm:text-base">
-              Browse available training programs, compare options by category, and keep your next move explicit: resume a current course or intentionally start a new one.
+              {copy.dashboardPage.subtitle}
             </p>
 
             <div className="mt-5 rounded-3xl border border-primary/15 bg-background/80 p-5">
-              <p className="text-xs font-medium uppercase tracking-[0.18em] text-primary">Primary next step</p>
+              <p className="text-xs font-medium uppercase tracking-[0.18em] text-primary">{copy.dashboardPage.primaryNextStep}</p>
               <h2 className="mt-3 text-2xl font-semibold tracking-[-0.03em]">{browsePrimaryAction.title}</h2>
               <p className="mt-2 text-sm leading-7 text-muted-foreground">{browsePrimaryAction.description}</p>
               <div className="mt-5 flex flex-wrap gap-2">
@@ -598,7 +724,7 @@ const Courses = () => {
                   <Link to={browsePrimaryAction.href}>{browsePrimaryAction.label}</Link>
                 </Button>
                 <Button asChild variant="outline">
-                  <Link to="/progress">View progress</Link>
+                  <Link to="/progress">{copy.actions.viewProgress}</Link>
                 </Button>
               </div>
             </div>
@@ -606,23 +732,23 @@ const Courses = () => {
 
           <div className="grid gap-3">
             <div className="rounded-[1.5rem] border border-border bg-card p-5">
-              <p className="font-medium">Recommendation readiness</p>
+              <p className="font-medium">{copy.dashboardPage.readinessTitle}</p>
               <p className="mt-2 text-sm leading-6 text-muted-foreground">
                 {profileSignalCoverage >= 75
-                  ? `Your profile signals are ${profileSignalCoverage}% complete, so course discovery can stay more targeted.`
-                  : `Your profile signals are ${profileSignalCoverage}% complete. Add interests, categories, and skills for sharper recommendations.`}
+                  ? copy.dashboardPage.readinessReady(profileSignalCoverage)
+                  : copy.dashboardPage.readinessNeedsWork(profileSignalCoverage)}
               </p>
               <Button asChild size="sm" variant="outline" className="mt-4">
-                <Link to="/profile">Update profile</Link>
+                <Link to="/profile">{copy.actions.updateProfile}</Link>
               </Button>
             </div>
             <div className="rounded-[1.5rem] border border-border bg-card p-5">
-              <p className="font-medium">When to use this page</p>
+              <p className="font-medium">{copy.dashboardPage.whenToUseTitle}</p>
               <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                Stay here when you are comparing options. Switch back to the dashboard when you already know which course or module you need to continue.
+                {copy.dashboardPage.whenToUseBody}
               </p>
               <Button asChild size="sm" variant="outline" className="mt-4">
-                <Link to="/dashboard">Open dashboard</Link>
+                <Link to="/dashboard">{copy.actions.openDashboard}</Link>
               </Button>
             </div>
           </div>
@@ -646,16 +772,16 @@ const Courses = () => {
                         }
                       }}
                     >
-                      Retry enrollment
+                      {copy.actions.retryEnrollment}
                     </Button>
                   ) : null}
                   {enrollmentRecovery.feedback.suggestedActions.includes("profile") ? (
                     <Button asChild size="sm" variant="outline">
-                      <Link to="/profile">Update profile</Link>
+                      <Link to="/profile">{copy.actions.updateProfile}</Link>
                     </Button>
                   ) : null}
                   <Button size="sm" variant="ghost" onClick={() => setEnrollmentRecovery(null)}>
-                    Dismiss
+                    {copy.actions.dismiss}
                   </Button>
                 </div>
               </div>
@@ -675,10 +801,10 @@ const Courses = () => {
                 <p>{verificationFeedback.description}</p>
                 <div className="flex flex-wrap gap-2">
                   <Button asChild size="sm" variant="outline">
-                    <Link to="/profile">Review profile</Link>
+                    <Link to="/profile">{copy.actions.reviewProfile}</Link>
                   </Button>
                   <Button size="sm" variant="ghost" onClick={() => setActiveTab("all")}>
-                    Browse all courses
+                    {copy.actions.browseAllCourses}
                   </Button>
                 </div>
               </div>
@@ -705,13 +831,13 @@ const Courses = () => {
         <div className="rounded-[1.8rem] bg-primary px-6 py-10 text-primary-foreground">
           <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <div className="max-w-2xl">
-              <h2 className="text-2xl font-semibold tracking-[-0.03em]">Earn Recognized Certificates</h2>
+              <h2 className="text-2xl font-semibold tracking-[-0.03em]">{copy.dashboardPage.certificatesTitle}</h2>
               <p className="mt-3 text-primary-foreground/80">
-                Complete courses and add PESO Academy certificates to your portfolio.
+                {copy.dashboardPage.certificatesBody}
               </p>
             </div>
             <Button asChild variant="secondary" className="rounded-xl bg-white text-primary hover:bg-white/90">
-              <Link to="/certificates">View Certificates</Link>
+              <Link to="/certificates">{copy.actions.viewCertificates}</Link>
             </Button>
           </div>
         </div>

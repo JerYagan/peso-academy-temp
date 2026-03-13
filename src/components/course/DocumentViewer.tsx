@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { FileText, Download, ExternalLink, Loader2, Image, Video } from "lucide-react";
+import { resolveCourseMaterialAccessUrl } from "@/lib/courseAssets";
 
 interface DocumentViewerProps {
   url: string;
@@ -33,11 +34,35 @@ function getMediaType(url: string): MediaType {
 const DocumentViewer = ({ url, title }: DocumentViewerProps) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const mediaType = getMediaType(url);
+  const [resolvedUrl, setResolvedUrl] = useState("");
+  const mediaType = getMediaType(resolvedUrl);
+
+  useEffect(() => {
+    let isActive = true;
+
+    const resolveUrl = async () => {
+      setLoading(true);
+      setError(null);
+      setResolvedUrl("");
+
+      const nextUrl = await resolveCourseMaterialAccessUrl(url);
+      if (!isActive) {
+        return;
+      }
+
+      setResolvedUrl(nextUrl || url);
+    };
+
+    void resolveUrl();
+
+    return () => {
+      isActive = false;
+    };
+  }, [url]);
 
   const handleDownload = () => {
     const link = document.createElement("a");
-    link.href = url;
+    link.href = resolvedUrl;
     link.download = title || "document";
     link.target = "_blank";
     document.body.appendChild(link);
@@ -46,13 +71,23 @@ const DocumentViewer = ({ url, title }: DocumentViewerProps) => {
   };
 
   const handleOpenInNewTab = () => {
-    window.open(url, "_blank");
+    window.open(resolvedUrl, "_blank");
   };
 
   if (!url || url.trim() === "") {
     return (
       <Card className="p-8">
         <p className="text-center text-muted-foreground">Invalid document URL</p>
+      </Card>
+    );
+  }
+
+  if (!resolvedUrl) {
+    return (
+      <Card className="p-8">
+        <div className="flex items-center justify-center">
+          <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
+        </div>
       </Card>
     );
   }
@@ -89,7 +124,7 @@ const DocumentViewer = ({ url, title }: DocumentViewerProps) => {
               </div>
             )}
             <iframe
-              src={`${url}#toolbar=1`}
+              src={`${resolvedUrl}#toolbar=1`}
               className="w-full h-full min-h-[600px] border-0"
               title={title || "Document Viewer"}
               onLoad={() => setLoading(false)}
@@ -122,7 +157,7 @@ const DocumentViewer = ({ url, title }: DocumentViewerProps) => {
               </div>
             )}
             <video
-              src={url}
+              src={resolvedUrl}
               controls
               className="w-full max-h-[600px]"
               onLoadedData={() => setLoading(false)}
@@ -157,7 +192,7 @@ const DocumentViewer = ({ url, title }: DocumentViewerProps) => {
               </div>
             )}
             <img
-              src={url}
+              src={resolvedUrl}
               alt={title || "Document"}
               className="max-w-full max-h-[600px] w-auto object-contain"
               onLoad={() => setLoading(false)}

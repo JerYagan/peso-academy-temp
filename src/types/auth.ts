@@ -6,6 +6,8 @@ export type VerificationStatus = "pending" | "verified" | "rejected";
 
 export type AppLanguage = "en" | "tl";
 
+export type AppThemePreference = "system" | "light" | "dark";
+
 export const USER_ROLES: UserRole[] = [
   "admin",
   "trainer",
@@ -75,6 +77,7 @@ export interface User {
   onboardingModalSeenAt?: string;
   skills?: string[];
   languagePreference?: AppLanguage;
+  themePreference?: AppThemePreference;
   createdAt: string;
 }
 

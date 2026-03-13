@@ -45,7 +45,7 @@ const FeaturesSection = () => {
           </span>
           <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-foreground mb-6">
             Everything You Need to{" "}
-            <span className="text-gradient">Succeed</span>
+            <span className="text-primary">Succeed</span>
           </h2>
           <p className="text-lg text-muted-foreground">
             From skills assessment to certification, PESO Academy provides a complete 

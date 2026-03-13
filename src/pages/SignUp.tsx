@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { AlertCircle, Eye, EyeOff, IdCard, Mail, ShieldCheck, UserRound } from "lucide-react";
+import { AlertCircle, Eye, EyeOff, Mail, UserRound } from "lucide-react";
 import AuthPageShell from "@/components/auth/AuthPageShell";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -11,7 +11,14 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useAuth } from "@/contexts/AuthContext";
 import { formatAllowedEmployeeDomains, isAllowedEmployeeRegistrationEmail } from "@/lib/employeeRegistration";
 import { TRAINEE_ONBOARDING_MODAL_PENDING_KEY } from "@/lib/onboarding";
-import { sanitizeDigitsOnlyInput, sanitizeNameInput, validateDigitsOnlyField, validateHumanName } from "@/lib/profileFieldValidation";
+import {
+  PROFILE_FIELD_LIMITS,
+  sanitizeDigitsOnlyInput,
+  sanitizeNameInput,
+  validateDigitsOnlyField,
+  validateHumanName,
+  validateMaxLength,
+} from "@/lib/profileFieldValidation";
 import { getDashboardRoute, type UserRole as AppUserRole } from "@/lib/roles";
 import { uploadTraineePhysicalIdDocument, validatePhysicalIdFile } from "@/lib/traineeVerificationDocuments";
 import { systemSettingsService } from "@/services/systemSettingsService";
@@ -42,7 +49,7 @@ const isEmployeeTrainee = (formData: SignUpFormData) => formData.traineeType ===
 
 const SignUp = () => {
   const { signup, updateUser, user, isAuthenticated, loading: authLoading } = useAuth();
-  const { getMessage, t } = useLocale();
+  const { t } = useLocale();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const redirectTo = searchParams.get("redirect");
@@ -58,8 +65,6 @@ const SignUp = () => {
     () => formatAllowedEmployeeDomains(allowedEmployeeDomains),
     [allowedEmployeeDomains],
   );
-
-  const afterSignupSteps = getMessage<string[]>("signup.afterSignupSteps");
 
   useEffect(() => {
     let active = true;
@@ -149,6 +154,11 @@ const SignUp = () => {
     }
 
     if (isEmployeeTrainee(formData)) {
+      const employeeIdLengthError = validateMaxLength("Employee ID", formData.employeeId, PROFILE_FIELD_LIMITS.employeeId);
+      if (employeeIdLengthError) {
+        return employeeIdLengthError;
+      }
+
       const employeeIdValidationError = validateDigitsOnlyField("Employee ID", formData.employeeId);
       if (employeeIdValidationError) {
         return employeeIdValidationError;
@@ -264,7 +274,7 @@ const SignUp = () => {
             </Alert>
           ) : null}
 
-          <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
+          <div className="space-y-4">
             <div className="space-y-4">
               <div className="space-y-3">
                 <Label>{t("signup.traineeType")}</Label>
@@ -417,29 +427,6 @@ const SignUp = () => {
               ) : null}
             </div>
 
-            <div className="space-y-4">
-              <div className="rounded-2xl border border-primary/15 bg-primary/5 p-5">
-                <div className="flex items-center gap-2 text-primary">
-                  <ShieldCheck className="h-4 w-4" />
-                  <p className="text-sm font-medium">{t("signup.afterSignupTitle")}</p>
-                </div>
-                <div className="mt-4 space-y-3 text-sm leading-6 text-muted-foreground">
-                  {afterSignupSteps.map((step) => (
-                    <p key={step}>{step}</p>
-                  ))}
-                </div>
-              </div>
-
-              <div className="rounded-2xl border border-border/70 bg-muted/20 p-5 text-sm text-muted-foreground">
-                <div className="flex items-center gap-2 text-foreground">
-                  <IdCard className="h-4 w-4 text-primary" />
-                  <p className="font-medium">{t("signup.verificationTitle")}</p>
-                </div>
-                <p className="mt-3 leading-6">
-                  {t("signup.verificationBody")}
-                </p>
-              </div>
-            </div>
           </div>
         </section>
 

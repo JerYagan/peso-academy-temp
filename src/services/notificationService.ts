@@ -38,6 +38,141 @@ export interface Notification {
   };
 }
 
+const unsupportedNotificationColumns = new Set<string>();
+
+const normalizeMissingColumnName = (columnName: string | null | undefined): string | null => {
+  const normalized = String(columnName || "")
+    .trim()
+    .replace(/^"|"$/g, "")
+    .replace(/^'|'$/g, "");
+
+  if (!normalized) {
+    return null;
+  }
+
+  const segments = normalized.split(".").filter(Boolean);
+  return segments[segments.length - 1] || normalized;
+};
+
+const getMissingColumnName = (error: unknown, tableName: string): string | null => {
+  const message = typeof error === "object" && error !== null && "message" in error
+    ? String((error as { message?: string }).message || "")
+    : "";
+  const details = typeof error === "object" && error !== null && "details" in error
+    ? String((error as { details?: string }).details || "")
+    : "";
+  const haystack = `${message} ${details}`;
+
+  const schemaCacheMatch = haystack.match(new RegExp(`'([^']+)' column of '${tableName}'`, "i"));
+  if (schemaCacheMatch?.[1]) {
+    return normalizeMissingColumnName(schemaCacheMatch[1]);
+  }
+
+  const quotedPostgresMatch = haystack.match(/column\s+"([^"]+)"\s+does not exist/i);
+  if (quotedPostgresMatch?.[1]) {
+    return normalizeMissingColumnName(quotedPostgresMatch[1]);
+  }
+
+  const unquotedPostgresMatch = haystack.match(/column\s+([a-zA-Z0-9_.]+)\s+does not exist/i);
+  if (unquotedPostgresMatch?.[1]) {
+    return normalizeMissingColumnName(unquotedPostgresMatch[1]);
+  }
+
+  return null;
+};
+
+const buildSelectWithFallback = (baseSelect: string, unsupportedColumns: Set<string>) => {
+  const fields = baseSelect
+    .split(",")
+    .map((field) => field.trim())
+    .filter(Boolean)
+    .filter((field) => !unsupportedColumns.has(field));
+
+  return fields.join(", ");
+};
+
+const sanitizeWritePayload = (payload: Record<string, unknown>, unsupportedColumns: Set<string>) => {
+  const nextPayload = { ...payload };
+
+  for (const column of unsupportedColumns) {
+    delete nextPayload[column];
+  }
+
+  return nextPayload;
+};
+
+const executeNotificationReadWithFallback = async <T>(
+  execute: (selectClause: string) => Promise<{ data: T | null; error: any }>,
+  selectClause: string,
+): Promise<{ data: T | null; error: any }> => {
+  let nextSelect = buildSelectWithFallback(selectClause, unsupportedNotificationColumns);
+
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const result = await execute(nextSelect);
+    if (!result.error) {
+      return result;
+    }
+
+    const missingColumn = getMissingColumnName(result.error, "notifications");
+    if (!missingColumn) {
+      return result;
+    }
+
+    unsupportedNotificationColumns.add(missingColumn);
+    nextSelect = buildSelectWithFallback(selectClause, unsupportedNotificationColumns);
+  }
+
+  return execute(nextSelect);
+};
+
+const executeNotificationWriteWithFallback = async <T>(
+  execute: (payload: Record<string, unknown>) => Promise<{ data: T | null; error: any }>,
+  payload: Record<string, unknown>,
+): Promise<{ data: T | null; error: any }> => {
+  let nextPayload = sanitizeWritePayload(payload, unsupportedNotificationColumns);
+
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const result = await execute(nextPayload);
+    if (!result.error) {
+      return result;
+    }
+
+    const missingColumn = getMissingColumnName(result.error, "notifications");
+    if (!missingColumn || !(missingColumn in nextPayload)) {
+      return result;
+    }
+
+    unsupportedNotificationColumns.add(missingColumn);
+    delete nextPayload[missingColumn];
+  }
+
+  return execute(nextPayload);
+};
+
+const mapNotificationRow = (notif: any): Notification => ({
+  id: notif.id,
+  userId: notif.user_id,
+  type: notif.type as NotificationType,
+  message: notif.message,
+  read: notif.read ?? false,
+  createdAt: notif.created_at,
+  metadata: notif.metadata || undefined,
+});
+
+const isRecoverableNotificationError = (error: unknown) => {
+  const code = typeof error === "object" && error !== null && "code" in error
+    ? String((error as { code?: string }).code || "")
+    : "";
+  const message = typeof error === "object" && error !== null && "message" in error
+    ? String((error as { message?: string }).message || "")
+    : "";
+
+  return code === "PGRST116"
+    || code === "42P01"
+    || /relation .*notifications.* does not exist/i.test(message)
+    || /Could not find the table .*notifications/i.test(message);
+};
+
 export const notificationService = {
   /**
    * Get all notifications for a user
@@ -46,34 +181,33 @@ export const notificationService = {
     if (!supabase) return [];
 
     try {
-      let query = supabase
-        .from("notifications")
-        .select("*")
-        .eq("user_id", userId)
-        .order("created_at", { ascending: false });
+      const { data, error } = await executeNotificationReadWithFallback(
+        (selectClause) => {
+          let query = supabase
+            .from("notifications")
+            .select(selectClause)
+            .eq("user_id", userId)
+            .order("created_at", { ascending: false });
 
-      if (limit) {
-        query = query.limit(limit);
-      }
+          if (limit) {
+            query = query.limit(limit);
+          }
 
-      const { data, error } = await query;
+          return query;
+        },
+        "*",
+      );
 
       if (error) {
+        if (isRecoverableNotificationError(error)) {
+          return [];
+        }
+
         handleSupabaseError(error);
         return [];
       }
 
-      return (
-        data?.map((notif) => ({
-          id: notif.id,
-          userId: notif.user_id,
-          type: notif.type as NotificationType,
-          message: notif.message,
-          read: notif.read,
-          createdAt: notif.created_at,
-          metadata: notif.metadata || undefined,
-        })) || []
-      );
+      return data?.map(mapNotificationRow) || [];
     } catch (error) {
       console.error("Error getting notifications:", error);
       return [];
@@ -87,18 +221,25 @@ export const notificationService = {
     if (!supabase) return 0;
 
     try {
-      const { count, error } = await supabase
-        .from("notifications")
-        .select("*", { count: "exact", head: true })
-        .eq("user_id", userId)
-        .eq("read", false);
+      const { data, error } = await executeNotificationReadWithFallback(
+        (selectClause) => supabase
+          .from("notifications")
+          .select(selectClause)
+          .eq("user_id", userId)
+          .eq("read", false),
+        "id",
+      );
 
       if (error) {
+        if (isRecoverableNotificationError(error)) {
+          return 0;
+        }
+
         handleSupabaseError(error);
         return 0;
       }
 
-      return count || 0;
+      return data?.length || 0;
     } catch (error) {
       console.error("Error getting unread count:", error);
       return 0;
@@ -117,31 +258,30 @@ export const notificationService = {
     if (!supabase) return null;
 
     try {
-      const { data, error } = await supabase
-        .from("notifications")
-        .insert({
+      const { data, error } = await executeNotificationWriteWithFallback(
+        (payload) => supabase
+          .from("notifications")
+          .insert(payload)
+          .select("*")
+          .single(),
+        {
           user_id: userId,
           type,
           message,
           metadata: metadata || null,
-        })
-        .select()
-        .single();
+        },
+      );
 
       if (error) {
+        if (isRecoverableNotificationError(error)) {
+          return null;
+        }
+
         handleSupabaseError(error);
         return null;
       }
 
-      return {
-        id: data.id,
-        userId: data.user_id,
-        type: data.type as NotificationType,
-        message: data.message,
-        read: data.read,
-        createdAt: data.created_at,
-        metadata: data.metadata || undefined,
-      };
+      return mapNotificationRow(data);
     } catch (error) {
       console.error("Error creating notification:", error);
       return null;
@@ -231,16 +371,7 @@ export const notificationService = {
           filter: `user_id=eq.${userId}`,
         },
         (payload) => {
-          const newNotification = payload.new as any;
-          callback({
-            id: newNotification.id,
-            userId: newNotification.user_id,
-            type: newNotification.type as NotificationType,
-            message: newNotification.message,
-            read: newNotification.read,
-            createdAt: newNotification.created_at,
-            metadata: newNotification.metadata || undefined,
-          });
+          callback(mapNotificationRow(payload.new as any));
         }
       )
       .subscribe();

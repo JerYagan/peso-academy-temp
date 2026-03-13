@@ -1,5 +1,6 @@
 import { User, normalizeUserRole } from "@/types/auth";
 import { isAllowedEmployeeRegistrationEmail } from "@/lib/employeeRegistration";
+import { normalizePhoneNumber, normalizePostalCode, validatePhoneNumber, validatePostalCode } from "@/lib/profileFieldValidation";
 import { supabase, handleSupabaseError } from "@/lib/supabase";
 import { systemSettingsService } from "@/services/systemSettingsService";
 
@@ -42,6 +43,7 @@ type UserProfileRecord = {
   onboarding_digital_comfort?: string | null;
   onboarding_completed_at?: string | null;
   language_preference?: string | null;
+  theme_preference?: string | null;
   skills?: string[] | null;
   created_at: string;
 };
@@ -131,6 +133,9 @@ const buildUserFromSources = (
     languagePreference:
       (profileData?.language_preference as User["languagePreference"] | undefined) ||
       (getMetadataString(authUser.user_metadata?.language_preference) as User["languagePreference"] | undefined),
+    themePreference:
+      (profileData?.theme_preference as User["themePreference"] | undefined) ||
+      (getMetadataString(authUser.user_metadata?.theme_preference) as User["themePreference"] | undefined),
     onboardingModalSeenAt: profileData?.onboarding_modal_seen_at || getMetadataString(authUser.user_metadata?.onboarding_modal_seen_at),
     skills: profileData?.skills || getMetadataStringArray(authUser.user_metadata?.skills),
     createdAt: profileData?.created_at || authUser.created_at || new Date().toISOString(),
@@ -212,6 +217,7 @@ const ensureUserProfileRecord = async (
     onboarding_digital_comfort: getMetadataString(authUser.user_metadata?.onboarding_digital_comfort) || null,
     onboarding_completed_at: getMetadataString(authUser.user_metadata?.onboarding_completed_at) || null,
     language_preference: getMetadataString(authUser.user_metadata?.language_preference) || "en",
+    theme_preference: getMetadataString(authUser.user_metadata?.theme_preference) || "system",
     skills: getMetadataStringArray(authUser.user_metadata?.skills) || [],
     created_at: authUser.created_at || new Date().toISOString(),
     updated_at: new Date().toISOString(),
@@ -342,6 +348,23 @@ export const supabaseAuthService = {
     
     try {
       const canonicalRole = normalizeUserRole(role);
+      const normalizedPhone = profile?.phone !== undefined ? normalizePhoneNumber(profile.phone) : undefined;
+      const normalizedPostalCode = profile?.postalCode !== undefined ? normalizePostalCode(profile.postalCode) : undefined;
+
+      if (normalizedPhone !== undefined) {
+        const phoneError = validatePhoneNumber(normalizedPhone);
+        if (phoneError) {
+          return { user: null, error: new Error(phoneError) };
+        }
+      }
+
+      if (normalizedPostalCode !== undefined) {
+        const postalCodeError = validatePostalCode(normalizedPostalCode);
+        if (postalCodeError) {
+          return { user: null, error: new Error(postalCodeError) };
+        }
+      }
+
       const traineeType = canonicalRole === "trainee" ? profile?.traineeType || "peso_client" : undefined;
       const verificationStatus = canonicalRole === "trainee" ? profile?.verificationStatus || "pending" : "verified";
       const verificationSubmittedAt =
@@ -400,7 +423,7 @@ export const supabaseAuthService = {
             verified_by: profile?.verifiedBy ?? null,
             verification_notes: profile?.verificationNotes ?? null,
             onboarding_modal_seen_at: profile?.onboardingModalSeenAt ?? null,
-            phone: profile?.phone ?? null,
+            phone: normalizedPhone ?? null,
             address: profile?.address ?? null,
             date_of_birth: profile?.dateOfBirth ?? null,
             gender: profile?.gender ?? null,
@@ -411,7 +434,7 @@ export const supabaseAuthService = {
             barangay: profile?.barangay ?? null,
             city_municipality: profile?.cityMunicipality ?? null,
             province: profile?.province ?? null,
-            postal_code: profile?.postalCode ?? null,
+            postal_code: normalizedPostalCode ?? null,
             industry_interests: profile?.industryInterests ?? [],
             preferred_categories: profile?.preferredCategories ?? [],
             onboarding_skill_level: profile?.onboardingSkillLevel ?? null,
@@ -420,6 +443,7 @@ export const supabaseAuthService = {
             onboarding_digital_comfort: profile?.onboardingDigitalComfort ?? null,
             onboarding_completed_at: profile?.onboardingCompletedAt ?? null,
             language_preference: profile?.languagePreference ?? "en",
+            theme_preference: profile?.themePreference ?? "system",
             skills: profile?.skills ?? [],
           },
           // For development: auto-confirm email if email confirmation is disabled
@@ -1019,6 +1043,22 @@ export const supabaseAuthService = {
       const updateData: Record<string, any> = {
         updated_at: new Date().toISOString(),
       };
+      const normalizedPhone = updates.phone !== undefined ? normalizePhoneNumber(updates.phone || "") : undefined;
+      const normalizedPostalCode = updates.postalCode !== undefined ? normalizePostalCode(updates.postalCode || "") : undefined;
+
+      if (normalizedPhone !== undefined) {
+        const phoneError = validatePhoneNumber(normalizedPhone);
+        if (phoneError) {
+          throw new Error(phoneError);
+        }
+      }
+
+      if (normalizedPostalCode !== undefined) {
+        const postalCodeError = validatePostalCode(normalizedPostalCode);
+        if (postalCodeError) {
+          throw new Error(postalCodeError);
+        }
+      }
 
       if (updates.name !== undefined) updateData.name = updates.name;
       if (updates.traineeType !== undefined) updateData.trainee_type = updates.traineeType || null;
@@ -1029,7 +1069,7 @@ export const supabaseAuthService = {
       if (updates.verifiedAt !== undefined) updateData.verified_at = updates.verifiedAt || null;
       if (updates.verifiedBy !== undefined) updateData.verified_by = updates.verifiedBy || null;
       if (updates.verificationNotes !== undefined) updateData.verification_notes = updates.verificationNotes || null;
-      if (updates.phone !== undefined) updateData.phone = updates.phone;
+      if (updates.phone !== undefined) updateData.phone = normalizedPhone || null;
       if (updates.address !== undefined) updateData.address = updates.address;
       if (updates.dateOfBirth !== undefined) updateData.date_of_birth = updates.dateOfBirth || null;
       if (updates.gender !== undefined) updateData.gender = updates.gender || null;
@@ -1040,7 +1080,7 @@ export const supabaseAuthService = {
       if (updates.barangay !== undefined) updateData.barangay = updates.barangay || null;
       if (updates.cityMunicipality !== undefined) updateData.city_municipality = updates.cityMunicipality || null;
       if (updates.province !== undefined) updateData.province = updates.province || null;
-      if (updates.postalCode !== undefined) updateData.postal_code = updates.postalCode || null;
+      if (updates.postalCode !== undefined) updateData.postal_code = normalizedPostalCode || null;
       if (updates.industryInterests !== undefined) updateData.industry_interests = updates.industryInterests;
       if (updates.preferredCategories !== undefined) updateData.preferred_categories = updates.preferredCategories;
       if (updates.onboardingSkillLevel !== undefined) updateData.onboarding_skill_level = updates.onboardingSkillLevel || null;
@@ -1049,6 +1089,7 @@ export const supabaseAuthService = {
       if (updates.onboardingDigitalComfort !== undefined) updateData.onboarding_digital_comfort = updates.onboardingDigitalComfort || null;
       if (updates.onboardingCompletedAt !== undefined) updateData.onboarding_completed_at = updates.onboardingCompletedAt || null;
       if (updates.languagePreference !== undefined) updateData.language_preference = updates.languagePreference || "en";
+      if (updates.themePreference !== undefined) updateData.theme_preference = updates.themePreference || "system";
       if (updates.onboardingModalSeenAt !== undefined) updateData.onboarding_modal_seen_at = updates.onboardingModalSeenAt || null;
       if (updates.avatar !== undefined) updateData.avatar = updates.avatar;
       if (updates.skills !== undefined) updateData.skills = updates.skills;
@@ -1064,7 +1105,7 @@ export const supabaseAuthService = {
       if (updates.verifiedAt !== undefined) metadataUpdates.verified_at = updates.verifiedAt || null;
       if (updates.verifiedBy !== undefined) metadataUpdates.verified_by = updates.verifiedBy || null;
       if (updates.verificationNotes !== undefined) metadataUpdates.verification_notes = updates.verificationNotes || null;
-      if (updates.phone !== undefined) metadataUpdates.phone = updates.phone || null;
+      if (updates.phone !== undefined) metadataUpdates.phone = normalizedPhone || null;
       if (updates.address !== undefined) metadataUpdates.address = updates.address || null;
       if (updates.dateOfBirth !== undefined) metadataUpdates.date_of_birth = updates.dateOfBirth || null;
       if (updates.gender !== undefined) metadataUpdates.gender = updates.gender || null;
@@ -1075,7 +1116,7 @@ export const supabaseAuthService = {
       if (updates.barangay !== undefined) metadataUpdates.barangay = updates.barangay || null;
       if (updates.cityMunicipality !== undefined) metadataUpdates.city_municipality = updates.cityMunicipality || null;
       if (updates.province !== undefined) metadataUpdates.province = updates.province || null;
-      if (updates.postalCode !== undefined) metadataUpdates.postal_code = updates.postalCode || null;
+      if (updates.postalCode !== undefined) metadataUpdates.postal_code = normalizedPostalCode || null;
       if (updates.industryInterests !== undefined) metadataUpdates.industry_interests = updates.industryInterests || [];
       if (updates.preferredCategories !== undefined) metadataUpdates.preferred_categories = updates.preferredCategories || [];
       if (updates.onboardingSkillLevel !== undefined) metadataUpdates.onboarding_skill_level = updates.onboardingSkillLevel || null;
@@ -1084,6 +1125,7 @@ export const supabaseAuthService = {
       if (updates.onboardingDigitalComfort !== undefined) metadataUpdates.onboarding_digital_comfort = updates.onboardingDigitalComfort || null;
       if (updates.onboardingCompletedAt !== undefined) metadataUpdates.onboarding_completed_at = updates.onboardingCompletedAt || null;
       if (updates.languagePreference !== undefined) metadataUpdates.language_preference = updates.languagePreference || "en";
+      if (updates.themePreference !== undefined) metadataUpdates.theme_preference = updates.themePreference || "system";
       if (updates.onboardingModalSeenAt !== undefined) metadataUpdates.onboarding_modal_seen_at = updates.onboardingModalSeenAt || null;
       if (updates.skills !== undefined) metadataUpdates.skills = updates.skills || [];
 
@@ -1156,6 +1198,7 @@ export const supabaseAuthService = {
         onboardingDigitalComfort: (data.onboarding_digital_comfort as User["onboardingDigitalComfort"] | undefined) || undefined,
         onboardingCompletedAt: data.onboarding_completed_at || undefined,
         languagePreference: (data.language_preference as User["languagePreference"] | undefined) || undefined,
+        themePreference: (data.theme_preference as User["themePreference"] | undefined) || undefined,
         onboardingModalSeenAt: data.onboarding_modal_seen_at || undefined,
         skills: data.skills || undefined,
         createdAt: data.created_at,

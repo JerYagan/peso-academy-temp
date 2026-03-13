@@ -341,58 +341,10 @@ export const roleService = {
     }
 
     try {
-      // Try RPC function first
-      const { data, error } = await supabase.rpc('get_user_permissions', {
-        user_id: userId
-      });
-
-      if (error) {
-        console.error("❌ Error fetching user permissions via RPC:", error);
-        console.error("Error details:", {
-          message: error.message,
-          details: error.details,
-          hint: error.hint,
-          code: error.code,
-        });
-        
-        // Fallback: Query database directly
-        console.log("🔄 Falling back to direct database query...");
-        return await roleService.getUserPermissionsDirect(userId);
-      }
-
-      // Extract permission IDs from the result
-      // Handle both old format (3 columns) and new format (4 columns with source)
-      const permissions = (data || []).map((p: any) => {
-        // Support both permission_id and id fields, and handle the new source column
-        const permId = p.permission_id || p.id;
-        if (!permId) {
-          console.warn("⚠️ Permission object missing ID:", p);
-        }
-        return permId;
-      }).filter(Boolean);
-      
-      console.log("📋 User permissions fetched:", { 
-        userId, 
-        count: permissions.length, 
-        permissions,
-        rawDataCount: data?.length || 0,
-        rawDataSample: data?.slice(0, 3) // Show first 3 for debugging
-      });
-      
-      if (permissions.length === 0 && data && data.length > 0) {
-        console.error("❌ Failed to extract permission IDs from data:", data);
-      }
-      
-      return permissions;
+      return await roleService.getUserPermissionsDirect(userId);
     } catch (error) {
       console.error("❌ Exception fetching user permissions:", error);
-      // Try direct query as last resort
-      try {
-        return await roleService.getUserPermissionsDirect(userId);
-      } catch (fallbackError) {
-        console.error("❌ Direct query also failed:", fallbackError);
-        return [];
-      }
+      return [];
     }
   },
 
@@ -464,43 +416,13 @@ export const roleService = {
     }
 
     try {
-      const { data, error } = await supabase.rpc('user_has_permission', {
-        user_id: userId,
-        permission_id: permissionId
-      });
-
-      if (error) {
-        console.error("❌ Error checking user permission via RPC:", error);
-        console.error("Error details:", {
-          message: error.message,
-          details: error.details,
-          hint: error.hint,
-          code: error.code,
-          userId,
-          permissionId,
-        });
-        
-        // Fallback: Check permissions directly
-        console.log("🔄 Falling back to direct permission check...");
-        const userPermissions = await roleService.getUserPermissionsDirect(userId);
-        const hasPermission = userPermissions.includes(permissionId);
-        console.log("🔍 Permission check (direct):", { userId, permissionId, hasPermission });
-        return hasPermission;
-      }
-
-      const hasPermission = data === true;
+      const userPermissions = await roleService.getUserPermissionsDirect(userId);
+      const hasPermission = userPermissions.includes(permissionId);
       console.log("🔍 Permission check:", { userId, permissionId, hasPermission });
       return hasPermission;
     } catch (error) {
       console.error("❌ Exception checking user permission:", error);
-      // Try direct check as fallback
-      try {
-        const userPermissions = await roleService.getUserPermissionsDirect(userId);
-        return userPermissions.includes(permissionId);
-      } catch (fallbackError) {
-        console.error("❌ Direct permission check also failed:", fallbackError);
-        return false;
-      }
+      return false;
     }
   },
 

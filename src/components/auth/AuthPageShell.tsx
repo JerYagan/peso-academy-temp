@@ -21,7 +21,7 @@ const AuthPageShell = ({
   const { t } = useLocale();
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_top,_rgba(15,118,110,0.12),_transparent_35%),linear-gradient(180deg,_hsl(var(--background))_0%,_hsl(var(--muted)/0.45)_100%)]">
+    <div className="min-h-screen bg-muted/35 dark:bg-background">
       <Header />
 
       <main className="overflow-hidden pt-24 sm:pt-28">

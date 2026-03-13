@@ -102,7 +102,9 @@ const ModuleEditorPage = () => {
 
   const loadModuleAssessment = useCallback(async (targetModuleId: string) => {
     try {
-      const assessment = await assessmentService.getAssessmentByModule(targetModuleId);
+      const assessment = await assessmentService.getAssessmentByModule(targetModuleId, {
+        syncDerivedFromModuleContent: true,
+      });
       setCurrentAssessment(assessment);
       setAssessmentConfig({
         passingScore: assessment?.passingScore ?? DEFAULT_ASSESSMENT_CONFIG.passingScore,

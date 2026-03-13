@@ -436,7 +436,7 @@ const AdminDashboardPlaceholder = () => {
         ) : (
           <>
             <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
-              <Card className="overflow-hidden border-primary/15 bg-[linear-gradient(135deg,rgba(15,118,110,0.08)_0%,rgba(29,78,216,0.08)_100%)]">
+              <Card className="overflow-hidden border-primary/15 bg-card">
                 <CardContent className="p-6 sm:p-7">
                   <div className="flex flex-col gap-6">
                     <div className="space-y-2">
@@ -585,12 +585,6 @@ const AdminDashboardPlaceholder = () => {
                       <div className="h-72 w-full">
                         <ResponsiveContainer width="100%" height="100%">
                           <AreaChart data={analytics.monthlyTrends}>
-                            <defs>
-                              <linearGradient id="certificateTrend" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="5%" stopColor={chartPalette.warm} stopOpacity={0.35} />
-                                <stop offset="95%" stopColor={chartPalette.warm} stopOpacity={0.02} />
-                              </linearGradient>
-                            </defs>
                             <CartesianGrid strokeDasharray="3 3" vertical={false} />
                             <XAxis dataKey="label" />
                             <YAxis allowDecimals={false} />
@@ -600,7 +594,8 @@ const AdminDashboardPlaceholder = () => {
                               dataKey="certificatesIssued"
                               name="Certificates"
                               stroke={chartPalette.warm}
-                              fill="url(#certificateTrend)"
+                              fill={chartPalette.warm}
+                              fillOpacity={0.14}
                               strokeWidth={3}
                             />
                           </AreaChart>

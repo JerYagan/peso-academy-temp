@@ -43,7 +43,7 @@
     --radius: 0.75rem;
 
     /* Custom tokens using palette */
-    --hero-gradient: linear-gradient(135deg, hsl(var(--navy)) 0%, hsl(var(--blue)) 50%, hsl(237 50% 35%) 100%);
+    --hero-gradient: hsl(var(--navy));
     --card-shadow: 0 4px 20px -4px hsl(237 25% 15% / 0.08);
     --card-shadow-hover: 0 12px 32px -8px hsl(237 25% 15% / 0.15);
     --glow-primary: 0 0 40px hsl(var(--navy) / 0.2);
@@ -88,7 +88,7 @@
     --input: 237 20% 22%;
     --ring: 207 100% 50%;
 
-    --hero-gradient: linear-gradient(135deg, hsl(var(--navy)) 0%, hsl(207 100% 30%) 50%, hsl(237 40% 22%) 100%);
+    --hero-gradient: hsl(var(--primary));
     --card-shadow: 0 4px 20px -4px hsl(0 0% 0% / 0.3);
     --card-shadow-hover: 0 12px 32px -8px hsl(0 0% 0% / 0.5);
 
@@ -124,10 +124,9 @@
   }
 
   .text-gradient {
-    background: var(--hero-gradient);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
+    background: none;
+    color: hsl(var(--primary));
+    -webkit-text-fill-color: currentColor;
   }
 
   .card-shadow {

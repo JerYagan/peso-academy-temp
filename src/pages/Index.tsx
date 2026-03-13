@@ -25,19 +25,19 @@ import { useLocale } from "@/contexts/LocaleContext";
 const featureCardDecor = [
   {
     icon: BookOpen,
-    iconStyle: { background: "linear-gradient(135deg, #e11d48 0%, #ec4899 100%)" },
+    iconStyle: { backgroundColor: "#e11d48" },
   },
   {
     icon: LayoutPanelTop,
-    iconStyle: { background: "linear-gradient(135deg, #4f46e5 0%, #334155 100%)" },
+    iconStyle: { backgroundColor: "#4338ca" },
   },
   {
     icon: Award,
-    iconStyle: { background: "linear-gradient(135deg, #2563eb 0%, #06b6d4 100%)" },
+    iconStyle: { backgroundColor: "#2563eb" },
   },
   {
     icon: ShieldCheck,
-    iconStyle: { background: "linear-gradient(135deg, #10b981 0%, #14b8a6 100%)" },
+    iconStyle: { backgroundColor: "#059669" },
   },
 ];
 
@@ -46,16 +46,19 @@ const processStepDecor = [
     icon: UserRoundPlus,
     badgeClassName: "bg-slate-800 text-white dark:bg-slate-100 dark:text-slate-900",
     iconClassName: "bg-indigo-100 text-indigo-700 ring-1 ring-indigo-200 dark:bg-indigo-500/20 dark:text-indigo-300 dark:ring-indigo-400/20",
+    cardClassName: "bg-indigo-50 dark:bg-indigo-950/35",
   },
   {
     icon: GraduationCap,
     badgeClassName: "bg-rose-600 text-white dark:bg-rose-500 dark:text-white",
     iconClassName: "bg-rose-100 text-rose-700 ring-1 ring-rose-200 dark:bg-rose-500/20 dark:text-rose-300 dark:ring-rose-400/20",
+    cardClassName: "bg-rose-50 dark:bg-rose-950/30",
   },
   {
     icon: BadgeCheck,
-    badgeClassName: "bg-blue-700 text-white dark:bg-blue-500 dark:text-white",
-    iconClassName: "bg-sky-100 text-sky-700 ring-1 ring-sky-200 dark:bg-sky-500/20 dark:text-sky-300 dark:ring-sky-400/20",
+    badgeClassName: "bg-emerald-700 text-white dark:bg-emerald-500 dark:text-white",
+    iconClassName: "bg-emerald-100 text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-500/20 dark:text-emerald-300 dark:ring-emerald-400/20",
+    cardClassName: "bg-emerald-50 dark:bg-emerald-950/30",
   },
 ];
 
@@ -125,7 +128,7 @@ const Index = () => {
     <div className="min-h-screen bg-background text-foreground">
       <Header />
       <main className="overflow-x-hidden">
-        <section className="relative border-b border-border bg-[linear-gradient(180deg,hsl(var(--background))_0%,hsl(var(--muted))_100%)] pt-14 dark:bg-[linear-gradient(180deg,hsl(237_28%_11%)_0%,hsl(237_20%_14%)_100%)] sm:pt-16 lg:pt-[74px]">
+        <section className="relative border-b border-border bg-muted/60 pt-14 dark:bg-muted/35 sm:pt-16 lg:pt-[74px]">
           <div className="mx-auto grid min-h-[auto] max-w-7xl items-center gap-10 px-4 py-8 sm:px-6 sm:py-12 lg:min-h-[620px] lg:grid-cols-[1.02fr_0.98fr] lg:gap-12 lg:px-8 lg:py-10">
             <div className="max-w-2xl space-y-5 animate-fade-up sm:space-y-6">
               <div className="inline-flex items-center rounded-full border border-primary/15 bg-primary/5 px-3 py-1 text-[11px] font-semibold leading-5 text-primary dark:border-primary/25 dark:bg-primary/10 sm:px-4 sm:text-sm">
@@ -135,7 +138,7 @@ const Index = () => {
                 <h1 className="max-w-2xl text-[2.45rem] font-extrabold leading-[0.95] tracking-[-0.05em] text-foreground sm:text-6xl lg:text-[4.75rem] lg:leading-[0.95]">
                   {t("home.heroTitlePrefix")} <span className="text-primary">{t("home.heroTitleHighlight")}</span>
                 </h1>
-                <p className="max-w-xl text-[15px] leading-7 text-muted-foreground sm:text-xl sm:leading-9">
+                <p className="max-w-xl text-[15px] leading-7 text-muted-foreground dark:text-slate-300 sm:text-xl sm:leading-9">
                   {t("home.heroSubtitle")}
                 </p>
               </div>
@@ -209,10 +212,10 @@ const Index = () => {
             </div>
 
             <div className="mt-8 grid gap-4 sm:mt-12 sm:gap-6 lg:grid-cols-3">
-              {processSteps.map(({ step, title, description, icon: Icon, badgeClassName, iconClassName }) => (
+              {processSteps.map(({ step, title, description, icon: Icon, badgeClassName, iconClassName, cardClassName }) => (
                 <article
                   key={step}
-                  className="rounded-[1.5rem] border border-border bg-card p-5 card-shadow dark:bg-card/85 sm:rounded-[1.9rem] sm:p-7"
+                  className={`rounded-[1.5rem] border border-border p-5 card-shadow sm:rounded-[1.9rem] sm:p-7 ${cardClassName}`}
                 >
                   <div className="flex items-center justify-between">
                     <span className={`inline-flex min-w-10 items-center justify-center rounded-full px-2.5 py-1 text-[10px] font-extrabold tracking-[0.2em] sm:min-w-12 sm:px-3 sm:text-xs ${badgeClassName}`}>
@@ -265,7 +268,7 @@ const Index = () => {
 
         <section className="bg-background py-14 sm:py-24">
           <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-            <div className="mx-auto max-w-5xl overflow-hidden rounded-[1.5rem] border border-primary/10 bg-[linear-gradient(135deg,hsl(var(--primary))_0%,hsl(237_45%_35%)_45%,hsl(228_54%_30%)_100%)] px-4 py-8 text-center text-primary-foreground shadow-[0_30px_90px_-35px_rgba(31,41,95,0.55)] sm:rounded-[2rem] sm:px-10 sm:py-12 lg:px-16 lg:py-16">
+            <div className="mx-auto max-w-5xl overflow-hidden rounded-[1.5rem] border border-primary/10 bg-primary px-4 py-8 text-center text-primary-foreground shadow-[0_30px_90px_-35px_rgba(31,41,95,0.45)] sm:rounded-[2rem] sm:px-10 sm:py-12 lg:px-16 lg:py-16">
               <div className="mx-auto max-w-3xl">
                 <h2 className="text-[1.8rem] font-extrabold tracking-[-0.03em] leading-tight sm:text-5xl">
                   {t("home.ctaTitle")}

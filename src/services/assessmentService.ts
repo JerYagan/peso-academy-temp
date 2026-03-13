@@ -285,7 +285,7 @@ const deactivateDerivedAssessmentForModule = async (moduleId: string): Promise<v
     .from("assessments")
     .select("id")
     .eq("module_id", moduleId)
-    .single();
+    .maybeSingle();
 
   if (assessmentLookupError) {
     if (assessmentLookupError.code === "PGRST116") {
@@ -444,7 +444,10 @@ export const assessmentService = {
   /**
    * Get assessment for a module
    */
-  getAssessmentByModule: async (moduleId: string): Promise<Assessment | null> => {
+  getAssessmentByModule: async (
+    moduleId: string,
+    options?: { syncDerivedFromModuleContent?: boolean },
+  ): Promise<Assessment | null> => {
     if (!supabase) {
       console.warn("Supabase not initialized");
       return null;
@@ -475,6 +478,10 @@ export const assessmentService = {
 
     const mappedAssessment = data ? mapAssessmentRow(data) : null;
 
+    if (!options?.syncDerivedFromModuleContent) {
+      return mappedAssessment;
+    }
+
     try {
       return await syncDerivedAssessmentFromModuleContent(moduleId, mappedAssessment);
     } catch (syncError) {
@@ -493,19 +500,11 @@ export const assessmentService = {
     }
 
     const { data, error } = await executeReadWithFallback(
-      (selectClause) => {
-        let query = supabase
-          .from("assessment_questions")
-          .select(selectClause)
-          .eq("assessment_id", assessmentId)
-          .order("order", { ascending: true });
-
-        if (!unsupportedAssessmentQuestionColumns.has("is_active")) {
-          query = query.eq("is_active", true);
-        }
-
-        return query;
-      },
+      (selectClause) => supabase
+        .from("assessment_questions")
+        .select(selectClause)
+        .eq("assessment_id", assessmentId)
+        .order("order", { ascending: true }),
       "*",
       "assessment_questions",
       unsupportedAssessmentQuestionColumns,
@@ -516,7 +515,9 @@ export const assessmentService = {
       return [];
     }
 
-    return data?.map(mapAssessmentQuestionRow) || [];
+    return (data || [])
+      .filter((row) => row.is_active !== false)
+      .map(mapAssessmentQuestionRow);
   },
 
   /**
@@ -1146,7 +1147,7 @@ export const assessmentService = {
       .from("assessments")
       .select("*")
       .eq("module_id", moduleId)
-      .single();
+      .maybeSingle();
 
     if (assessmentLookupError && assessmentLookupError.code !== "PGRST116") {
       handleSupabaseError(assessmentLookupError);

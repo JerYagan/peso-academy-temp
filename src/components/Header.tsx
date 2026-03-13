@@ -2,9 +2,9 @@ import { Button } from "@/components/ui/button";
 import { Menu, X, User, Moon, Sun } from "lucide-react";
 import { useState } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
-import { useTheme } from "next-themes";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLocale } from "@/contexts/LocaleContext";
+import { useThemePreference } from "@/contexts/ThemePreferenceContext";
 import { getDashboardRoute } from "@/lib/roles";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import {
@@ -19,11 +19,14 @@ import {
 const Header = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const { isAuthenticated, user, logout } = useAuth();
-  const { theme, setTheme, resolvedTheme } = useTheme();
+  const { resolvedTheme, setThemePreference } = useThemePreference();
   const { t } = useLocale();
   const navigate = useNavigate();
   const location = useLocation();
   const logoSrc = resolvedTheme === "dark" ? "/images/logo_dark.png" : "/images/logo.png";
+  const toggleTheme = () => {
+    void setThemePreference(resolvedTheme === "dark" ? "light" : "dark");
+  };
 
   const handleLogout = async () => {
     await logout();
@@ -102,7 +105,7 @@ const Header = () => {
             <Button
               variant="ghost"
               size="icon"
-              onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+              onClick={toggleTheme}
               className="relative h-10 w-10 rounded-full border border-border/70 bg-muted/50"
             >
               <Sun className="h-5 w-5 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
@@ -190,9 +193,7 @@ const Header = () => {
                   <Button
                     variant="ghost"
                     size="icon"
-                    onClick={() => {
-                      setTheme(theme === "dark" ? "light" : "dark");
-                    }}
+                    onClick={toggleTheme}
                     className="relative h-10 w-10 rounded-full border border-border/70 bg-muted/50"
                   >
                     <Sun className="h-5 w-5 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />

@@ -100,6 +100,44 @@ type SessionRow = {
 export const MODULE_SESSION_HEARTBEAT_MS = 60 * 1000;
 export const MODULE_SESSION_STALE_MINUTES = 15;
 
+const isTransientModuleSessionError = (error: unknown) => {
+  const message = [
+    typeof error === "string" ? error : "",
+    error instanceof Error ? error.message : "",
+    typeof error === "object" && error !== null && "message" in error ? String(error.message ?? "") : "",
+    typeof error === "object" && error !== null && "details" in error ? String(error.details ?? "") : "",
+    typeof error === "object" && error !== null && "hint" in error ? String(error.hint ?? "") : "",
+    typeof error === "object" && error !== null && "code" in error ? String(error.code ?? "") : "",
+  ]
+    .join(" ")
+    .toLowerCase();
+
+  return (
+    message.includes("failed to fetch") ||
+    message.includes("networkerror") ||
+    message.includes("err_connection_closed") ||
+    message.includes("err_aborted") ||
+    message.includes("network request failed")
+  );
+};
+
+const handleModuleSessionError = (
+  error: unknown,
+  context: string,
+  options: { swallowTransient?: boolean } = {},
+) => {
+  if (!error) {
+    return;
+  }
+
+  if (options.swallowTransient && isTransientModuleSessionError(error)) {
+    console.warn(`Module session ${context} hit a transient network error.`, error);
+    return;
+  }
+
+  handleSupabaseError(error);
+};
+
 const closeStaleSessionsForUser = async (userId: string) => {
   if (!supabase) {
     return;
@@ -111,7 +149,7 @@ const closeStaleSessionsForUser = async (userId: string) => {
   });
 
   if (error) {
-    handleSupabaseError(error);
+    handleModuleSessionError(error, "stale-session cleanup", { swallowTransient: true });
   }
 };
 
@@ -134,7 +172,7 @@ const closeOverlappingActiveSessions = async (userId: string, enrollmentId: stri
     .neq("module_id", moduleId);
 
   if (error) {
-    handleSupabaseError(error);
+    handleModuleSessionError(error, "overlapping-session cleanup", { swallowTransient: true });
   }
 };
 
@@ -362,7 +400,7 @@ export const moduleSessionService = {
       .order("started_at", { ascending: false });
 
     if (activeSessionError) {
-      handleSupabaseError(activeSessionError);
+      handleModuleSessionError(activeSessionError, "active-session lookup", { swallowTransient: true });
       return null;
     }
 
@@ -412,7 +450,7 @@ export const moduleSessionService = {
       .single();
 
     if (error) {
-      handleSupabaseError(error);
+      handleModuleSessionError(error, "session start", { swallowTransient: true });
       return null;
     }
 
@@ -458,7 +496,7 @@ export const moduleSessionService = {
       .single();
 
     if (error) {
-      handleSupabaseError(error);
+      handleModuleSessionError(error, "session heartbeat", { swallowTransient: true });
       return;
     }
   },
@@ -493,7 +531,7 @@ export const moduleSessionService = {
       .single();
 
     if (error) {
-      handleSupabaseError(error);
+      handleModuleSessionError(error, "session end", { swallowTransient: true });
       return;
     }
 

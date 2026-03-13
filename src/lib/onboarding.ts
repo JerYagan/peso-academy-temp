@@ -31,6 +31,8 @@ export type OnboardingCategoryPreference = (typeof ONBOARDING_CATEGORY_OPTIONS)[
 export type OnboardingSkillLevel = (typeof ONBOARDING_SKILL_LEVEL_OPTIONS)[number]["value"];
 
 export const TRAINEE_ONBOARDING_MODAL_PENDING_KEY = "peso-trainee-onboarding-modal-pending";
+export const TRAINEE_ONBOARDING_DRAFT_KEY = "peso-trainee-onboarding-draft";
+export const TRAINEE_ONBOARDING_STEP_KEY = "peso-trainee-onboarding-step";
 
 export type TraineeOnboardingFormData = {
   industryInterests: string[];

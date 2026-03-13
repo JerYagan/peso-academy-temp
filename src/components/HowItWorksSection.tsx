@@ -36,7 +36,7 @@ const HowItWorksSection = () => {
           </span>
           <h2 className="text-3xl md:text-4xl lg:text-5xl font-bold text-foreground mb-6">
             Your Path to{" "}
-            <span className="text-gradient">Learning</span>
+            <span className="text-primary">Learning</span>
           </h2>
           <p className="text-lg text-muted-foreground">
             Follow our 3-step process to build your skills and earn certifications through quality training.
@@ -46,7 +46,7 @@ const HowItWorksSection = () => {
         {/* Steps */}
         <div className="relative">
           {/* Connection Line */}
-          <div className="hidden lg:block absolute top-1/2 left-0 right-0 h-0.5 bg-gradient-to-r from-primary via-accent to-primary opacity-20 -translate-y-1/2" />
+          <div className="hidden lg:block absolute top-1/2 left-0 right-0 h-0.5 bg-border opacity-60 -translate-y-1/2" />
           
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-8">
             {steps.map((step, index) => (
@@ -54,7 +54,7 @@ const HowItWorksSection = () => {
                 {/* Step Card */}
                 <div className="bg-card rounded-2xl p-6 card-shadow hover:card-shadow-hover transition-all duration-300 h-full">
                   {/* Number Badge */}
-                  <div className="absolute -top-4 left-6 w-12 h-12 rounded-xl hero-gradient flex items-center justify-center text-primary-foreground font-bold text-lg shadow-lg">
+                  <div className="absolute -top-4 left-6 w-12 h-12 rounded-xl bg-primary flex items-center justify-center text-primary-foreground font-bold text-lg shadow-lg">
                     {step.number}
                   </div>
                   

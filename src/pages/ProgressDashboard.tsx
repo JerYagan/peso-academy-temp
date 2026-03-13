@@ -280,7 +280,7 @@ const ProgressDashboard = () => {
     <DashboardLayout>
       <div className="space-y-6">
         <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
-          <Card className="overflow-hidden border-primary/15 bg-gradient-to-br from-primary/10 via-card to-card">
+          <Card className="overflow-hidden border-primary/15 bg-card">
             <CardContent className="space-y-5 p-6 sm:p-7">
               <div>
                 <p className="text-xs font-medium uppercase tracking-[0.18em] text-primary">Progress dashboard</p>

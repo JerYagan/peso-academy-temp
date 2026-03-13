@@ -11,6 +11,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { MODULE_SESSION_HEARTBEAT_MS, moduleSessionService } from "@/services/moduleSessionService";
 import VideoPlayer from "./VideoPlayer";
 import DocumentViewer from "./DocumentViewer";
+import CourseMaterialImage from "./CourseMaterialImage";
 import AssignmentSubmission from "./AssignmentSubmission";
 import AssessmentInterface from "./AssessmentInterface";
 import { ContentBlock } from "./ContentBlock";
@@ -428,7 +429,11 @@ const ModuleContentViewer = ({
                   <span>{block.title || "Image"}</span>
                 </div>
               )}
-              <img src={block.imageUrl} alt={block.altText || block.title || "Module image"} className="max-h-[520px] w-full rounded-lg object-cover" />
+              <CourseMaterialImage
+                src={block.imageUrl}
+                alt={block.altText || block.title || "Module image"}
+                className="max-h-[520px] w-full rounded-lg object-cover"
+              />
               {(block.caption || block.altText) && (
                 <figcaption className="text-sm text-muted-foreground">{block.caption || block.altText}</figcaption>
               )}

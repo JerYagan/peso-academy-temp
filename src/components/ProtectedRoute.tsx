@@ -8,6 +8,8 @@ import { Loader2 } from "lucide-react";
 import { getRequiredPermissionsForRoute, routeRequiresAuth, routePermissions } from "@/lib/routePermissions";
 import { roleService } from "@/services/roleService";
 
+const ADMIN_USER_MUTATION_SESSION_KEY = "admin_user_mutation_in_progress";
+
 interface ProtectedRouteProps {
   children: ReactNode;
   allowedRoles?: UserRole[]; // Deprecated: kept for backward compatibility, use requiredPermissions instead
@@ -106,6 +108,17 @@ export const ProtectedRoute = ({ children, allowedRoles, requiredPermissions }: 
         // Quick admin check - admins get access to everything
         if (user.role === "admin") {
           console.log("✅ Admin user - granting full access");
+          setHasAccess(true);
+          setPermissionLoading(false);
+          return;
+        }
+
+        if (allowedRoles && allowedRoles.includes(user.role as UserRole)) {
+          console.log("✅ Allowed-role access granted without waiting on permission RPC", {
+            pathname: location.pathname,
+            userRole: user.role,
+            allowedRoles,
+          });
           setHasAccess(true);
           setPermissionLoading(false);
           return;
@@ -227,6 +240,21 @@ export const ProtectedRoute = ({ children, allowedRoles, requiredPermissions }: 
 
   // Redirect to login if not authenticated
   if (!isAuthenticated || !user) {
+    const adminUserMutationInProgress = typeof window !== "undefined"
+      && location.pathname.startsWith("/admin")
+      && sessionStorage.getItem(ADMIN_USER_MUTATION_SESSION_KEY) === "1";
+    if (adminUserMutationInProgress) {
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-muted/30">
+          <Card className="w-full max-w-md">
+            <CardContent className="flex flex-col items-center justify-center p-8">
+              <Loader2 className="h-8 w-8 animate-spin text-primary mb-4" />
+              <p className="text-muted-foreground">Refreshing admin session...</p>
+            </CardContent>
+          </Card>
+        </div>
+      );
+    }
     console.warn("🛡️ ProtectedRoute: Not authenticated, redirecting to login");
     return <Navigate to="/login" replace />;
   }

@@ -81,8 +81,40 @@ const setImpressionCache = (userId: string, surface: string, values: Set<string>
   window.sessionStorage.setItem(getImpressionCacheKey(userId, surface), JSON.stringify(Array.from(values)));
 };
 
+const resolvePersistedRecommendationId = async (
+  userId: string | undefined,
+  courseId: string | undefined,
+  surface: string | undefined,
+  recommendationId?: string,
+) => {
+  if (recommendationId) {
+    return recommendationId;
+  }
+
+  if (!supabase || !userId || !courseId || !surface) {
+    return undefined;
+  }
+
+  const { data, error } = await supabase
+    .from("learner_recommendations")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("course_id", courseId)
+    .eq("source_surface", surface)
+    .maybeSingle();
+
+  if (error) {
+    handleSupabaseError(error);
+    return undefined;
+  }
+
+  return data?.id || undefined;
+};
+
 export const analyticsService = {
   getSessionId: getAnalyticsSessionId,
+
+  resolveRecommendationId: resolvePersistedRecommendationId,
 
   trackEvent: async ({
     eventName,
@@ -141,7 +173,22 @@ export const analyticsService = {
     sourceSurface: string,
     recommendationContext?: Record<string, unknown>,
   ): Promise<PersistedLearnerRecommendation[]> => {
-    if (!supabase || recommendations.length === 0) {
+    if (!supabase) {
+      return [];
+    }
+
+    const { data: existingRows, error: existingRowsError } = await supabase
+      .from("learner_recommendations")
+      .select("id, course_id")
+      .eq("user_id", userId)
+      .eq("source_surface", sourceSurface);
+
+    if (existingRowsError) {
+      handleSupabaseError(existingRowsError);
+      return [];
+    }
+
+    if (recommendations.length === 0) {
       return [];
     }
 
@@ -262,11 +309,18 @@ export const analyticsService = {
     recommendation: Pick<PersistedLearnerRecommendation, "id" | "courseId" | "rank" | "score" | "modelVersion">,
     surface: string,
   ) => {
+    const resolvedRecommendationId = await resolvePersistedRecommendationId(
+      userId,
+      recommendation.courseId,
+      surface,
+      recommendation.id,
+    );
+
     await analyticsService.trackEvent({
       eventName: "recommendation_click",
       userId,
       courseId: recommendation.courseId,
-      recommendationId: recommendation.id,
+      recommendationId: resolvedRecommendationId,
       surface,
       metadata: {
         rank: recommendation.rank,

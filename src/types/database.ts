@@ -46,6 +46,8 @@ export interface Database {
           industry_interests?: string[] | null
           preferred_categories?: string[] | null
           onboarding_skill_level?: string | null
+          language_preference?: string | null
+          theme_preference?: string | null
           skills?: string[] | null
           created_at: string
           updated_at: string
@@ -80,6 +82,8 @@ export interface Database {
           industry_interests?: string[] | null
           preferred_categories?: string[] | null
           onboarding_skill_level?: string | null
+          language_preference?: string | null
+          theme_preference?: string | null
           skills?: string[] | null
           created_at?: string
           updated_at?: string
@@ -114,6 +118,8 @@ export interface Database {
           industry_interests?: string[] | null
           preferred_categories?: string[] | null
           onboarding_skill_level?: string | null
+          language_preference?: string | null
+          theme_preference?: string | null
           skills?: string[] | null
           created_at?: string
           updated_at?: string

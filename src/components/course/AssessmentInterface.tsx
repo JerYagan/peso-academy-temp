@@ -9,6 +9,7 @@ import { CheckCircle2, AlertCircle, Clock, FileQuestion } from "lucide-react";
 import { toast } from "sonner";
 import { assessmentService, AssessmentQuestion, Assessment, AssessmentAttempt, type AssessmentReviewStatus } from "@/services/assessmentService";
 import { useAuth } from "@/contexts/AuthContext";
+import { deriveAssessmentAttemptAccess, hasEssayQuestions } from "@/components/course/assessmentAttemptAccess";
 
 interface AssessmentResultSummary {
   score?: number;
@@ -18,6 +19,7 @@ interface AssessmentResultSummary {
   canRetry: boolean;
   reviewStatus?: AssessmentReviewStatus;
   requiresManualReview: boolean;
+  reviewFeedback?: string;
 }
 
 const ASSESSMENT_DRAFT_STORAGE_PREFIX = "assessment-draft";
@@ -72,8 +74,6 @@ const getLatestResultMessage = (result: AssessmentResultSummary, assessment: Ass
     : `Assessment not passed. You scored ${result.score}%. No retries remain.`;
 };
 
-const hasEssayQuestions = (questions: AssessmentQuestion[]) => questions.some((question) => question.questionType === "essay");
-
 const createDeterministicSeed = (value: string) => {
   let hash = 0;
   for (let index = 0; index < value.length; index += 1) {
@@ -119,6 +119,7 @@ const AssessmentInterface = ({
   const [attemptBlockMessage, setAttemptBlockMessage] = useState<string | null>(null);
   const [completedAttemptCount, setCompletedAttemptCount] = useState(0);
   const [latestResult, setLatestResult] = useState<AssessmentResultSummary | null>(null);
+  const [attemptMode, setAttemptMode] = useState<"standard" | "revision">("standard");
   const clipboardNoticeAtRef = useRef(0);
 
   const loadAssessment = useCallback(async () => {
@@ -131,6 +132,7 @@ const AssessmentInterface = ({
       setAttemptBlockMessage(null);
       setCompletedAttemptCount(0);
       setLatestResult(null);
+      setAttemptMode("standard");
 
       // Load assessment
       const assessmentData = await assessmentService.getAssessmentByModule(moduleId);
@@ -149,78 +151,50 @@ const AssessmentInterface = ({
 
       // Check for existing attempts
       const attempts = await assessmentService.getAssessmentAttempts(assessmentData.id, user.id);
-      const activeAttempt = attempts.find((candidate) => !candidate.submittedAt) || null;
-      const completedAttempts = attempts.filter((candidate) => candidate.submittedAt);
-      const passedAttempt = completedAttempts.find((candidate) => candidate.passed) || null;
-      const essayAttemptPolicy = hasEssayQuestions(questionsData);
-      const latestCompletedAttempt = completedAttempts
-        .slice()
-        .sort((left, right) => {
-          const leftTime = left.submittedAt ? new Date(left.submittedAt).getTime() : 0;
-          const rightTime = right.submittedAt ? new Date(right.submittedAt).getTime() : 0;
-          return rightTime - leftTime;
-        })[0] || null;
-      const effectiveMaxAttempts = essayAttemptPolicy ? 1 : assessmentData.maxAttempts;
-      const attemptsRemaining = Math.max(effectiveMaxAttempts - completedAttempts.length, 0);
+      const attemptAccess = deriveAssessmentAttemptAccess(assessmentData, questionsData, attempts);
 
-      setCompletedAttemptCount(completedAttempts.length);
+      setCompletedAttemptCount(attemptAccess.completedAttempts.length);
 
-      if (latestCompletedAttempt) {
+      if (attemptAccess.latestCompletedAttempt) {
         setLatestResult({
-          score: latestCompletedAttempt.score,
-          passed: latestCompletedAttempt.passed,
+          score: attemptAccess.latestCompletedAttempt.score,
+          passed: attemptAccess.latestCompletedAttempt.passed,
           passingScore: assessmentData.passingScore,
-          attemptsRemaining,
+          attemptsRemaining: attemptAccess.attemptsRemaining,
           canRetry:
-            latestCompletedAttempt.reviewStatus === "approved" &&
-            !latestCompletedAttempt.passed &&
-            completedAttempts.length < effectiveMaxAttempts,
-          reviewStatus: latestCompletedAttempt.reviewStatus,
-          requiresManualReview: latestCompletedAttempt.requiresManualReview ?? false,
+            attemptAccess.latestCompletedAttempt.reviewStatus === "approved" &&
+            !attemptAccess.latestCompletedAttempt.passed &&
+            attemptAccess.completedAttempts.length < attemptAccess.effectiveMaxAttempts,
+          reviewStatus: attemptAccess.latestCompletedAttempt.reviewStatus,
+          requiresManualReview: attemptAccess.latestCompletedAttempt.requiresManualReview ?? false,
+          reviewFeedback: attemptAccess.latestCompletedAttempt.reviewFeedback,
         });
       }
 
-      if (activeAttempt) {
-        setAttempt(activeAttempt);
-        setAnswers(activeAttempt.answers || {});
-        setTimeSpent(activeAttempt.timeSpent || 0);
+      if (attemptAccess.activeAttempt) {
+        setAttemptMode(attemptAccess.isRevisionAttempt ? "revision" : "standard");
+        setAttempt(attemptAccess.activeAttempt);
+        setAnswers(attemptAccess.activeAttempt.answers || {});
+        setTimeSpent(attemptAccess.activeAttempt.timeSpent || 0);
         return;
       }
 
-      if (latestCompletedAttempt?.reviewStatus === "submitted" || latestCompletedAttempt?.reviewStatus === "under_review") {
-        setAttemptBlockMessage("Your latest assessment submission is waiting for trainer review before another attempt can start.");
+      if (attemptAccess.attemptBlockMessage) {
+        setAttemptBlockMessage(attemptAccess.attemptBlockMessage);
         return;
       }
 
-      if (latestCompletedAttempt?.reviewStatus === "needs_revision") {
-        setAttemptBlockMessage("Trainer feedback requested revisions. Revision resubmission will be enabled once the review workflow is added.");
-        return;
-      }
-
-      if (passedAttempt && !assessmentData.allowRetryAfterPassing) {
-        setAttemptBlockMessage(
-          `You already passed this assessment${passedAttempt.score !== undefined ? ` with ${passedAttempt.score}%` : ""}. Retries after passing are disabled for this module.`,
+      if (attemptAccess.shouldStartNewAttempt) {
+        const newAttempt = await assessmentService.startAttempt(
+          assessmentData.id,
+          enrollmentId,
+          user.id,
         );
-        return;
+        setAttemptMode(attemptAccess.isRevisionAttempt ? "revision" : "standard");
+        setAttempt(newAttempt);
+        setAnswers(attemptAccess.isRevisionAttempt ? attemptAccess.seedAnswers : (newAttempt.answers || {}));
+        setTimeSpent(newAttempt.timeSpent || 0);
       }
-
-      if (completedAttempts.length >= effectiveMaxAttempts) {
-        setAttemptBlockMessage(
-          essayAttemptPolicy
-            ? "Essay assessments allow one learner submission per attempt cycle. A trainer can still keep a higher configured attempt limit for later workflow handling."
-            : `You have reached the maximum number of attempts (${assessmentData.maxAttempts}).`,
-        );
-        return;
-      }
-
-      const newAttempt = await assessmentService.startAttempt(
-        assessmentData.id,
-        enrollmentId,
-        user.id
-      );
-      setAttempt(newAttempt);
-      setAnswers(newAttempt.answers || {});
-      setTimeSpent(newAttempt.timeSpent || 0);
     } catch (error) {
       console.error("Error loading assessment:", error);
       toast.error("Failed to load assessment");
@@ -402,6 +376,7 @@ const AssessmentInterface = ({
         canRetry: result.reviewStatus === "approved" && !result.passed && nextCompletedAttemptCount < effectiveMaxAttempts,
         reviewStatus: result.reviewStatus,
         requiresManualReview: result.requiresManualReview,
+        reviewFeedback: undefined,
       });
       const message = result.reviewStatus !== "approved"
         ? "Assessment submitted for trainer review. Your final result will appear after review."
@@ -486,6 +461,9 @@ const AssessmentInterface = ({
   const essayAttemptPolicy = hasEssayQuestions(questions);
   const effectiveMaxAttempts = essayAttemptPolicy ? 1 : assessment.maxAttempts;
   const showLatestResult = latestResult && submissionStatus !== "error";
+  const revisionFeedback = latestResult?.reviewStatus === "needs_revision"
+    ? latestResult.reviewFeedback?.trim() || "Review your trainer's comments, update any answers that need work, and submit the revision when you are ready."
+    : null;
 
   return (
     <div className="space-y-6">
@@ -501,6 +479,18 @@ const AssessmentInterface = ({
           </CardContent>
         </Card>
       )}
+
+      {attemptMode === "revision" && revisionFeedback ? (
+        <Card className="border-amber-500 bg-amber-50 dark:bg-amber-950">
+          <CardHeader>
+            <CardTitle className="text-base">Trainer Feedback</CardTitle>
+            <CardDescription>Use this feedback to revise your previous submission before sending it back for review.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <p className="whitespace-pre-wrap text-sm text-amber-900 dark:text-amber-100">{revisionFeedback}</p>
+          </CardContent>
+        </Card>
+      ) : null}
 
       {/* Assessment Header */}
       <Card>
@@ -539,7 +529,9 @@ const AssessmentInterface = ({
                 Passing Score: {assessment.passingScore}%
               </span>
               <span className="text-muted-foreground">
-                Attempts Left: {Math.max(effectiveMaxAttempts - completedAttemptCount, 0)}
+                {attemptMode === "revision"
+                  ? "Trainer requested a revision"
+                  : `Attempts Left: ${Math.max(effectiveMaxAttempts - completedAttemptCount, 0)}`}
               </span>
               <span className="text-muted-foreground">
                 {assessment.allowRetryAfterPassing ? "Retry after pass: allowed" : "Retry after pass: locked"}
@@ -548,14 +540,16 @@ const AssessmentInterface = ({
             </div>
           </div>
           <p className="mt-3 text-sm text-muted-foreground">
-            Draft responses save automatically on this device while you work.
+            {attemptMode === "revision"
+              ? "Your previous answers were copied into this revision attempt. Draft responses continue to save automatically on this device while you update them."
+              : "Draft responses save automatically on this device while you work."}
           </p>
           <p className="mt-2 text-sm text-muted-foreground">
             Question order and answer choices are shuffled for each attempt. Copy, paste, and similar browser shortcuts are limited to discourage casual sharing, but client-side controls are not a full security boundary.
           </p>
-          {essayAttemptPolicy && assessment.maxAttempts > 1 && (
+          {essayAttemptPolicy && (
             <p className="mt-2 text-sm text-muted-foreground">
-              This assessment includes an essay, so learners get one submission even though trainers can still configure a higher attempt count for later review workflow handling.
+              Essay and other manual-review responses go to a trainer before a final result is issued. If your trainer requests changes, you can revise the returned work and resubmit it without losing the earlier review history.
             </p>
           )}
         </CardContent>
@@ -663,7 +657,7 @@ const AssessmentInterface = ({
               ) : (
                 <>
                   <CheckCircle2 className="w-4 h-4" />
-                  Submit Assessment
+                  {attemptMode === "revision" ? "Submit Revision" : "Submit Assessment"}
                 </>
               )}
             </Button>

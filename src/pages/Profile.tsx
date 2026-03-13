@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
+import { useLocale } from "@/contexts/LocaleContext";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -46,12 +47,17 @@ import {
 import { recommendationSyncService } from "@/services/recommendationSyncService";
 import { Link } from "react-router-dom";
 import {
+  PROFILE_FIELD_LIMITS,
+  normalizePhoneNumber,
+  normalizePostalCode,
   sanitizeAddressInput,
   sanitizeDigitsOnlyInput,
   sanitizeGeneralTextInput,
   sanitizeNameInput,
-  validateDigitsOnlyField,
   validateHumanName,
+  validateMaxLength,
+  validatePhoneNumber,
+  validatePostalCode,
 } from "@/lib/profileFieldValidation";
 
 const genderOptions: Array<{ value: NonNullable<AuthUser["gender"]>; label: string }> = [
@@ -172,6 +178,7 @@ const parseListInput = (value: string) => {
 
 const Profile = () => {
   const { user, updateUser } = useAuth();
+  const { language } = useLocale();
   const [isEditing, setIsEditing] = useState(false);
   const [loading, setLoading] = useState(false);
   const [certificates, setCertificates] = useState<Certificate[]>([]);
@@ -204,6 +211,121 @@ const Profile = () => {
     confirmPassword: "",
   });
   const [changingPassword, setChangingPassword] = useState(false);
+  const copy = language === "tl"
+    ? {
+        recommendationProfile: "Recommendation profile",
+        recommendationProfileBody: "Ang learner inputs na ito ang nagpapakain sa personalized recommendations at predictive reporting.",
+        industryInterests: "Industry interests",
+        preferredCategories: "Preferred categories",
+        currentSkillLevel: "Current skill level",
+        selectLearningStage: "Piliin ang learning stage",
+        skills: "Skills",
+        skillsPlaceholder: "Magdagdag ng skills na pinaghihiwalay ng kuwit o bagong linya",
+        skillsHelp: "Halimbawa: Communication, Spreadsheet basics, Customer service",
+        saving: "Sine-save...",
+        saveChanges: "I-save ang mga Binago",
+        cancel: "Kanselahin",
+        identity: "Identity",
+        educationAndWork: "Education at Work",
+        location: "Lokasyon",
+        addSignals: "Magdagdag ng interests at preferred categories para mas tumibay ang personalized recommendations.",
+        notProvided: "Walang ibinigay",
+        skillsRecorded: "Naitalang skills",
+        noSkillsYet: "Wala pang naidagdag na skills",
+        security: "Security",
+        securityBody: "Palitan ang iyong password at panatilihing protektado ang iyong account.",
+        currentPassword: "Kasalukuyang password",
+        currentPasswordPlaceholder: "Ilagay ang kasalukuyang password",
+        newPassword: "Bagong password",
+        newPasswordPlaceholder: "Hindi bababa sa 6 na character",
+        confirmPassword: "Kumpirmahin ang bagong password",
+        confirmPasswordPlaceholder: "Kumpirmahin ang bagong password",
+        updating: "Ina-update...",
+        changePassword: "Palitan ang password",
+        profileHealth: "Profile Health",
+        profileHealthBody: "Subaybayan kung gaano kakumpleto at kahanda ang iyong learner record.",
+        profileCompletion: "Pagkakumpleto ng profile",
+        requiredCoverage: "Required coverage",
+        recommendedAction: "Inirerekomendang aksyon",
+        recommendedActionIncomplete: "Kumpletuhin ang kulang na demographic at location details para masuportahan ang trainee analytics at reporting.",
+        recommendedActionComplete: "Kumpleto na ang iyong trainee record at handa na para sa reporting use.",
+        learnerAnalytics: "Learner Profile Analytics",
+        learnerAnalyticsBody: "Ang profile signals na ito ay ginagamit na ngayon sa recommendation refreshes at downstream predictive reporting inputs.",
+        recommendationSignalCoverage: "Recommendation signal coverage",
+        predictiveReadiness: "Predictive readiness",
+        predictiveReadinessBody: "Pinaghahalo ang profile completion, recommendation inputs, at learning history",
+        recommendationCoverageBody: "May laman na interests, categories, stage, at skills",
+        whyThisMatters: "Bakit ito mahalaga",
+        whyThisMattersBody: "Ang pag-update sa learner profile mo ay nagti-trigger na ngayon ng explicit recommendation refresh, kaya ang mga pagbabago sa interests, category preferences, skill level, at skills ay agad na naipapakita sa personalized course suggestions.",
+        trainingSnapshot: "Training Snapshot",
+        trainingSnapshotBody: "Ang iyong learning activity at completion metrics.",
+        enrolledCourses: "Mga Enrolled na Kurso",
+        certificates: "Certificates",
+        completed: "Natapos",
+        inProgress: "Kasalukuyang Ginagawa",
+        averageAssessmentScore: "Average Assessment Score",
+        totalLearningTime: "Kabuuang Oras ng Pag-aaral",
+        completedModules: "Completed Modules",
+        moduleProgress: "Module Progress",
+        completionRate: "Completion rate",
+      }
+    : {
+        recommendationProfile: "Recommendation profile",
+        recommendationProfileBody: "These learner inputs feed personalized recommendations and predictive reporting.",
+        industryInterests: "Industry interests",
+        preferredCategories: "Preferred categories",
+        currentSkillLevel: "Current skill level",
+        selectLearningStage: "Select learning stage",
+        skills: "Skills",
+        skillsPlaceholder: "Add skills separated by commas or line breaks",
+        skillsHelp: "Example: Communication, Spreadsheet basics, Customer service",
+        saving: "Saving...",
+        saveChanges: "Save Changes",
+        cancel: "Cancel",
+        identity: "Identity",
+        educationAndWork: "Education & Work",
+        location: "Location",
+        addSignals: "Add interests and preferred categories to strengthen personalized recommendations.",
+        notProvided: "Not provided",
+        skillsRecorded: "Skills recorded",
+        noSkillsYet: "No skills added yet",
+        security: "Security",
+        securityBody: "Change your password and keep your account protected.",
+        currentPassword: "Current password",
+        currentPasswordPlaceholder: "Enter current password",
+        newPassword: "New password",
+        newPasswordPlaceholder: "At least 6 characters",
+        confirmPassword: "Confirm new password",
+        confirmPasswordPlaceholder: "Confirm new password",
+        updating: "Updating...",
+        changePassword: "Change password",
+        profileHealth: "Profile Health",
+        profileHealthBody: "Track how complete and ready your learner record is.",
+        profileCompletion: "Profile completion",
+        requiredCoverage: "Required coverage",
+        recommendedAction: "Recommended action",
+        recommendedActionIncomplete: "Complete missing demographic and location details to support trainee analytics and reporting.",
+        recommendedActionComplete: "Your trainee record is fully populated and ready for reporting use.",
+        learnerAnalytics: "Learner Profile Analytics",
+        learnerAnalyticsBody: "These profile signals now feed recommendation refreshes and downstream predictive reporting inputs.",
+        recommendationSignalCoverage: "Recommendation signal coverage",
+        predictiveReadiness: "Predictive readiness",
+        predictiveReadinessBody: "Blends profile completion, recommendation inputs, and learning history",
+        recommendationCoverageBody: "Interests, categories, stage, and skills populated",
+        whyThisMatters: "Why this matters",
+        whyThisMattersBody: "Updating your learner profile now triggers an explicit recommendation refresh, so changes to interests, category preferences, skill level, and skills are reflected in personalized course suggestions without waiting for the next learning event.",
+        trainingSnapshot: "Training Snapshot",
+        trainingSnapshotBody: "Your learning activity and completion metrics.",
+        enrolledCourses: "Enrolled Courses",
+        certificates: "Certificates",
+        completed: "Completed",
+        inProgress: "In Progress",
+        averageAssessmentScore: "Average Assessment Score",
+        totalLearningTime: "Total Learning Time",
+        completedModules: "Completed Modules",
+        moduleProgress: "Module Progress",
+        completionRate: "Completion rate",
+      };
 
   const updateFormField = <K extends keyof typeof formData>(field: K, value: (typeof formData)[K]) => {
     const nextValue = typeof value === "string"
@@ -290,14 +412,54 @@ const Profile = () => {
         return;
       }
 
-      const phoneValidationError = validateDigitsOnlyField("Phone", formData.phone);
-      if (phoneValidationError) {
-        toast.error(phoneValidationError);
+      const normalizedPhone = normalizePhoneNumber(formData.phone);
+      const normalizedPostalCode = normalizePostalCode(formData.postalCode);
+
+      const nameLengthError = validateMaxLength("Name", formData.name, PROFILE_FIELD_LIMITS.name);
+      if (nameLengthError) {
+        toast.error(nameLengthError);
         setLoading(false);
         return;
       }
 
-      const postalCodeValidationError = validateDigitsOnlyField("Postal code", formData.postalCode);
+      const addressLengthError = validateMaxLength("Address", formData.address, PROFILE_FIELD_LIMITS.address);
+      if (addressLengthError) {
+        toast.error(addressLengthError);
+        setLoading(false);
+        return;
+      }
+
+      const occupationLengthError = validateMaxLength("Occupation", formData.occupation, PROFILE_FIELD_LIMITS.occupation);
+      if (occupationLengthError) {
+        toast.error(occupationLengthError);
+        setLoading(false);
+        return;
+      }
+
+      const educationLengthError = validateMaxLength("Education level", formData.educationLevel, PROFILE_FIELD_LIMITS.educationLevel);
+      if (educationLengthError) {
+        toast.error(educationLengthError);
+        setLoading(false);
+        return;
+      }
+
+      for (const [label, value] of [["Barangay", formData.barangay], ["City/Municipality", formData.cityMunicipality], ["Province", formData.province]] as const) {
+        const locationLengthError = validateMaxLength(label, value, PROFILE_FIELD_LIMITS.location);
+        if (locationLengthError) {
+          toast.error(locationLengthError);
+          setLoading(false);
+          return;
+        }
+      }
+
+      const phoneFormatError = validatePhoneNumber(formData.phone);
+      if (phoneFormatError) {
+        toast.error(phoneFormatError);
+        setLoading(false);
+        return;
+      }
+
+      const postalCodeValidationError = validatePostalCode(formData.postalCode);
       if (postalCodeValidationError) {
         toast.error(postalCodeValidationError);
         setLoading(false);
@@ -317,7 +479,7 @@ const Profile = () => {
       const nextUserProfile: AuthUser = {
         ...user,
         name: formData.name,
-        phone: formData.phone || undefined,
+        phone: normalizedPhone || undefined,
         address: formData.address || undefined,
         dateOfBirth: formData.dateOfBirth || undefined,
         gender: formData.gender || undefined,
@@ -328,7 +490,7 @@ const Profile = () => {
         barangay: formData.barangay || undefined,
         cityMunicipality: formData.cityMunicipality || undefined,
         province: formData.province || undefined,
-        postalCode: formData.postalCode || undefined,
+        postalCode: normalizedPostalCode || undefined,
         industryInterests: formData.industryInterests,
         preferredCategories: formData.preferredCategories,
         onboardingSkillLevel: formData.onboardingSkillLevel || undefined,
@@ -337,7 +499,7 @@ const Profile = () => {
 
       await updateUser({
         name: formData.name,
-        phone: formData.phone,
+        phone: normalizedPhone,
         address: formData.address,
         dateOfBirth: formData.dateOfBirth || undefined,
         gender: formData.gender || undefined,
@@ -348,7 +510,7 @@ const Profile = () => {
         barangay: formData.barangay,
         cityMunicipality: formData.cityMunicipality,
         province: formData.province,
-        postalCode: formData.postalCode,
+        postalCode: normalizedPostalCode,
         industryInterests: formData.industryInterests,
         preferredCategories: formData.preferredCategories,
         onboardingSkillLevel: formData.onboardingSkillLevel || undefined,
@@ -570,7 +732,7 @@ const Profile = () => {
 
         {isLearner && (
           <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
-            <Card className="border-primary/15 bg-gradient-to-br from-primary/10 via-card to-card">
+            <Card className="border-primary/15 bg-card">
               <CardContent className="space-y-4 p-6">
                 <div>
                   <p className="text-xs font-medium uppercase tracking-[0.18em] text-primary">Next profile action</p>
@@ -633,7 +795,7 @@ const Profile = () => {
 
         <div className="grid gap-6 xl:grid-cols-[1.45fr_0.85fr]">
           <div className="space-y-6">
-            <Card className="overflow-hidden border-primary/15 bg-gradient-to-br from-primary/10 via-card to-card">
+            <Card className="overflow-hidden border-primary/15 bg-card">
               <CardContent className="p-0">
                 <div className="border-b border-border/60 px-6 py-5">
                   <div className="flex flex-col gap-5 md:flex-row md:items-center md:justify-between">
@@ -847,14 +1009,14 @@ const Profile = () => {
                       {isLearner && (
                         <div className="space-y-5 rounded-3xl border border-border/60 bg-background/50 p-5">
                           <div>
-                            <h3 className="text-lg font-semibold">Recommendation profile</h3>
+                            <h3 className="text-lg font-semibold">{copy.recommendationProfile}</h3>
                             <p className="text-sm text-muted-foreground">
-                              These learner inputs feed personalized recommendations and predictive reporting.
+                              {copy.recommendationProfileBody}
                             </p>
                           </div>
 
                           <div className="space-y-3">
-                            <Label>Industry interests</Label>
+                            <Label>{copy.industryInterests}</Label>
                             <div className="flex flex-wrap gap-2">
                               {ONBOARDING_INDUSTRY_OPTIONS.map((option) => {
                                 const isSelected = formData.industryInterests.includes(option);
@@ -874,7 +1036,7 @@ const Profile = () => {
                           </div>
 
                           <div className="space-y-3">
-                            <Label>Preferred categories</Label>
+                            <Label>{copy.preferredCategories}</Label>
                             <div className="flex flex-wrap gap-2">
                               {ONBOARDING_CATEGORY_OPTIONS.map((option) => {
                                 const isSelected = formData.preferredCategories.includes(option);
@@ -895,7 +1057,7 @@ const Profile = () => {
 
                           <div className="grid gap-4 lg:grid-cols-[0.85fr_1.15fr]">
                             <div className="space-y-2">
-                              <Label htmlFor="onboarding-skill-level">Current skill level</Label>
+                              <Label htmlFor="onboarding-skill-level">{copy.currentSkillLevel}</Label>
                               <Select
                                 value={formData.onboardingSkillLevel}
                                 onValueChange={(value) =>
@@ -906,7 +1068,7 @@ const Profile = () => {
                                 }
                               >
                                 <SelectTrigger id="onboarding-skill-level">
-                                  <SelectValue placeholder="Select learning stage" />
+                                  <SelectValue placeholder={copy.selectLearningStage} />
                                 </SelectTrigger>
                                 <SelectContent>
                                   {ONBOARDING_SKILL_LEVEL_OPTIONS.map((option) => (
@@ -919,15 +1081,15 @@ const Profile = () => {
                             </div>
 
                             <div className="space-y-2">
-                              <Label htmlFor="skills-input">Skills</Label>
+                              <Label htmlFor="skills-input">{copy.skills}</Label>
                               <Textarea
                                 id="skills-input"
                                 value={formData.skillsInput}
                                 onChange={(e) => setFormData({ ...formData, skillsInput: e.target.value })}
-                                placeholder="Add skills separated by commas or line breaks"
+                                placeholder={copy.skillsPlaceholder}
                               />
                               <p className="text-xs text-muted-foreground">
-                                Example: Communication, Spreadsheet basics, Customer service
+                                {copy.skillsHelp}
                               </p>
                             </div>
                           </div>
@@ -939,17 +1101,17 @@ const Profile = () => {
                           {loading ? (
                             <>
                               <Loader2 className="h-4 w-4 animate-spin" />
-                              Saving...
+                              {copy.saving}
                             </>
                           ) : (
                             <>
                               <Save className="h-4 w-4" />
-                              Save Changes
+                              {copy.saveChanges}
                             </>
                           )}
                         </Button>
                         <Button variant="outline" onClick={() => setIsEditing(false)} disabled={loading}>
-                          Cancel
+                          {copy.cancel}
                         </Button>
                       </div>
                     </div>
@@ -958,7 +1120,7 @@ const Profile = () => {
                       <div>
                         <div className="mb-3 flex items-center gap-2">
                           <Badge variant="outline" className="rounded-full px-3 py-1">
-                            Identity
+                            {copy.identity}
                           </Badge>
                         </div>
                         {renderInfoGrid(identityItems)}
@@ -967,7 +1129,7 @@ const Profile = () => {
                       <div>
                         <div className="mb-3 flex items-center gap-2">
                           <Badge variant="outline" className="rounded-full px-3 py-1">
-                            Education & Work
+                            {copy.educationAndWork}
                           </Badge>
                         </div>
                         {renderInfoGrid(workItems)}
@@ -976,7 +1138,7 @@ const Profile = () => {
                       <div>
                         <div className="mb-3 flex items-center gap-2">
                           <Badge variant="outline" className="rounded-full px-3 py-1">
-                            Location
+                            {copy.location}
                           </Badge>
                         </div>
                         {renderInfoGrid(locationItems)}
@@ -986,7 +1148,7 @@ const Profile = () => {
                         <div>
                           <div className="mb-3 flex items-center gap-2">
                             <Badge variant="outline" className="rounded-full px-3 py-1">
-                              Recommendation profile
+                              {copy.recommendationProfile}
                             </Badge>
                           </div>
                           <div className="space-y-3 rounded-2xl border border-border/60 bg-background/50 p-4">
@@ -1004,24 +1166,24 @@ const Profile = () => {
                               {(!user.industryInterests || user.industryInterests.length === 0) &&
                               (!user.preferredCategories || user.preferredCategories.length === 0) ? (
                                 <p className="text-sm text-muted-foreground">
-                                  Add interests and preferred categories to strengthen personalized recommendations.
+                                  {copy.addSignals}
                                 </p>
                               ) : null}
                             </div>
                             <div className="grid gap-3 sm:grid-cols-2">
                               <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
-                                <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Learning stage</p>
+                                <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">{copy.currentSkillLevel}</p>
                                 <p className="mt-2 text-lg font-semibold">
                                   {user.onboardingSkillLevel
                                     ? ONBOARDING_SKILL_LEVEL_OPTIONS.find((option) => option.value === user.onboardingSkillLevel)?.label || prettifyValue(user.onboardingSkillLevel)
-                                    : "Not provided"}
+                                    : copy.notProvided}
                                 </p>
                               </div>
                               <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
-                                <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Skills recorded</p>
+                                <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">{copy.skillsRecorded}</p>
                                 <p className="mt-2 text-lg font-semibold">{profileSkillCount}</p>
                                 <p className="mt-2 text-sm text-muted-foreground">
-                                  {profileSkillCount > 0 ? user.skills?.join(", ") : "No skills added yet"}
+                                  {profileSkillCount > 0 ? user.skills?.join(", ") : copy.noSkillsYet}
                                 </p>
                               </div>
                             </div>
@@ -1038,18 +1200,18 @@ const Profile = () => {
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-xl">
                   <ShieldCheck className="h-5 w-5 text-primary" />
-                  Security
+                  {copy.security}
                 </CardTitle>
-                <CardDescription>Change your password and keep your account protected.</CardDescription>
+                <CardDescription>{copy.securityBody}</CardDescription>
               </CardHeader>
               <CardContent>
                 <form onSubmit={handleChangePassword} className="grid gap-4 lg:grid-cols-[1fr_1.35fr_auto] lg:items-end">
                   <div className="space-y-2">
-                    <Label htmlFor="current-password">Current password</Label>
+                    <Label htmlFor="current-password">{copy.currentPassword}</Label>
                     <Input
                       id="current-password"
                       type="password"
-                      placeholder="Enter current password"
+                      placeholder={copy.currentPasswordPlaceholder}
                       value={passwordForm.currentPassword}
                       onChange={(e) => setPasswordForm({ ...passwordForm, currentPassword: e.target.value })}
                       autoComplete="current-password"
@@ -1058,11 +1220,11 @@ const Profile = () => {
 
                   <div className="grid gap-4 sm:grid-cols-2">
                     <div className="space-y-2">
-                      <Label htmlFor="new-password">New password</Label>
+                      <Label htmlFor="new-password">{copy.newPassword}</Label>
                       <Input
                         id="new-password"
                         type="password"
-                        placeholder="At least 6 characters"
+                        placeholder={copy.newPasswordPlaceholder}
                         value={passwordForm.newPassword}
                         onChange={(e) => setPasswordForm({ ...passwordForm, newPassword: e.target.value })}
                         autoComplete="new-password"
@@ -1070,11 +1232,11 @@ const Profile = () => {
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="confirm-password">Confirm new password</Label>
+                      <Label htmlFor="confirm-password">{copy.confirmPassword}</Label>
                       <Input
                         id="confirm-password"
                         type="password"
-                        placeholder="Confirm new password"
+                        placeholder={copy.confirmPasswordPlaceholder}
                         value={passwordForm.confirmPassword}
                         onChange={(e) => setPasswordForm({ ...passwordForm, confirmPassword: e.target.value })}
                         autoComplete="new-password"
@@ -1086,12 +1248,12 @@ const Profile = () => {
                     {changingPassword ? (
                       <>
                         <Loader2 className="h-4 w-4 animate-spin" />
-                        Updating...
+                        {copy.updating}
                       </>
                     ) : (
                       <>
                         <Lock className="h-4 w-4" />
-                        Change password
+                        {copy.changePassword}
                       </>
                     )}
                   </Button>
@@ -1103,13 +1265,13 @@ const Profile = () => {
           <div className="space-y-6">
             <Card>
               <CardHeader>
-                <CardTitle className="text-xl">Profile Health</CardTitle>
-                <CardDescription>Track how complete and ready your learner record is.</CardDescription>
+                <CardTitle className="text-xl">{copy.profileHealth}</CardTitle>
+                <CardDescription>{copy.profileHealthBody}</CardDescription>
               </CardHeader>
               <CardContent className="space-y-5">
                 <div>
                   <div className="mb-2 flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">Profile completion</span>
+                    <span className="text-muted-foreground">{copy.profileCompletion}</span>
                     <span className="font-medium">{profileCompletion}%</span>
                   </div>
                   <div className="h-2 rounded-full bg-muted">
@@ -1119,17 +1281,17 @@ const Profile = () => {
 
                 <div className="grid gap-3">
                   <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
-                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Required coverage</p>
+                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">{copy.requiredCoverage}</p>
                     <p className="mt-2 text-lg font-semibold">
                       {completedProfileFields} of {profileCompletionFields.length} fields filled
                     </p>
                   </div>
                   <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
-                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Recommended action</p>
+                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">{copy.recommendedAction}</p>
                     <p className="mt-2 text-sm leading-6 text-muted-foreground">
                       {profileCompletion < 100
-                        ? "Complete missing demographic and location details to support trainee analytics and reporting."
-                        : "Your trainee record is fully populated and ready for reporting use."}
+                        ? copy.recommendedActionIncomplete
+                        : copy.recommendedActionComplete}
                     </p>
                   </div>
                 </div>
@@ -1141,38 +1303,38 @@ const Profile = () => {
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2 text-xl">
                     <Sparkles className="h-5 w-5 text-primary" />
-                    Learner Profile Analytics
+                    {copy.learnerAnalytics}
                   </CardTitle>
                   <CardDescription>
-                    These profile signals now feed recommendation refreshes and downstream predictive reporting inputs.
+                    {copy.learnerAnalyticsBody}
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="grid gap-3 sm:grid-cols-2">
                     <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
-                      <p className="text-sm text-muted-foreground">Recommendation signal coverage</p>
+                      <p className="text-sm text-muted-foreground">{copy.recommendationSignalCoverage}</p>
                       <p className="mt-3 text-3xl font-semibold">{recommendationSignalCoverage}%</p>
-                      <p className="mt-2 text-xs text-muted-foreground">Interests, categories, stage, and skills populated</p>
+                      <p className="mt-2 text-xs text-muted-foreground">{copy.recommendationCoverageBody}</p>
                     </div>
                     <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
-                      <p className="text-sm text-muted-foreground">Predictive readiness</p>
+                      <p className="text-sm text-muted-foreground">{copy.predictiveReadiness}</p>
                       <p className="mt-3 text-3xl font-semibold">{predictiveReadiness}%</p>
-                      <p className="mt-2 text-xs text-muted-foreground">Blends profile completion, recommendation inputs, and learning history</p>
+                      <p className="mt-2 text-xs text-muted-foreground">{copy.predictiveReadinessBody}</p>
                     </div>
                     <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
-                      <p className="text-sm text-muted-foreground">Industry interests</p>
+                      <p className="text-sm text-muted-foreground">{copy.industryInterests}</p>
                       <p className="mt-3 text-3xl font-semibold">{industryInterestCount}</p>
                     </div>
                     <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
-                      <p className="text-sm text-muted-foreground">Preferred categories</p>
+                      <p className="text-sm text-muted-foreground">{copy.preferredCategories}</p>
                       <p className="mt-3 text-3xl font-semibold">{preferredCategoryCount}</p>
                     </div>
                   </div>
 
                   <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
-                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Why this matters</p>
+                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">{copy.whyThisMatters}</p>
                     <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                      Updating your learner profile now triggers an explicit recommendation refresh, so changes to interests, category preferences, skill level, and skills are reflected in personalized course suggestions without waiting for the next learning event.
+                      {copy.whyThisMattersBody}
                     </p>
                   </div>
                 </CardContent>
@@ -1182,8 +1344,8 @@ const Profile = () => {
             {isLearner && (
               <Card>
                 <CardHeader>
-                  <CardTitle className="text-xl">Training Snapshot</CardTitle>
-                  <CardDescription>Your learning activity and completion metrics.</CardDescription>
+                  <CardTitle className="text-xl">{copy.trainingSnapshot}</CardTitle>
+                  <CardDescription>{copy.trainingSnapshotBody}</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   {loadingData ? (
@@ -1201,56 +1363,56 @@ const Profile = () => {
                       <div className="grid gap-3 sm:grid-cols-2">
                         <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
                           <div className="flex items-center justify-between">
-                            <p className="text-sm text-muted-foreground">Enrolled Courses</p>
+                            <p className="text-sm text-muted-foreground">{copy.enrolledCourses}</p>
                             <BookOpen className="h-4 w-4 text-primary" />
                           </div>
                           <p className="mt-3 text-3xl font-semibold">{enrollments.length}</p>
                         </div>
                         <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
                           <div className="flex items-center justify-between">
-                            <p className="text-sm text-muted-foreground">Certificates</p>
+                            <p className="text-sm text-muted-foreground">{copy.certificates}</p>
                             <Award className="h-4 w-4 text-amber-500" />
                           </div>
                           <p className="mt-3 text-3xl font-semibold">{certificates.length}</p>
                         </div>
                         <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
                           <div className="flex items-center justify-between">
-                            <p className="text-sm text-muted-foreground">Completed</p>
+                            <p className="text-sm text-muted-foreground">{copy.completed}</p>
                             <BadgeCheck className="h-4 w-4 text-emerald-500" />
                           </div>
                           <p className="mt-3 text-3xl font-semibold">{completedEnrollments}</p>
                         </div>
                         <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
                           <div className="flex items-center justify-between">
-                            <p className="text-sm text-muted-foreground">In Progress</p>
+                            <p className="text-sm text-muted-foreground">{copy.inProgress}</p>
                             <GraduationCap className="h-4 w-4 text-sky-500" />
                           </div>
                           <p className="mt-3 text-3xl font-semibold">{inProgressEnrollments}</p>
                         </div>
                         <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
                           <div className="flex items-center justify-between">
-                            <p className="text-sm text-muted-foreground">Average Assessment Score</p>
+                            <p className="text-sm text-muted-foreground">{copy.averageAssessmentScore}</p>
                             <Target className="h-4 w-4 text-primary" />
                           </div>
                           <p className="mt-3 text-3xl font-semibold">{averageAssessmentScore}%</p>
                         </div>
                         <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
                           <div className="flex items-center justify-between">
-                            <p className="text-sm text-muted-foreground">Total Learning Time</p>
+                            <p className="text-sm text-muted-foreground">{copy.totalLearningTime}</p>
                             <Clock3 className="h-4 w-4 text-primary" />
                           </div>
                           <p className="mt-3 text-3xl font-semibold">{formatLearningTime(totalLearningMinutes)}</p>
                         </div>
                         <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
                           <div className="flex items-center justify-between">
-                            <p className="text-sm text-muted-foreground">Completed Modules</p>
+                            <p className="text-sm text-muted-foreground">{copy.completedModules}</p>
                             <BookOpen className="h-4 w-4 text-primary" />
                           </div>
                           <p className="mt-3 text-3xl font-semibold">{completedModules}</p>
                         </div>
                         <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
                           <div className="flex items-center justify-between">
-                            <p className="text-sm text-muted-foreground">Module Progress</p>
+                            <p className="text-sm text-muted-foreground">{copy.moduleProgress}</p>
                             <TrendingUp className="h-4 w-4 text-primary" />
                           </div>
                           <p className="mt-3 text-3xl font-semibold">{moduleCompletionRate}%</p>
@@ -1260,7 +1422,7 @@ const Profile = () => {
 
                       <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
                         <div className="mb-2 flex items-center justify-between text-sm">
-                          <span className="text-muted-foreground">Completion rate</span>
+                          <span className="text-muted-foreground">{copy.completionRate}</span>
                           <span className="font-medium">{completionRate}%</span>
                         </div>
                         <div className="h-2 rounded-full bg-muted">

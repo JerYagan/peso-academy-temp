@@ -3288,19 +3288,21 @@ export const reportingService = {
     if (!supabase) return null;
 
     try {
-      const refreshResults = await Promise.allSettled([
+      void Promise.allSettled([
         supabase.rpc("refresh_phase1_analytics_rollups", { p_user_id: null }),
-        supabase.rpc("refresh_phase6_predictive_scores"),
-      ]);
-
-      refreshResults.forEach((result, index) => {
-        if (result.status === "fulfilled" && result.value.error) {
-          console.warn(index === 0 ? "Failed to refresh phase1 analytics rollups:" : "Failed to refresh phase6 predictive scores:", result.value.error);
-        }
-        if (result.status === "rejected") {
-          console.warn(index === 0 ? "Failed to refresh phase1 analytics rollups:" : "Failed to refresh phase6 predictive scores:", result.reason);
-        }
+      ]).then((refreshResults) => {
+        refreshResults.forEach((result) => {
+          if (result.status === "fulfilled" && result.value.error) {
+            console.warn("Failed to refresh phase1 analytics rollups:", result.value.error);
+          }
+          if (result.status === "rejected") {
+            console.warn("Failed to refresh phase1 analytics rollups:", result.reason);
+          }
+        });
       });
+
+      // The predictive-score refresh RPC is currently blocked by a backend enum mismatch.
+      // Skip invoking it from the UI until the Supabase function is repaired server-side.
 
       const now = new Date();
       const trendStart = startOfMonth(subMonths(now, 5));

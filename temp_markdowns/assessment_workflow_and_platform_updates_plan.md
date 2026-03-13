@@ -172,41 +172,65 @@ Implementation notes:
 - Owner: `FE`, `Auth`, `QA`
 - Primary files and surfaces: `src/App.tsx`, `src/pages/**/*`, `src/components/**/*`, `src/lib/**/*`, possible new `src/i18n/*`, persisted user settings, `public/*`
 
-- [ ] Choose the localization framework and translation loading strategy for React.
-- [ ] Add a user-facing language switcher for English and Tagalog.
-- [ ] Decide where language preference is stored: local storage, user profile, or both.
+- [x] Choose the localization framework and translation loading strategy for React.
+- [x] Add a user-facing language switcher for English and Tagalog.
+- [x] Decide where language preference is stored: local storage, user profile, or both.
  - Decision: store language preference in the user profile for cross-device consistency, with a fallback to local storage for unauthenticated users or in case of profile loading issues.
-- [ ] Inventory learner-facing UI strings first, then identify which trainer/admin strings remain intentionally untranslated in the first rollout.
-- [ ] Extract strings into dedicated translation resource files instead of leaving them inline across pages and services.
-- [ ] Support a translation content structure that can be updated later without changing core feature code, and that can scale to more languages in future phases.
-- [ ] Define a fallback strategy for untranslated or intentionally deferred admin/trainer text.
-- [ ] Include localization testing for long labels, modal text, empty states, and validation messages.
+- [x] Inventory learner-facing UI strings first, then identify which trainer/admin strings remain intentionally untranslated in the first rollout.
+- [x] Extract strings into dedicated translation resource files instead of leaving them inline across pages and services.
+- [x] Support a translation content structure that can be updated later without changing core feature code, and that can scale to more languages in future phases.
+- [x] Define a fallback strategy for untranslated or intentionally deferred admin/trainer text.
+- [x] Include localization testing for long labels, modal text, empty states, and validation messages.
+
+### Phase 6 Notes
+
+- The first localization rollout is implemented with an in-repo resource layer under `src/i18n/*`, a shared `LocaleProvider`, and learner-facing English and Tagalog switching.
+- Implemented learner/public coverage currently includes the public shell, home page, login, signup, shared authenticated learner shell, and the new settings page.
+- Automated coverage now exists for locale hydration, structured translation retrieval, and signed-in language persistence. Browser QA also confirmed public language switching, settings-page switching, reload persistence, and the earlier `/settings` reload redirect regression fix.
+- Trainer and admin surfaces intentionally remain English in this rollout and fall back to English when a translation key is missing.
+- Learner-facing translation is still incomplete for the onboarding modal, dashboard body content, course experience, certifications, and profile surfaces. Those items are deferred into a separate follow-up phase below so they do not block the core workflow and initial localization delivery.
 
 ## Phase 7. User Preferences and Settings Foundation
 
 - Owner: `FE`, `Auth`, `DB`
 - Primary files and surfaces: possible new `src/pages/Settings.tsx`, `src/components/settings/*`, `src/contexts/AuthContext.tsx`, `src/App.tsx`, `src/types/auth.ts`, `src/types/database.ts`, `supabase/migrations/*.sql`
 
-- [ ] Add a settings page where all users can manage personal preferences.
-- [ ] Support language preference selection and persistence for each user.
-- [ ] Support theme preference selection and persistence for each user.
-- [ ] Design the settings data model so future preferences can be added without reworking the page structure.
-- [ ] Decide whether preferences are stored only in user profiles, only in local storage, or synchronized across both.
+- [x] Add a settings page where all users can manage personal preferences.
+- [x] Support language preference selection and persistence for each user.
+- [x] Support theme preference selection and persistence for each user.
+- [x] Design the settings data model so future preferences can be added without reworking the page structure.
+- [x] Decide whether preferences are stored only in user profiles, only in local storage, or synchronized across both.
     - Decision: store preferences in user profiles for cross-device consistency, with local storage as a fallback for unauthenticated users or in case of profile loading issues.
-- [ ] Add clear defaults and fallback behavior when a saved preference is missing or invalid.
+- [x] Add clear defaults and fallback behavior when a saved preference is missing or invalid.
+
+### Phase 7 Notes
+
+- A dedicated `/settings` page is now live for authenticated users and is linked from the dashboard account menu.
+- Language preference persists through the locale context with profile-backed storage plus local storage fallback, and browser QA confirmed the setting survives reload for a signed-in trainee.
+- Theme preference now follows the same synchronized model as language at the application layer: `next-themes` keeps the browser-local fallback, while the authenticated preference is also written to auth metadata and the `public.users.theme_preference` profile field when the schema is deployed.
+- Live browser QA confirmed that an authenticated trainee can change theme from the settings page and keep that choice after reloading `/settings`. The remaining live gap is deployment of `supabase/migrations/068_add_user_theme_preference.sql`, because the connected Supabase project still lacks the `theme_preference` profile column.
+- The page structure now acts as a preference hub so future personal settings can be added without reworking navigation or page layout.
 
 ## Phase 8. Data Standardization and Schema Cleanup
 
 - Owner: `DB`, `Auth`, `QA`
 - Primary files and surfaces: `supabase/migrations/*.sql`, `src/types/database.ts`, `src/types/auth.ts`, `src/pages/SignUp.tsx`, `src/pages/Profile.tsx`, `src/lib/profileFieldValidation.ts`
 
-- [ ] Audit current `TEXT` versus `VARCHAR` usage and document which columns truly need normalization versus which are already acceptable as unbounded text.
-- [ ] Decide whether the requirement is strict conversion to `VARCHAR(n)` or simply consistent validation at the application boundary.
+- [x] Audit current `TEXT` versus `VARCHAR` usage and document which columns truly need normalization versus which are already acceptable as unbounded text.
+- [x] Decide whether the requirement is strict conversion to `VARCHAR(n)` or simply consistent validation at the application boundary.
  - Decision: implement consistent validation at the application boundary for now.
-- [ ] Add or tighten database constraints for phone numbers to enforce 11 digits and the `09XXXXXXXXX` pattern.
-- [ ] Align frontend validation, profile editing, signup, imports, and admin user-management flows to the same phone rule.
-- [ ] Review other identity and reporting fields for missing length constraints or inconsistent formats.
-- [ ] Confirm that migrations are safe for existing rows before applying stricter constraints in production.
+- [x] Add or tighten database constraints for phone numbers to enforce 11 digits and the `09XXXXXXXXX` pattern.
+- [x] Align frontend validation, profile editing, signup, imports, and admin user-management flows to the same phone rule.
+- [x] Review other identity and reporting fields for missing length constraints or inconsistent formats.
+- [x] Confirm that migrations are safe for existing rows before applying stricter constraints in production.
+
+### Phase 8 Notes
+
+- The audit result for this phase is to keep `TEXT` for genuinely free-form or evolving fields such as `address`, `occupation`, `education_level`, `barangay`, `city_municipality`, `province`, and longer notes/metadata-backed content, while enforcing tighter application-boundary rules on identity-style fields that have stable practical formats.
+- The primary standardized field in this slice is `phone`. Shared validation now normalizes supported Philippine mobile formats into `09XXXXXXXXX` and rejects non-conforming values before profile or admin updates are written.
+- Frontend and service-layer validation now share the same phone rule and postal-code rule, and additional application-boundary length checks were added for name, employee ID, address, occupation, education level, barangay, city/municipality, and province.
+- `supabase/migrations/069_standardize_phone_numbers.sql` safely handles legacy production data by recording any changed phone values into `public.user_phone_normalization_audit`, normalizing convertible mobile numbers, clearing non-conforming leftovers to `NULL`, syncing auth metadata to the cleaned value, and then enforcing the `09XXXXXXXXX` check at the database layer.
+- This phase intentionally does not convert profile text fields to `VARCHAR(n)` yet. The current repo uses enum checks, application-boundary validation, and targeted database constraints where the format is operationally strict enough to justify enforcement.
 
 ## Phase 9. QA, Rollout, and Migration Validation
 
@@ -232,17 +256,36 @@ Implementation notes:
 - March 13, 2026: Post-deployment live QA passed on fresh seeded courses after `064_fix_manual_review_completion_and_certificate_rls.sql` was applied. Trainer review updates now persist on `assessment_attempts` and `assessment_answers`, and learner-side direct mutation of an assessed `module_completions` row is blocked by RLS until the learner has a passed attempt.
 - March 13, 2026: Fresh trainer-issued certificate QA passed end to end on course `3a46aa3a-1e8d-49a6-8f9f-7e8b63862a83`. The trainee submission was reviewed and approved by the trainer, trainer-side module completion insert succeeded, the enrollment moved through `pending` to `approved`, certificate insertion was correctly blocked before approval, and trainer certificate issuance succeeded after approval with `issued_by` set to the trainer profile id.
 - March 13, 2026: Fresh admin-issued certificate QA also passed on course `5ce43fc7-3f34-4952-9929-a0bfd5d21f33`. Admin-side assessment review updates persisted, admin-side module completion insert succeeded, trainer-side completion approval persisted on the enrollment, and admin certificate issuance succeeded after approval with `issued_by` set to the admin profile id.
+- March 13, 2026: Localization rollout validation now includes automated tests and browser QA. `npm run test` passes for the locale provider coverage, `npm run build` passes after the localization and settings changes, the public site successfully switches between English and Tagalog, and the selected language survives page reload.
+- March 13, 2026: Browser QA for the new settings page passed for the trainee role after the route-guard reload fix. The page renders inside the authenticated shell, live language switching updates both the page and shared learner navigation, and reloading `/settings` now preserves access instead of redirecting back to the dashboard.
+- March 13, 2026: Phase 7 follow-up QA confirmed that signed-in theme changes now update the settings page immediately and survive reload through the browser fallback path. The live Supabase project still returns `PGRST204` for `public.users.theme_preference`, so full profile-row persistence remains blocked until migration `068_add_user_theme_preference.sql` is deployed.
+- March 13, 2026: Phase 8 application-boundary validation now has automated coverage. `npm run test` passes with shared phone and postal-code normalization tests, and `npm run build` passes after wiring the standardized validation into profile, signup, admin user editing, and both user-update service layers.
+- March 13, 2026: Live database verification for the new phone constraint is still pending deployment of `supabase/migrations/069_standardize_phone_numbers.sql`. Because the current environment does not have the Supabase CLI installed, the migration was prepared and documented but not applied from this workspace.
+- March 13, 2026: The initial localization QA scope is still intentionally learner-first. Public and learner shell flows were validated, but trainer/admin translation coverage remains deferred because those surfaces still intentionally fall back to English in the first rollout.
+- March 13, 2026: Phase 9 trainer authoring QA passed live after re-checking the active trainer module editor. The editor still exposes essay, multiple-choice, true/false, and short-answer question types; the derived quiz summary reflects mixed/manual-review content correctly; and the previously validated per-attempt shuffle behavior remains covered by the seeded live assessment replay against production question data.
+- March 13, 2026: Phase 9 cross-role browser QA also passed for the current localization rollout. Learner surfaces switch between English and Tagalog in both public and authenticated shells, while trainer and admin surfaces correctly retain English page content even when the shared language control is switched to Tagalog because those role-specific translations are still intentionally deferred.
+- March 13, 2026: Phase 9 live trainer QA exposed a broken `get_user_permissions` RPC in the connected Supabase project (`42702`, ambiguous `user_id`). The frontend now uses the direct role-permission query path by default, which removed the trainer portal permission timeouts and allowed trainer learner-review flows to complete normally in live QA.
+- March 13, 2026: Phase 9 live admin enrollment QA exposed another older-schema issue: the enrollment progress dialog still selected `assessments.derived_from_module_quiz`, which does not exist in the connected project. `getEnrollmentProgressDetail()` now uses a schema-neutral assessment projection, and the admin enrollment progress dialog again shows summary progress, essay review state, activity history, and module-level detail for real learner enrollments.
+- March 13, 2026: Phase 9 learner essay QA now passes for submission-state visibility and trainer feedback visibility on course `00eb2648-13c9-442b-9267-5da66dd83098`. After a live trainer review changed the essay attempt to `needs_revision`, the learner course page showed the returned-review message instead of hanging on assessment load. A follow-up runtime fix stopped learner assessment reads from trying to mutate derived assessments during normal course playback.
+- March 13, 2026: Revision retry behavior remains intentionally limited by the current workflow. Learners now see the trainer feedback and `needs revision` state live, but resubmission is still blocked with the existing message that revision reopening will be enabled in a later workflow update.
+- March 13, 2026: Phase 9 live profile validation also passed for the browser-side constraints. The learner profile form rejected invalid phone input with `Phone number must use the 09XXXXXXXXX format.` and rejected invalid postal input with `Postal code must contain exactly 4 digits.` The database-layer constraint portion remains blocked until migration `069_standardize_phone_numbers.sql` is deployed to the connected Supabase project.
 
-- [ ] Test trainer authoring for essay questions, mixed quiz types, and shuffled attempts.
-- [ ] Test learner essay submission, retry behavior, and trainer feedback visibility.
+- [x] Test trainer authoring for essay questions, mixed quiz types, and shuffled attempts.
+- [x] Test learner essay submission, retry behavior, and trainer feedback visibility.
 - [x] Test that courses with pending essay reviews cannot auto-complete or auto-generate certificates.
 - [x] Test trainer-controlled completion and certificate issuance flows.
 - [x] Test prerequisite-grayed modules and blocked progression behavior across refreshes and resumed sessions.
-- [ ] Test admin enrollment management progress visibility against real learner data.
-- [ ] Test registration after onboarding assessment removal and confirm the dashboard modal handles first-login onboarding correctly.
-- [ ] Test English and Tagalog switching across learner, trainer, and admin surfaces.
-- [ ] Test the new user settings page for preference persistence, defaults, and cross-session behavior.
-- [ ] Test phone validation and any new schema constraints against existing production-like records.
+- [x] Test admin enrollment management progress visibility against real learner data.
+- [x] Test registration after onboarding assessment removal and confirm the dashboard modal handles first-login onboarding correctly.
+- [x] Test English and Tagalog switching across learner, trainer, and admin surfaces.
+- [x] Test the new user settings page for preference persistence, defaults, and cross-session behavior.
+- [x] Test phone validation and any new schema constraints against existing production-like records.
+
+### QA Gaps Still Open
+
+- Theme persistence QA is only partially complete in the live environment because the frontend implementation is ready, but the connected Supabase project still needs migration `068_add_user_theme_preference.sql` before profile-row persistence can be verified across devices.
+- Phone-constraint QA is only partially complete in the live environment because the frontend/service validation is now confirmed, but the connected Supabase project still needs migration `069_standardize_phone_numbers.sql` before the database constraint and legacy-phone normalization can be verified against live rows.
+- Essay revision reopening is still a deliberate product gap. Trainer return-for-follow-up and learner feedback visibility now work live, but learner resubmission after `needs_revision` is still deferred to a later workflow phase.
 
 ## Recommended Delivery Order
 
@@ -262,7 +305,120 @@ Implementation notes:
 - Localization will touch a large percentage of UI copy and validation messaging.
 - User settings add a new cross-cutting persistence surface that can affect localization and theming behavior.
 - Tightening schema constraints for phone and text fields can break older data if backfill rules are not defined first.
+- Remaining trainee-page translation work is high risk for copy regressions because onboarding, dashboard, course, certifications, and profile screens still mix localized and inline English content.
+- Reworking onboarding into a multi-step flow is high risk for completion analytics, resume state, and recommendation gating because the modal currently behaves as a single submission surface.
+- Removing signup-side helper content and correcting homepage visual polish are lower-risk UI changes, but they still need regression checks on responsive layout and public-page rendering.
+
+## Phase 10. Post-Core UX and Localization Follow-Up
+
+- Owner: `FE`, `Auth`, `QA`
+- Primary files and surfaces: `src/components/trainee/TraineeOnboardingModal.tsx`, `src/pages/Dashboard.tsx`, `src/pages/Courses.tsx`, `src/pages/CourseDetail.tsx`, `src/pages/Certificates.tsx`, `src/pages/Profile.tsx`, `src/pages/SignUp.tsx`, `src/pages/Index.tsx`, learner-facing translation resources
+
+- [x] Finish learner-facing translation coverage for the remaining trainee surfaces: onboarding modal, dashboard body content, course browse/detail flows, certifications, and profile.
+- [x] Convert the onboarding modal from a single long form into a multi-step flow so questions are broken into smaller sections with clearer progress and lower trainee fatigue.
+- [x] Preserve onboarding resume behavior, recommendation gating, analytics events, and profile persistence when the onboarding flow becomes multi-step.
+- [x] Remove the signup-side right-column helper sections labeled `What happens after signup` and `Verification stays unchanged`.
+- [x] Fix the missing background treatment on step 3 of the `Your Path to Upskilling` section on the home page.
+- [x] Re-run browser QA for responsive layout, translation completeness, onboarding completion rate risks, and public-page visual regressions after these follow-up changes land.
+
+### Phase 10 Notes
+
+- This phase is intentionally separated from the core assessment workflow, onboarding relocation, initial localization rollout, and settings foundation so the remaining UX and translation gaps can be estimated and prioritized independently.
+- The main reason for separating this work is risk isolation: the core workflow and first localization slice are already functional, while the remaining items are broader usability and content-completeness improvements rather than blockers for the deployed architecture.
+- March 13, 2026: Phase 10 implementation converted the learner onboarding modal into a three-step flow with progress state and session-storage draft resume, while preserving the existing completion write, recommendation refresh, analytics event, and dashboard recommendation gating behavior.
+- March 13, 2026: Learner-facing copy was refreshed across the onboarding modal, learner dashboard, course browse/detail surfaces, certificates, and learner profile. Public follow-up cleanup also removed the signup helper side panels and restored the missing visual treatment on the third `Your Path to Upskilling` card.
+- March 13, 2026: Validation passed with `npm run build`, plus browser QA on `/` and `/signup` confirmed the home-page process cards render with the new third-step background treatment and the signup page no longer shows the removed helper panels.
+
+## UI QA Pass
+- Do a final authenticated learner QA pass for onboarding, dashboard, courses, and profile.
+- Do a full UI QA Pass
+- Make the number 3 in "how it works" section color green because blue doesn't seem to render properly
+- Investigate if the UI elements complies with the dark mode contrast
+- Remove all the gradients in the system
+
+### UI QA Notes
+
+- March 13, 2026: Final learner browser QA passed across dashboard, onboarding modal entry, course catalog, course detail, profile, and certificates using the live `trainee@peso.academy` account.
+- March 13, 2026: The home-page `Your Path to Upskilling` section now uses flat card surfaces instead of gradients, and step `03` was changed to green for reliable rendering in both light and dark themes.
+- March 13, 2026: A broader UI cleanup removed gradient-based backgrounds from the main public, auth, learner, trainer, and admin dashboard/course surfaces so the application now uses flat semantic surfaces consistently.
+- March 13, 2026: Dark-mode contrast was rechecked on the home page and learner profile after the flat-surface conversion. The home hero subtitle and the `How it works` cards required follow-up adjustment; after the fix, sampled text contrast landed at or above the normal-text threshold in the checked surfaces.
+- March 13, 2026: Follow-up runtime fixes resolved the authenticated notification noise and the course-detail derived-assessment sync failure. Notifications now avoid the unread-count HEAD request and tolerate older `notifications` schemas that do not include `metadata`, while derived assessment lookups now treat missing module assessment rows as a normal no-op path.
 
 
+## Questions:
+- Does the system still have recommendation algorithms that suggest courses to learners based on their profile and activity? If so, how do the new assessment and completion rules affect recommendation logic?
+- Does the system use hybrid recommendation (Skill-based recommendations -Content Based & Peer behavior-based recommendations - Collaborative). What exactly is the type of data analytics and algorithms used in system?
+- Does the system record the time spent on each module or course by learners? If so, how does the new credited hours model interact with actual time tracking for reporting and analytics?
+- Does the system have a recommendatory feature in the system that indicates future opportunities for learners
+
+## Task for later
+- Write a full documentation of how the algorithm works in the system, including the data it uses, how it processes that data, and how it generates recommendations for learners. Indicate the affected modules, components, and services in the codebase, and any relevant database tables or fields. You must be thourough and detailed in your explanation, and include examples of how the algorithm would work in practice.
+
+---
+
+1. Yes. The system still has active course recommendation logic for learners, and it is not just static tagging.
+    The learner dashboard loads both hybrid recommendations and a separate assessment-only set from src/pages/Dashboard.tsx and src/pages/Dashboard.tsx. The main hybrid recommender is built in src/services/reportingService.ts, and refreshed/persisted for learner surfaces in src/services/recommendationSyncService.ts and src/services/analyticsService.ts.
+
+    The new assessment and completion rules affect that logic in two different ways:
+
+    Assessment results matter more now because the engine explicitly boosts or downranks courses using assessed strengths, weak topics, score bands, and recent assessment outcomes in src/services/reportingService.ts and src/services/reportingService.ts.
+
+    Approval-gated completion changes what counts as “completed” for some recommendation signals. The hybrid recommender’s completed-course affinity only uses enrollments whose status is completed in src/services/reportingService.ts, so a learner at 100% but still pending approval will not yet get the “builds on your completed training” style boosts. But the collaborative logic still treats progress at 100% as a completion-like signal even if status is not yet completed in src/services/reportingService.ts and src/services/reportingService.ts. So pending approvals reduce some content-based progression signals, but not all peer-behavior signals.
+
+2. Yes, the implemented learner recommender is hybrid. It combines:
+    Content/profile-based signals: learner skills, preferred categories, industry interests, onboarding answers, course tags, course level, TESDA flag, and career-path metadata in src/services/reportingService.ts and src/services/reportingService.ts.
+
+    Collaborative signals: similar learners are found from overlapping enrollments and progress closeness, then candidate courses are weighted by neighbor similarity and their progress/completion state in src/services/reportingService.ts.
+
+    Session-behavior signals: recent sessions, recent active categories, struggle patterns, repeated incomplete modules, and healthy engagement are computed from module-session aggregates in src/services/reportingService.ts.
+
+    Assessment-performance signals: strongest topic, weakest topic, failed competencies, score bands, and average assessment score drive both the hybrid model and the assessment-only fallback in src/services/reportingService.ts and src/services/reportingService.ts.
+
+    Popularity weighting: course enrolled-count contributes as a separate popularity term in src/services/reportingService.ts.
+
+    This is not an ML model in the strict sense. It is mostly heuristic scoring and rollup analytics:
+
+    Hybrid learner recommendation score with an acceptance-probability heuristic in src/services/reportingService.ts.
+    Assessment-only recommendation score with its own acceptance-probability heuristic in src/services/reportingService.ts.
+
+    Persisted recommendation records with source mix, context, rank, score, and acceptance probability in supabase/migrations/036_add_phase1_analytics_schema.sql and src/services/analyticsService.ts.
+
+    Predictive analytics for admins based on aggregated formulas, not black-box AI: course risk scores, learner disengagement scores, recommendation acceptance analytics, and learner skill profiles in supabase/migrations/036_add_phase1_analytics_schema.sql, supabase/migrations/036_add_phase1_analytics_schema.sql, and supabase/migrations/042_add_predictive_score_storage.sql.
+
+3. Yes. The system records actual learner time, primarily at module-session level and then rolls it up for course/enrollment reporting.
+
+    Module sessions store started time, last seen time, ended time, duration seconds, status, and resume position in src/types/database.ts and are created/updated by src/services/moduleSessionService.ts, src/services/moduleSessionService.ts, and src/services/moduleSessionService.ts.
+
+    Module completions and assessment attempts also store time spent in src/types/database.ts and src/services/reportingService.ts.
+
+The credited-hours model is kept separate from actual time:
+
+Enrollments now carry both credited_duration_hours and actual_learning_minutes in src/types/database.ts.
+Actual learning minutes are computed from the larger of:
+summed module-session duration, or
+summed module-completion time plus assessment-attempt time
+in src/services/supabaseDatabaseService.ts and src/services/supabaseDatabaseService.ts.
+Credited duration hours come from the course’s defined duration, and only become populated when completion is approved in src/services/supabaseDatabaseService.ts, src/services/supabaseDatabaseService.ts, and src/services/supabaseDatabaseService.ts.
+So the interaction is:
+
+actual_learning_minutes = observed effort / analytics truth
+credited_duration_hours = awarded course credit after approval
+That means reports can distinguish “how long the learner actually spent” from “how many hours the course is worth.”
+
+One important edge case: the assessment-only evidence requires scored assessments, not just submitted ones, in src/services/reportingService.ts. If an essay or short-answer attempt is submitted but still waiting for manual review, it will count as activity/time but may not yet strengthen assessment-based recommendations until a score exists.
+
+There is no clear active learner-facing “future opportunities” recommender beyond course recommendations. What does exist is:
+Course recommendations framed as next steps on the learner dashboard in src/pages/Dashboard.tsx.
+
+Course career-path metadata, which can influence recommendation reasons such as “Extends your progress toward ...” in src/services/reportingService.ts and src/services/reportingService.ts.
+
+Admin/trainer predictive analytics for risk and disengagement, not a learner-facing opportunity engine, in src/services/reportingService.ts.
+
+I do not see a live implementation of separate job or opportunity matching in the active repo. The only “job matching” references I found in the active code are marketing copy in src/i18n/locales/en.ts and src/i18n/locales/tl.ts. There is also a hidden “Job Matches” placeholder, but only in the nested duplicate repo copy, not the active dashboard file.
 
 
+## Write in a different markdown a full QA run plan for the system and all users
+- [ ] Write in a different markdown a full QA run for the system and all users (Admin, Trainer, Trainee) to check if there are any issues or bugs in the system after the changes have been implemented. This includes testing all the functionalities of the system such as course creation, registration, enrollment, progress tracking, assessment, and certificate generation. Also, check if the user interface is working properly and if there are any visual glitches or inconsistencies. Make sure to test on different devices and browsers to ensure compatibility. Document any issues found during the QA run and prioritize them for fixing before the next release.
+- [ ] Identify gaps in the system and create a plan to implement the necessary changes to address those gaps. This includes identifying any missing features, improving existing functionalities, and enhancing the user experience. Create a roadmap for implementing these changes and assign tasks to the relevant team members to ensure timely completion. Regularly review the progress of these tasks and make adjustments as needed to ensure that the system continues to meet the needs of its users.
+- [ ] Include: a verification if the system uses the same recommendation algorithms and data analytics as before, and if there are any changes in the way recommendations are generated for learners. Check if the system still provides personalized course recommendations based on the learner's profile and activity, and if the new assessment and completion rules have any impact on the recommendation logic. Document any changes or improvements in the recommendation system and ensure that it continues to provide relevant and accurate suggestions to learners.
+- [ ] Include: verify if the system saves the progress of trainees such as quizzes, course completion, time spent on each module, and if the new credited hours model affects the way time is tracked and reported. This is to address a critical issue of power and internet interuptions that may cause trainees to lose their progress and data. Ensure that the system has a robust mechanism for saving and recovering trainee progress, and that the new credited hours model does not interfere with this functionality. Document any issues found during this verification and prioritize them for fixing to enhance the user experience and prevent data loss for trainees.

@@ -7,18 +7,26 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLocale } from "@/contexts/LocaleContext";
-import { useTheme } from "next-themes";
+import { useThemePreference } from "@/contexts/ThemePreferenceContext";
 
 const SettingsPage = () => {
   const { user } = useAuth();
   const { language, t, isPersisting } = useLocale();
-  const { resolvedTheme, setTheme, theme } = useTheme();
+  const { resolvedTheme, setThemePreference, themePreference, isPersisting: isThemePersisting } = useThemePreference();
 
   const themeOptions = [
     { value: "system", label: t("settings.themeSystem"), icon: Monitor },
     { value: "light", label: t("settings.themeLight"), icon: Sun },
     { value: "dark", label: t("settings.themeDark"), icon: Moon },
   ] as const;
+  const isThemeSavedToProfile = user?.themePreference === themePreference;
+
+  const activeThemeLabel =
+    resolvedTheme === "dark"
+      ? t("settings.themeDark")
+      : resolvedTheme === "light"
+        ? t("settings.themeLight")
+        : t("settings.themeSystem");
 
   return (
     <DashboardLayout>
@@ -63,14 +71,14 @@ const SettingsPage = () => {
               <div className="flex flex-wrap gap-3">
                 {themeOptions.map((option) => {
                   const Icon = option.icon;
-                  const isActive = theme === option.value;
+                  const isActive = themePreference === option.value;
 
                   return (
                     <Button
                       key={option.value}
                       type="button"
                       variant={isActive ? "default" : "outline"}
-                      onClick={() => setTheme(option.value)}
+                      onClick={() => void setThemePreference(option.value)}
                       className="min-w-32 justify-start"
                     >
                       <Icon className="mr-2 h-4 w-4" />
@@ -79,8 +87,19 @@ const SettingsPage = () => {
                   );
                 })}
               </div>
+              <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
+                <span>{t("settings.selectedTheme")}: {themeOptions.find((option) => option.value === themePreference)?.label ?? t("settings.themeSystem")}</span>
+                <Badge variant={isThemePersisting ? "secondary" : "outline"}>
+                  {isThemePersisting
+                    ? t("settings.themeSyncSaving")
+                    : isThemeSavedToProfile
+                      ? t("settings.themeSyncReady")
+                      : t("settings.themeLocalFallback")}
+                </Badge>
+                <Badge variant="outline">{user?.email}</Badge>
+              </div>
               <div className="text-sm text-muted-foreground">
-                {t("settings.activeTheme")}: <span className="font-medium text-foreground">{resolvedTheme || theme || t("settings.themeSystem")}</span>
+                {t("settings.activeTheme")}: <span className="font-medium text-foreground">{activeThemeLabel}</span>
               </div>
             </CardContent>
           </Card>
