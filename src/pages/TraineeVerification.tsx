@@ -26,6 +26,14 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+  PaginationLink,
+  PaginationNext,
+  PaginationPrevious,
+} from "@/components/ui/pagination";
 import { Search, ShieldCheck, UserCheck, UserX } from "lucide-react";
 import { toast } from "sonner";
 import TraineeVerificationBadge from "@/components/trainee/TraineeVerificationBadge";
@@ -39,6 +47,8 @@ const traineeTypeLabel: Record<NonNullable<User["traineeType"]>, string> = {
   peso_employee: "PESO Employee",
 };
 
+const PAGE_SIZE = 15;
+
 export default function TraineeVerification() {
   const { user: currentUser } = useAuth();
   const [trainees, setTrainees] = useState<User[]>([]);
@@ -46,6 +56,7 @@ export default function TraineeVerification() {
   const [searchTerm, setSearchTerm] = useState("");
   const [traineeTypeFilter, setTraineeTypeFilter] = useState("all");
   const [verificationStatusFilter, setVerificationStatusFilter] = useState("all");
+  const [page, setPage] = useState(1);
   const [selectedTrainee, setSelectedTrainee] = useState<User | null>(null);
   const [nextStatus, setNextStatus] = useState<VerificationStatus>("verified");
   const [saving, setSaving] = useState(false);
@@ -85,6 +96,14 @@ export default function TraineeVerification() {
       return matchesSearch && matchesTraineeType && matchesVerificationStatus;
     });
   }, [searchTerm, traineeTypeFilter, trainees, verificationStatusFilter]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [searchTerm, traineeTypeFilter, verificationStatusFilter]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredTrainees.length / PAGE_SIZE));
+  const safePage = Math.min(page, totalPages);
+  const paginatedTrainees = filteredTrainees.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
 
   const stats = useMemo(() => {
     return trainees.reduce(
@@ -286,20 +305,21 @@ export default function TraineeVerification() {
             ) : filteredTrainees.length === 0 ? (
               <div className="py-10 text-center text-sm text-muted-foreground">No trainees match the current filters.</div>
             ) : (
-              <div className="rounded-md border">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Trainee</TableHead>
-                      <TableHead>Type</TableHead>
-                      <TableHead>Identifiers</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Submitted</TableHead>
-                      <TableHead className="text-right">Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {filteredTrainees.map((trainee) => (
+              <div className="space-y-4">
+                <div className="rounded-md border">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Trainee</TableHead>
+                        <TableHead>Type</TableHead>
+                        <TableHead>Identifiers</TableHead>
+                        <TableHead>Status</TableHead>
+                        <TableHead>Submitted</TableHead>
+                        <TableHead className="text-right">Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {paginatedTrainees.map((trainee) => (
                       <TableRow key={trainee.id}>
                         <TableCell>
                           <div className="space-y-1">
@@ -346,9 +366,53 @@ export default function TraineeVerification() {
                           </div>
                         </TableCell>
                       </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+
+                {filteredTrainees.length > PAGE_SIZE ? (
+                  <Pagination>
+                    <PaginationContent>
+                      <PaginationItem>
+                        <PaginationPrevious
+                          href="#"
+                          onClick={(event) => {
+                            event.preventDefault();
+                            if (safePage > 1) {
+                              setPage(safePage - 1);
+                            }
+                          }}
+                        />
+                      </PaginationItem>
+                      {Array.from({ length: totalPages }, (_, index) => index + 1).map((pageNumber) => (
+                        <PaginationItem key={pageNumber}>
+                          <PaginationLink
+                            href="#"
+                            isActive={pageNumber === safePage}
+                            onClick={(event) => {
+                              event.preventDefault();
+                              setPage(pageNumber);
+                            }}
+                          >
+                            {pageNumber}
+                          </PaginationLink>
+                        </PaginationItem>
+                      ))}
+                      <PaginationItem>
+                        <PaginationNext
+                          href="#"
+                          onClick={(event) => {
+                            event.preventDefault();
+                            if (safePage < totalPages) {
+                              setPage(safePage + 1);
+                            }
+                          }}
+                        />
+                      </PaginationItem>
+                    </PaginationContent>
+                  </Pagination>
+                ) : null}
               </div>
             )}
           </CardContent>

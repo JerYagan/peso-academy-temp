@@ -38,6 +38,15 @@ export interface QuizAssessmentSummary {
   readyForAssessment: boolean;
 }
 
+export interface ImportedAssessmentQuestionDraft {
+  question: string;
+  questionType: QuizBlockQuestionType;
+  options?: string[];
+  correctAnswer?: string;
+  points: number;
+  explanation?: string;
+}
+
 const VALID_CONTENT_BLOCK_TYPES = new Set<ContentBlockType>([
   "text",
   "code",
@@ -128,7 +137,7 @@ export const createDefaultContentBlock = (type: ContentBlockType, id: string): C
         questionType: DEFAULT_QUIZ_BLOCK_QUESTION_TYPE,
         points: DEFAULT_QUIZ_BLOCK_POINTS,
         sourceQuestionKey: id,
-        isGradable: true,
+        isGradable: false,
       };
     default:
       return base;
@@ -265,4 +274,29 @@ export const getQuizAssessmentSummary = (blocks: ContentBlock[]): QuizAssessment
     invalidIssues,
     readyForAssessment: gradableQuizBlocks.length > 0 && invalidIssues.length === 0,
   };
+};
+
+export const importPracticeQuizQuestions = (blocks: ContentBlock[]): ImportedAssessmentQuestionDraft[] => {
+  return getQuizBlocks(blocks)
+    .filter((block) => block.content.trim())
+    .map((block) => {
+      const options = block.questionType === "essay"
+        ? undefined
+        : block.questionType === "true_false"
+          ? [...TRUE_FALSE_QUIZ_OPTIONS]
+          : (block.options || []).map((option) => option.trim()).filter(Boolean);
+      const correctAnswer =
+        options && block.correctAnswer !== undefined && options[block.correctAnswer] !== undefined
+          ? options[block.correctAnswer]
+          : undefined;
+
+      return {
+        question: block.content.trim(),
+        questionType: block.questionType || DEFAULT_QUIZ_BLOCK_QUESTION_TYPE,
+        options,
+        correctAnswer,
+        points: Number.isFinite(block.points) && (block.points || 0) > 0 ? Number(block.points) : DEFAULT_QUIZ_BLOCK_POINTS,
+        explanation: block.explanation?.trim() || undefined,
+      } satisfies ImportedAssessmentQuestionDraft;
+    });
 };

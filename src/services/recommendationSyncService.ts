@@ -1,5 +1,8 @@
 import { analyticsService, type PersistedLearnerRecommendation } from "@/services/analyticsService";
+import { filterCoursesForUser } from "@/lib/courseAudience";
+import { supabase } from "@/lib/supabase";
 import { moduleSessionService } from "@/services/moduleSessionService";
+import { notificationHelpers } from "@/services/notificationService";
 import {
   buildLearnerCourseRecommendations,
   reportingService,
@@ -34,6 +37,25 @@ export const recommendationSyncService = {
       return [];
     }
 
+    const previousDashboardCourseIds = supabase
+      ? await (async () => {
+          const { data, error } = await supabase
+            .from("learner_recommendations")
+            .select("course_id, rank")
+            .eq("user_id", normalizedUser.id)
+            .eq("source_surface", "dashboard_recommendations")
+            .order("rank", { ascending: true })
+            .limit(3);
+
+          if (error) {
+            console.warn("Failed to read existing dashboard recommendations before refresh:", error);
+            return [] as string[];
+          }
+
+          return (data || []).map((row: any) => String(row.course_id)).filter(Boolean);
+        })()
+      : [];
+
     const [courses, enrollments, performanceSummary, collaborativeSignals, sessionAggregates] = await Promise.all([
       courseService.getCourses(),
       enrollmentService.getEnrollments(normalizedUser.id),
@@ -42,9 +64,11 @@ export const recommendationSyncService = {
       moduleSessionService.getSessionAggregatesByModule(normalizedUser.id),
     ]);
 
+    const visibleCourses = filterCoursesForUser(courses, normalizedUser);
+
     const recommendations = buildLearnerCourseRecommendations(
       normalizedUser,
-      courses,
+      visibleCourses,
       enrollments,
       performanceSummary,
       3,
@@ -87,6 +111,41 @@ export const recommendationSyncService = {
         ),
       ),
     );
+
+    const persistedDashboardRecommendations = persistedBySurface
+      .flat()
+      .filter((recommendation) => recommendation.sourceSurface === "dashboard_recommendations")
+      .sort((left, right) => left.rank - right.rank)
+      .slice(0, 3);
+
+    const nextDashboardCourseIds = persistedDashboardRecommendations.map((recommendation) => recommendation.courseId);
+    const recommendationsChanged = nextDashboardCourseIds.length > 0 && (
+      nextDashboardCourseIds.length !== previousDashboardCourseIds.length
+      || nextDashboardCourseIds.some((courseId, index) => courseId !== previousDashboardCourseIds[index])
+    );
+
+    if (recommendationsChanged) {
+      try {
+        const topRecommendations = persistedDashboardRecommendations
+          .map((recommendation) => {
+            const matchingCourse = recommendations.find((entry) => entry.course.id === recommendation.courseId)?.course;
+            return matchingCourse
+              ? { courseId: matchingCourse.id, courseTitle: matchingCourse.title }
+              : null;
+          })
+          .filter((entry): entry is { courseId: string; courseTitle: string } => Boolean(entry));
+
+        if (topRecommendations.length > 0) {
+          await notificationHelpers.notifyRecommendationsReady(
+            normalizedUser.id,
+            topRecommendations,
+            options.trigger || "profile_update",
+          );
+        }
+      } catch (notificationError) {
+        console.warn("Failed to create recommendation refresh notification:", notificationError);
+      }
+    }
 
     return persistedBySurface.flat();
   },

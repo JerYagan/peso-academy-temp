@@ -26,7 +26,7 @@
 - Module progression should enforce prerequisites instead of relying on trainee self-certification.
 - Registration should only keep account-creation essentials; onboarding assessment belongs after login on the dashboard.
 - Phone numbers should be standardized to the `09XXXXXXXXX` format and capped at 11 digits.
-- Essay questions live in quiz content blocks, not in a separate standalone assessment authoring source of truth.
+- Practice quiz blocks are formative only. Graded questions, including essays, live in standalone assessment records.
 - Every course completion requires trainer approval.
 - Module prerequisite enforcement is sequential.
 - Paste prevention should apply to all quiz types.
@@ -37,7 +37,7 @@
 - Primary files and surfaces: `src/pages/trainer/ModuleEditorPage.tsx`, `src/services/assessmentService.ts`, `src/pages/CourseDetail.tsx`, `src/pages/admin/Enrollments.tsx`, `src/pages/SignUp.tsx`, `src/pages/Dashboard.tsx`, `supabase/migrations/*.sql`
 
 - [x] Confirm whether essay questions live only inside module quiz content blocks or also inside standalone assessment records.
-- Decision: essay questions live in the quiz content block.
+- Decision: essay questions live in standalone assessment records; quiz blocks remain practice-only.
 - [x] Confirm whether every course completion requires trainer approval, or only courses containing essay questions or face-to-face components.
 - Decision: every course completion requires trainer approval.
 - [x] Confirm whether certificates become fully manual or only become manual for courses with essays and trainer-validated completion.
@@ -69,7 +69,7 @@
 - [x] Audit the existing quiz question model and confirm where `essay` is already partially supported versus still missing in the trainer authoring flow.
 - [x] Extend the assessment schema so essay attempts can store long-form answers, trainer feedback, reviewer id, review timestamps, and review status.
 - [x] Add explicit attempt states such as `submitted`, `under_review`, `needs_revision`, and `approved` where needed.
-- [x] Ensure quiz blocks remain the source of truth for question content and remove any competing assessment authoring source where needed.
+- [x] Ensure practice quiz blocks and standalone graded assessments remain separate authoring flows, with no duplicate graded source of truth.
 - [x] Update trainer module authoring so essay questions can be created, edited, ordered, and previewed alongside existing quiz types.
 - [x] Update learner quiz rendering so essay prompts support long-form response entry, autosave strategy, and clean submission UX.
 - [x] Decide whether essay answers are single-attempt only or can be revised after trainer feedback.

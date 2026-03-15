@@ -39,12 +39,21 @@ export const routePermissions: RoutePermissionConfig[] = [
   { path: "/admin/roles", requiredPermissions: ["users.manage_roles", "users.view"] },
   { path: "/admin/audit-logs", requiredPermissions: ["system.audit"] },
   { path: "/admin/enrollments", requiredPermissions: ["training.manage", "courses.view"] },
+  { path: "/admin/learners", requiredPermissions: ["training.manage", "courses.view"] },
+  { path: "/admin/learners/:learnerId", requiredPermissions: ["training.manage", "courses.view"] },
+  { path: "/admin/certificates", requiredPermissions: ["training.manage", "courses.view"] },
+  { path: "/admin/assessment-reviews", requiredPermissions: ["training.manage", "courses.view"] },
+  { path: "/admin/assessment-reviews/:attemptId", requiredPermissions: ["training.manage", "courses.view"] },
   { path: "/admin/reports", requiredPermissions: ["reports.view", "reports.export"] },
 
   // Trainer routes - if you can manage training or courses, you can access
   { path: "/trainer/courses", requiredPermissions: ["courses.view", "courses.create", "courses.update", "courses.delete", "training.manage"] },
+  { path: "/trainer/certificates", requiredPermissions: ["training.manage", "courses.view"] },
   { path: "/trainer/taxonomy", requiredPermissions: ["courses.create", "courses.update", "training.manage"] },
   { path: "/trainer/learners", requiredPermissions: ["training.manage", "courses.view"] },
+  { path: "/trainer/learners/:learnerId", requiredPermissions: ["training.manage", "courses.view"] },
+  { path: "/trainer/assessment-reviews", requiredPermissions: ["training.manage", "courses.view"] },
+  { path: "/trainer/assessment-reviews/:attemptId", requiredPermissions: ["training.manage", "courses.view"] },
 ];
 
 /**

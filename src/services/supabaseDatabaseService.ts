@@ -23,6 +23,7 @@ if (!supabase) {
 export type EnrollmentErrorCode =
   | "already_enrolled"
   | "course_unavailable"
+  | "audience_mismatch"
   | "verification_pending"
   | "verification_rejected"
   | "access_restricted"
@@ -47,7 +48,7 @@ type EnrollmentCompletionState = {
   totalModules: number;
   completedModules: number;
   requiredAssessmentCount: number;
-  passedAssessmentCount: number;
+  completedAssessmentCount: number;
   isCourseComplete: boolean;
 };
 
@@ -57,12 +58,38 @@ type CacheEntry<T> = {
 };
 
 const REQUEST_CACHE_TTL_MS = 60_000;
-const COURSE_SELECT_FIELDS = "*";
+const COURSE_SELECT_FIELDS = [
+  "id",
+  "title",
+  "description",
+  "category",
+  "level",
+  "duration",
+  "instructor_id",
+  "instructor",
+  "thumbnail",
+  "course_document",
+  "is_tesda_accredited",
+  "skills",
+  "skill_tags",
+  "topic_tags",
+  "industry_tags",
+  "career_paths",
+  "enrolled_count",
+  "rating",
+  "certificate_type",
+  "created_at",
+  "updated_at",
+  "published",
+  "program_id",
+  "trainee_audience",
+].join(", ");
 const MODULE_SUMMARY_SELECT_FIELDS = "id, course_id, title, description, order, materials, prerequisites, skill_tags, topic_tags, module_thumbnail, module_document, created_at, updated_at, status";
 const MODULE_FULL_SELECT_FIELDS = `${MODULE_SUMMARY_SELECT_FIELDS}, content`;
 
 const unsupportedCourseReadColumns = new Set<string>();
 const unsupportedModuleReadColumns = new Set<string>();
+const unsupportedAssessmentReadColumns = new Set<string>();
 
 let courseListCache: CacheEntry<Course[]> | null = null;
 let pendingCourseListRequest: Promise<Course[]> | null = null;
@@ -171,6 +198,15 @@ const buildEnrollmentErrorFeedback = (
         canRetry: false,
         suggestedActions: ["browse"],
       };
+    case "audience_mismatch":
+      return {
+        code,
+        title: "Course access restricted",
+        description: `This course is not available for your trainee type${courseLabel}. Choose a course that matches your PESO audience or ask the training team to review the course assignment.`,
+        toastMessage: "This course is not available for your trainee type.",
+        canRetry: false,
+        suggestedActions: ["browse", "profile"],
+      };
     case "verification_pending":
       return {
         code,
@@ -208,6 +244,32 @@ const buildEnrollmentErrorFeedback = (
         suggestedActions: ["retry", "browse"],
       };
   }
+};
+
+const getCourseAudienceRestrictionLabel = (audience: unknown): string => {
+  switch (audience) {
+    case "peso_client":
+      return "PESO Clients";
+    case "peso_employee":
+      return "PESO Employees";
+    default:
+      return "General Public";
+  }
+};
+
+const buildAudienceMismatchFeedback = (
+  audience: unknown,
+  courseTitle?: string,
+): EnrollmentErrorFeedback => {
+  const audienceLabel = getCourseAudienceRestrictionLabel(audience);
+  return {
+    code: "audience_mismatch",
+    title: "Course access restricted",
+    description: `This course is only available to ${audienceLabel}${courseTitle ? ` for ${courseTitle}` : ""}. Update the learner profile if the trainee type is wrong, or choose a different course.`,
+    toastMessage: `This course is only available to ${audienceLabel}.`,
+    canRetry: false,
+    suggestedActions: ["profile", "browse"],
+  };
 };
 
 export const getEnrollmentErrorFeedback = (
@@ -248,6 +310,15 @@ export const getEnrollmentErrorFeedback = (
     normalizedMessage.includes("violates foreign key")
   ) {
     return buildEnrollmentErrorFeedback("course_unavailable", courseTitle);
+  }
+
+  if (
+    code === "audience_mismatch" ||
+    normalizedMessage.includes("only available to peso clients") ||
+    normalizedMessage.includes("only available to peso employees") ||
+    normalizedMessage.includes("not available for your trainee type")
+  ) {
+    return buildEnrollmentErrorFeedback("audience_mismatch", courseTitle);
   }
 
   if (
@@ -511,6 +582,17 @@ const mapModuleRecord = (module: any, includeContent = true): Module => ({
   status: (module.status === "finalized" ? "finalized" : "draft") as Module["status"],
 });
 
+const normalizeCourseTraineeAudience = (value: unknown): Course["traineeAudience"] => {
+  switch (value) {
+    case "peso_client":
+      return "peso_client";
+    case "peso_employee":
+      return "peso_employee";
+    default:
+      return "general_public";
+  }
+};
+
 const mapCourseRecord = (
   course: any,
   liveEnrollmentCounts?: Map<string, number>,
@@ -535,6 +617,7 @@ const mapCourseRecord = (
   topicTags: deriveTopicTags(course.category, course.skill_tags || course.skills, course.topic_tags || []),
   industryTags: course.industry_tags || [],
   careerPaths: course.career_paths || [],
+  traineeAudience: normalizeCourseTraineeAudience(course.trainee_audience),
   enrolledCount: liveEnrollmentCounts?.get(course.id) ?? course.enrolled_count ?? 0,
   rating: course.rating,
   createdAt: course.created_at,
@@ -646,6 +729,33 @@ const getMissingModuleColumn = (error: unknown): string | null => {
   return null;
 };
 
+const getMissingAssessmentColumn = (error: unknown): string | null => {
+  const message = typeof error === "object" && error !== null && "message" in error
+    ? String((error as { message?: string }).message || "")
+    : "";
+  const details = typeof error === "object" && error !== null && "details" in error
+    ? String((error as { details?: string }).details || "")
+    : "";
+  const haystack = `${message} ${details}`;
+
+  const schemaCacheMatch = haystack.match(/'([^']+)' column of 'assessments'/i);
+  if (schemaCacheMatch?.[1]) {
+    return normalizeMissingColumnName(schemaCacheMatch[1]);
+  }
+
+  const postgresMatch = haystack.match(/column\s+"([^"]+)"\s+does not exist/i);
+  if (postgresMatch?.[1]) {
+    return normalizeMissingColumnName(postgresMatch[1]);
+  }
+
+  const unquotedPostgresMatch = haystack.match(/column\s+([a-zA-Z0-9_.]+)\s+does not exist/i);
+  if (unquotedPostgresMatch?.[1]) {
+    return normalizeMissingColumnName(unquotedPostgresMatch[1]);
+  }
+
+  return null;
+};
+
 const executeModuleReadWithFallback = async <T>(
   execute: (selectClause: string) => Promise<{ data: T | null; error: any }>,
   selectClause: string,
@@ -665,6 +775,30 @@ const executeModuleReadWithFallback = async <T>(
 
     unsupportedModuleReadColumns.add(missingColumn);
     nextSelect = buildSelectWithFallback(selectClause, unsupportedModuleReadColumns);
+  }
+
+  return execute("*");
+};
+
+const executeAssessmentReadWithFallback = async <T>(
+  execute: (selectClause: string) => Promise<{ data: T | null; error: any }>,
+  selectClause: string,
+): Promise<{ data: T | null; error: any }> => {
+  let nextSelect = buildSelectWithFallback(selectClause, unsupportedAssessmentReadColumns);
+
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const result = await execute(nextSelect);
+    if (!result.error) {
+      return result;
+    }
+
+    const missingColumn = getMissingAssessmentColumn(result.error);
+    if (!missingColumn) {
+      return result;
+    }
+
+    unsupportedAssessmentReadColumns.add(missingColumn);
+    nextSelect = buildSelectWithFallback(selectClause, unsupportedAssessmentReadColumns);
   }
 
   return execute("*");
@@ -885,6 +1019,7 @@ export const courseService = {
       certificate_type: "completion",
       published: course.published ?? true,
       program_id: course.programId || null,
+      trainee_audience: course.traineeAudience || "general_public",
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
@@ -945,6 +1080,7 @@ export const courseService = {
     if (updates.careerPaths !== undefined) updateData.career_paths = updates.careerPaths;
     if (updates.published !== undefined) updateData.published = updates.published;
     if (updates.programId !== undefined) updateData.program_id = updates.programId;
+    if (updates.traineeAudience !== undefined) updateData.trainee_audience = updates.traineeAudience || "general_public";
 
     const { data, error } = await executeCourseWriteWithFallback(
       (payload) => supabase
@@ -1641,74 +1777,100 @@ async function getEnrollmentCompletionState(
   }
 
   const moduleIds = (modules || []).map((module) => module.id);
-  if (moduleIds.length === 0) {
-    return {
-      progress: 0,
-      totalModules: 0,
-      completedModules: 0,
-      requiredAssessmentCount: 0,
-      passedAssessmentCount: 0,
-      isCourseComplete: false,
-    };
-  }
 
-  const [{ data: completions, error: completionsError }, { data: assessments, error: assessmentsError }] = await Promise.all([
+  const [{ data: completions, error: completionsError }, { data: legacyAssessments, error: legacyAssessmentsError }] = await Promise.all([
     supabase
       .from("module_completions")
       .select("module_id, completed_at")
       .eq("enrollment_id", enrollmentId)
       .not("completed_at", "is", null),
-    supabase
-      .from("assessments")
-      .select("id")
-      .eq("is_active", true)
-      .in("module_id", moduleIds),
+    moduleIds.length > 0
+      ? supabase
+          .from("assessments")
+          .select("id")
+          .eq("is_active", true)
+          .in("module_id", moduleIds)
+      : Promise.resolve({ data: [], error: null }),
   ]);
+
+  const {
+    data: courseAssessmentRows,
+    error: courseAssessmentsError,
+  } = await supabase
+    .from("assessments")
+    .select("id")
+    .eq("is_active", true)
+    .eq("course_id", courseId)
+    .is("module_id", null);
 
   if (completionsError) {
     handleSupabaseError(completionsError);
     throw completionsError;
   }
 
-  if (assessmentsError) {
-    handleSupabaseError(assessmentsError);
-    throw assessmentsError;
+  if (legacyAssessmentsError) {
+    handleSupabaseError(legacyAssessmentsError);
+    throw legacyAssessmentsError;
+  }
+
+  if (courseAssessmentsError) {
+    handleSupabaseError(courseAssessmentsError);
+    throw courseAssessmentsError;
   }
 
   const completedModules = new Set((completions || []).map((completion) => completion.module_id)).size;
-  const requiredAssessmentIds = Array.from(new Set((assessments || []).map((assessment) => assessment.id)));
+  const requiredAssessmentIds = Array.from(
+    new Set([
+      ...(legacyAssessments || []).map((assessment) => assessment.id),
+      ...((courseAssessmentRows || []).map((assessment) => assessment.id)),
+    ]),
+  );
 
-  let passedAssessmentCount = 0;
+  const totalModules = moduleIds.length;
+  const requiredAssessmentCount = requiredAssessmentIds.length;
+
+  if (totalModules === 0 && requiredAssessmentCount === 0) {
+    return {
+      progress: 0,
+      totalModules: 0,
+      completedModules: 0,
+      requiredAssessmentCount: 0,
+      completedAssessmentCount: 0,
+      isCourseComplete: false,
+    };
+  }
+
+  let completedAssessmentCount = 0;
   if (requiredAssessmentIds.length > 0) {
-    const { data: passedAttempts, error: attemptsError } = await supabase
+    const { data: completedAttempts, error: attemptsError } = await supabase
       .from("assessment_attempts")
       .select("assessment_id")
       .eq("enrollment_id", enrollmentId)
-      .eq("passed", true)
       .in("assessment_id", requiredAssessmentIds)
-      .not("submitted_at", "is", null);
+      .not("submitted_at", "is", null)
+      .eq("review_status", "approved")
+      .not("reviewed_at", "is", null)
+      .eq("passed", true);
 
     if (attemptsError) {
       handleSupabaseError(attemptsError);
       throw attemptsError;
     }
 
-    passedAssessmentCount = new Set((passedAttempts || []).map((attempt) => attempt.assessment_id)).size;
+    completedAssessmentCount = new Set((completedAttempts || []).map((attempt) => attempt.assessment_id)).size;
   }
 
-  const totalModules = moduleIds.length;
-  const requiredAssessmentCount = requiredAssessmentIds.length;
   const totalUnits = totalModules + requiredAssessmentCount;
-  const completedUnits = completedModules + passedAssessmentCount;
+  const completedUnits = completedModules + completedAssessmentCount;
   const progress = totalUnits > 0 ? Math.round((completedUnits / totalUnits) * 100) : 0;
-  const isCourseComplete = completedModules === totalModules && passedAssessmentCount === requiredAssessmentCount;
+  const isCourseComplete = completedModules === totalModules && completedAssessmentCount === requiredAssessmentCount;
 
   return {
     progress,
     totalModules,
     completedModules,
     requiredAssessmentCount,
-    passedAssessmentCount,
+    completedAssessmentCount,
     isCourseComplete,
   };
 }
@@ -1877,6 +2039,27 @@ async function updateEnrollmentProgress(enrollmentId: string): Promise<void> {
   await supabase.from("enrollments").update(updateData).eq("id", enrollmentId);
 }
 
+async function refreshEnrollmentRows(enrollmentIds: string[]): Promise<Map<string, any>> {
+  if (!supabase || enrollmentIds.length === 0) {
+    return new Map();
+  }
+
+  const uniqueEnrollmentIds = Array.from(new Set(enrollmentIds.filter(Boolean)));
+  await Promise.all(uniqueEnrollmentIds.map((enrollmentId) => updateEnrollmentProgress(enrollmentId)));
+
+  const { data, error } = await supabase
+    .from("enrollments")
+    .select("*")
+    .in("id", uniqueEnrollmentIds);
+
+  if (error) {
+    handleSupabaseError(error);
+    throw error;
+  }
+
+  return new Map((data || []).map((row: any) => [row.id, row]));
+}
+
 // Enrollment operations
 export const enrollmentService = {
   /**
@@ -1896,7 +2079,8 @@ export const enrollmentService = {
         .order("enrolled_at", { ascending: false });
 
       if (!error) {
-        return (data?.map((enrollment: any) => mapEnrollmentRecord(enrollment)) || []);
+        const refreshedRows = await refreshEnrollmentRows((data || []).map((enrollment: any) => enrollment.id));
+        return ((data || []).map((enrollment: any) => mapEnrollmentRecord(refreshedRows.get(enrollment.id) || enrollment)) || []);
       }
 
       console.warn("Direct enrollment lookup failed, falling back to auth-aware lookup:", {
@@ -1980,7 +2164,8 @@ export const enrollmentService = {
       return [];
     }
 
-    const mappedEnrollments = (data?.map((enrollment: any) => mapEnrollmentRecord(enrollment)) || []);
+    const refreshedRows = await refreshEnrollmentRows((data || []).map((enrollment: any) => enrollment.id));
+    const mappedEnrollments = ((data || []).map((enrollment: any) => mapEnrollmentRecord(refreshedRows.get(enrollment.id) || enrollment)) || []);
 
     console.log("Mapped enrollments:", mappedEnrollments);
     console.log("=== END ENROLLMENT DEBUG ===");
@@ -2008,7 +2193,7 @@ export const enrollmentService = {
 
     const { data: courseRow, error: courseError } = await supabase
       .from("courses")
-      .select("id, title, published")
+      .select("id, title, published, trainee_audience")
       .eq("id", courseId)
       .maybeSingle();
 
@@ -2042,7 +2227,7 @@ export const enrollmentService = {
 
     const { data: learnerProfile, error: learnerProfileError } = await supabase
       .from("users")
-      .select("role, verification_status")
+      .select("role, verification_status, trainee_type")
       .eq("id", learnerUserId)
       .maybeSingle();
 
@@ -2056,9 +2241,19 @@ export const enrollmentService = {
 
     const learnerRole = normalizeUserRole(learnerProfile.role);
     const verificationStatus = (learnerProfile.verification_status as User["verificationStatus"] | null) || "pending";
+    const learnerTraineeType = (learnerProfile.trainee_type as User["traineeType"] | null) || null;
 
     if (learnerRole === "trainee" && verificationStatus !== "verified") {
       throw createEnrollmentError(getTraineeEnrollmentVerificationFeedback(verificationStatus, courseRow.title));
+    }
+
+    if (
+      learnerRole === "trainee" &&
+      courseRow.trainee_audience &&
+      courseRow.trainee_audience !== "general_public" &&
+      learnerTraineeType !== courseRow.trainee_audience
+    ) {
+      throw createEnrollmentError(buildAudienceMismatchFeedback(courseRow.trainee_audience, courseRow.title));
     }
 
     const resolvedRecommendationId = await analyticsService.resolveRecommendationId(
@@ -2104,7 +2299,8 @@ export const enrollmentService = {
         await notificationHelpers.notifyEnrollmentConfirmed(
           learnerUserId,
           course.title,
-          data.id
+          data.id,
+          courseId,
         );
       }
     } catch (error) {
@@ -2184,6 +2380,8 @@ export const enrollmentService = {
     if (!supabase) {
       throw new Error("Supabase not initialized");
     }
+
+    await updateEnrollmentProgress(enrollmentId);
 
     const { data: enrollment, error: enrollmentError } = await supabase
       .from("enrollments")
@@ -2271,6 +2469,21 @@ export const enrollmentService = {
     let failed = 0;
     const errors: string[] = [];
 
+    const { data: courseRow, error: courseError } = await supabase
+      .from("courses")
+      .select("id, title, trainee_audience")
+      .eq("id", courseId)
+      .maybeSingle();
+
+    if (courseError) {
+      handleSupabaseError(courseError);
+      throw courseError;
+    }
+
+    if (!courseRow) {
+      return { success: 0, failed: userIds.length, errors: ["Course not found or unavailable"] };
+    }
+
     // Check for existing enrollments first
     const { data: existing } = await supabase
       .from("enrollments")
@@ -2279,14 +2492,58 @@ export const enrollmentService = {
       .in("user_id", userIds);
 
     const existingUserIds = new Set(existing?.map(e => e.user_id) || []);
-    const newUserIds = userIds.filter(id => !existingUserIds.has(id));
+    const candidateUserIds = userIds.filter(id => !existingUserIds.has(id));
 
-    if (newUserIds.length === 0) {
+    if (candidateUserIds.length === 0) {
       return { success: 0, failed: userIds.length, errors: ["All users are already enrolled in this course"] };
     }
 
+    const { data: selectedUsers, error: selectedUsersError } = await supabase
+      .from("users")
+      .select("id, name, email, role, trainee_type")
+      .in("id", candidateUserIds);
+
+    if (selectedUsersError) {
+      handleSupabaseError(selectedUsersError);
+      throw selectedUsersError;
+    }
+
+    const allowedUserIds: string[] = [];
+    for (const selectedUser of selectedUsers || []) {
+      const learnerRole = normalizeUserRole(selectedUser.role);
+      const learnerTraineeType = (selectedUser.trainee_type as User["traineeType"] | null) || null;
+      const requiresAudienceMatch = courseRow.trainee_audience !== "general_public";
+
+      if (requiresAudienceMatch && learnerRole === "trainee" && learnerTraineeType !== courseRow.trainee_audience) {
+        failed += 1;
+        errors.push(`${selectedUser.name || selectedUser.email}: This course is only available to ${getCourseAudienceRestrictionLabel(courseRow.trainee_audience)}.`);
+        continue;
+      }
+
+      if (requiresAudienceMatch && learnerRole !== "trainee" && learnerTraineeType !== courseRow.trainee_audience) {
+        failed += 1;
+        errors.push(`${selectedUser.name || selectedUser.email}: This course is only available to ${getCourseAudienceRestrictionLabel(courseRow.trainee_audience)}.`);
+        continue;
+      }
+
+      allowedUserIds.push(selectedUser.id);
+    }
+
+    const missingSelectedUsers = candidateUserIds.filter(
+      (userId) => !(selectedUsers || []).some((selectedUser) => selectedUser.id === userId),
+    );
+
+    if (missingSelectedUsers.length > 0) {
+      failed += missingSelectedUsers.length;
+      errors.push(`${missingSelectedUsers.length} selected user(s) could not be loaded for audience validation.`);
+    }
+
+    if (allowedUserIds.length === 0) {
+      return { success: 0, failed, errors };
+    }
+
     // Insert new enrollments
-    const enrollmentsToInsert = newUserIds.map(userId => ({
+    const enrollmentsToInsert = allowedUserIds.map(userId => ({
       user_id: userId,
       course_id: courseId,
       progress: 0,
@@ -2305,7 +2562,7 @@ export const enrollmentService = {
     }
 
     success = data?.length || 0;
-    failed = userIds.length - success;
+    failed += allowedUserIds.length - success;
 
       // Update course enrolled count
       if (success > 0) {
@@ -2334,7 +2591,8 @@ export const enrollmentService = {
             notificationHelpers.notifyEnrollmentConfirmed(
               enrollment.user_id,
               course.title,
-              enrollment.id
+              enrollment.id,
+              courseId,
             ).catch((err) => {
               console.error(`Error sending notification to user ${enrollment.user_id}:`, err);
             })
@@ -2440,6 +2698,8 @@ export const enrollmentService = {
       throw new Error("Supabase not initialized");
     }
 
+    const refreshedRows = await refreshEnrollmentRows([enrollmentId]);
+
     const { data, error } = await supabase
       .from("enrollments")
       .select(`
@@ -2455,17 +2715,19 @@ export const enrollmentService = {
       throw error;
     }
 
+    const enrollmentRow = refreshedRows.get(enrollmentId) || data;
+
     return {
       enrollment: {
-        id: data.id,
-        userId: data.user_id,
-        courseId: data.course_id,
-        progress: data.progress,
-        status: data.status,
-        enrolledAt: data.enrolled_at,
-        completedAt: data.completed_at || undefined,
-        certificateId: data.certificate_id || undefined,
-        sourceRecommendationId: data.originating_recommendation_id || undefined,
+        id: enrollmentRow.id,
+        userId: enrollmentRow.user_id,
+        courseId: enrollmentRow.course_id,
+        progress: enrollmentRow.progress,
+        status: enrollmentRow.status,
+        enrolledAt: enrollmentRow.enrolled_at,
+        completedAt: enrollmentRow.completed_at || undefined,
+        certificateId: enrollmentRow.certificate_id || undefined,
+        sourceRecommendationId: enrollmentRow.originating_recommendation_id || undefined,
       },
       user: data.users,
       course: data.courses,
@@ -2495,9 +2757,11 @@ export const enrollmentService = {
       return [];
     }
 
+    const refreshedRows = await refreshEnrollmentRows((data || []).map((item: any) => item.id));
+
     return (
       data?.map((item: any) => ({
-        ...mapEnrollmentRecord(item),
+        ...mapEnrollmentRecord(refreshedRows.get(item.id) || item),
         userName: item.users?.name,
         userEmail: item.users?.email,
       })) || []
@@ -2545,9 +2809,11 @@ export const enrollmentService = {
       return [];
     }
 
+    const refreshedRows = await refreshEnrollmentRows((data || []).map((item: any) => item.id));
+
     return (
       data?.map((item: any) => ({
-        ...mapEnrollmentRecord(item),
+        ...mapEnrollmentRecord(refreshedRows.get(item.id) || item),
         userName: item.users?.name || undefined,
         userEmail: item.users?.email || undefined,
         courseTitle: item.courses?.title || undefined,
@@ -2559,6 +2825,8 @@ export const enrollmentService = {
     if (!supabase) {
       return null;
     }
+
+    const refreshedRows = await refreshEnrollmentRows([enrollmentId]);
 
     const { data: enrollmentRow, error: enrollmentError } = await supabase
       .from("enrollments")
@@ -2573,7 +2841,7 @@ export const enrollmentService = {
       return null;
     }
 
-    const enrollment = mapEnrollmentRecord(enrollmentRow);
+    const enrollment = mapEnrollmentRecord(refreshedRows.get(enrollmentId) || enrollmentRow);
     const [course, modules] = await Promise.all([
       courseService.getCourse(enrollment.courseId),
       moduleService.getModulesByCourse(enrollment.courseId),
@@ -2585,12 +2853,15 @@ export const enrollmentService = {
         .from("module_completions")
         .select("module_id, completed_at, time_spent")
         .eq("enrollment_id", enrollmentId),
-      moduleIds.length > 0
-        ? supabase
-            .from("assessments")
-            .select("id, module_id, title")
-            .eq("is_active", true)
-            .in("module_id", moduleIds)
+      moduleIds.length > 0 || enrollment.courseId
+        ? executeAssessmentReadWithFallback(
+            (selectClause) => supabase
+              .from("assessments")
+              .select(selectClause)
+              .eq("is_active", true)
+              .eq("course_id", enrollment.courseId),
+            "id, course_id, module_id, title, assessment_thumbnail, prerequisite_module_ids, derived_from_module_quiz",
+          )
         : Promise.resolve({ data: [], error: null }),
     ]);
 
@@ -2608,7 +2879,7 @@ export const enrollmentService = {
     const { data: attemptRows, error: attemptError } = assessmentIds.length > 0
       ? await supabase
           .from("assessment_attempts")
-          .select("id, assessment_id, submitted_at, started_at, review_status, review_feedback, passed, score, time_spent, requires_manual_review")
+          .select("id, assessment_id, submitted_at, started_at, review_status, reviewed_at, reviewed_by, review_feedback, passed, score, time_spent, requires_manual_review")
           .eq("enrollment_id", enrollmentId)
           .in("assessment_id", assessmentIds)
       : { data: [], error: null };
@@ -2694,13 +2965,19 @@ export const enrollmentService = {
         const latestAttempt = latestAttemptByAssessmentId.get(assessment.id);
         return {
           assessmentId: assessment.id,
-          moduleId: assessment.module_id,
-          assessmentTitle: assessment.title || "Module Assessment",
+          courseId: assessment.course_id,
+          moduleId: assessment.module_id || undefined,
+          assessmentTitle: assessment.title || (assessment.module_id ? "Module Assessment" : "Course Assessment"),
+          assessmentThumbnail: resolveCourseMaterialUrl(assessment.assessment_thumbnail) || undefined,
+          prerequisiteModuleIds: assessment.prerequisite_module_ids || [],
+          derivedFromModuleQuiz: assessment.derived_from_module_quiz ?? false,
           latestAttemptId: latestAttempt?.id || undefined,
           requiresManualReview: Boolean(latestAttempt?.requires_manual_review),
           submittedAt: latestAttempt?.submitted_at || undefined,
           timeSpent: latestAttempt?.time_spent ? Math.max(1, Math.ceil(Number(latestAttempt.time_spent) / 60)) : undefined,
           reviewStatus: latestAttempt?.review_status || undefined,
+          reviewedAt: latestAttempt?.reviewed_at || undefined,
+          reviewedBy: latestAttempt?.reviewed_by || undefined,
           reviewFeedback: latestAttempt?.review_feedback || undefined,
           earnedPoints: latestAttempt?.id ? earnedPointsByAttemptId.get(latestAttempt.id) || 0 : undefined,
           totalPoints: totalPointsByAssessmentId.get(assessment.id) || 0,

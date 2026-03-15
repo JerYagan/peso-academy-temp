@@ -19,6 +19,8 @@ interface AssessmentResultSummary {
   canRetry: boolean;
   reviewStatus?: AssessmentReviewStatus;
   requiresManualReview: boolean;
+  reviewedAt?: string;
+  reviewedBy?: string;
   reviewFeedback?: string;
 }
 
@@ -35,7 +37,9 @@ const hasAnswerValue = (question: AssessmentQuestion, answer: string | undefined
 };
 
 const getResultCardClasses = (result: AssessmentResultSummary) => {
-  if (result.reviewStatus && result.reviewStatus !== "approved") {
+  const hasFinalApproval = result.reviewStatus === "approved" && Boolean(result.reviewedAt || result.reviewedBy);
+
+  if (result.reviewStatus && !hasFinalApproval) {
     return "border-sky-500 bg-sky-50 dark:bg-sky-950";
   }
 
@@ -43,7 +47,9 @@ const getResultCardClasses = (result: AssessmentResultSummary) => {
 };
 
 const getResultTextClasses = (result: AssessmentResultSummary) => {
-  if (result.reviewStatus && result.reviewStatus !== "approved") {
+  const hasFinalApproval = result.reviewStatus === "approved" && Boolean(result.reviewedAt || result.reviewedBy);
+
+  if (result.reviewStatus && !hasFinalApproval) {
     return "text-sky-700 dark:text-sky-300";
   }
 
@@ -51,12 +57,18 @@ const getResultTextClasses = (result: AssessmentResultSummary) => {
 };
 
 const getLatestResultMessage = (result: AssessmentResultSummary, assessment: Assessment) => {
+  const hasFinalApproval = result.reviewStatus === "approved" && Boolean(result.reviewedAt || result.reviewedBy);
+
+  if (result.reviewStatus === "approved" && !hasFinalApproval) {
+    return "Assessment submitted. Your final result will appear after trainer or admin approval.";
+  }
+
   if (result.reviewStatus === "submitted") {
-    return "Assessment submitted. Your responses are now waiting for trainer review.";
+    return "Assessment submitted. Your final result will appear after trainer or admin approval.";
   }
 
   if (result.reviewStatus === "under_review") {
-    return "Assessment is currently under trainer review.";
+    return "Assessment is under trainer or admin review.";
   }
 
   if (result.reviewStatus === "needs_revision") {
@@ -97,14 +109,20 @@ const deterministicShuffle = <T,>(items: T[], seedSource: string): T[] => {
 
 interface AssessmentInterfaceProps {
   enrollmentId: string;
-  moduleId: string;
   courseId: string;
+  moduleId?: string;
+  assessmentId?: string;
+  emptyStateMessage?: string;
+  onSubmitted?: () => void | Promise<void>;
 }
 
 const AssessmentInterface = ({
   enrollmentId,
-  moduleId,
   courseId,
+  moduleId,
+  assessmentId,
+  emptyStateMessage = "No assessment is available for this activity.",
+  onSubmitted,
 }: AssessmentInterfaceProps) => {
   const { user } = useAuth();
   const [assessment, setAssessment] = useState<Assessment | null>(null);
@@ -135,7 +153,11 @@ const AssessmentInterface = ({
       setAttemptMode("standard");
 
       // Load assessment
-      const assessmentData = await assessmentService.getAssessmentByModule(moduleId);
+      const assessmentData = assessmentId
+        ? await assessmentService.getAssessment(assessmentId)
+        : moduleId
+          ? await assessmentService.getAssessmentByModule(moduleId)
+          : null;
       
       if (!assessmentData) {
         // No assessment for this module
@@ -156,17 +178,25 @@ const AssessmentInterface = ({
       setCompletedAttemptCount(attemptAccess.completedAttempts.length);
 
       if (attemptAccess.latestCompletedAttempt) {
+        const hasFinalApproval =
+          attemptAccess.latestCompletedAttempt.reviewStatus === "approved" &&
+          Boolean(attemptAccess.latestCompletedAttempt.reviewedAt || attemptAccess.latestCompletedAttempt.reviewedBy);
+
         setLatestResult({
-          score: attemptAccess.latestCompletedAttempt.score,
-          passed: attemptAccess.latestCompletedAttempt.passed,
+          score: hasFinalApproval ? attemptAccess.latestCompletedAttempt.score : undefined,
+          passed: hasFinalApproval
+            ? attemptAccess.latestCompletedAttempt.passed
+            : undefined,
           passingScore: assessmentData.passingScore,
           attemptsRemaining: attemptAccess.attemptsRemaining,
           canRetry:
-            attemptAccess.latestCompletedAttempt.reviewStatus === "approved" &&
+            hasFinalApproval &&
             !attemptAccess.latestCompletedAttempt.passed &&
             attemptAccess.completedAttempts.length < attemptAccess.effectiveMaxAttempts,
           reviewStatus: attemptAccess.latestCompletedAttempt.reviewStatus,
           requiresManualReview: attemptAccess.latestCompletedAttempt.requiresManualReview ?? false,
+          reviewedAt: attemptAccess.latestCompletedAttempt.reviewedAt,
+          reviewedBy: attemptAccess.latestCompletedAttempt.reviewedBy,
           reviewFeedback: attemptAccess.latestCompletedAttempt.reviewFeedback,
         });
       }
@@ -201,7 +231,7 @@ const AssessmentInterface = ({
     } finally {
       setIsLoading(false);
     }
-  }, [moduleId, user, enrollmentId]);
+  }, [assessmentId, moduleId, user, enrollmentId]);
 
   // Load assessment and questions
   useEffect(() => {
@@ -369,24 +399,27 @@ const AssessmentInterface = ({
       const effectiveMaxAttempts = hasEssayQuestions(questions) ? 1 : assessment.maxAttempts;
       const attemptsRemaining = Math.max(effectiveMaxAttempts - nextCompletedAttemptCount, 0);
       setLatestResult({
-        score: result.score,
-        passed: result.passed,
+        score: result.reviewStatus === "approved" ? result.score : undefined,
+        passed: result.reviewStatus === "approved" ? result.passed : undefined,
         passingScore: assessment.passingScore,
         attemptsRemaining,
         canRetry: result.reviewStatus === "approved" && !result.passed && nextCompletedAttemptCount < effectiveMaxAttempts,
         reviewStatus: result.reviewStatus,
         requiresManualReview: result.requiresManualReview,
+        reviewedAt: undefined,
+        reviewedBy: undefined,
         reviewFeedback: undefined,
       });
       const message = result.reviewStatus !== "approved"
-        ? "Assessment submitted for trainer review. Your final result will appear after review."
+        ? "Assessment submitted. Your final score will be released after trainer or admin review."
         : result.passed
           ? `Assessment passed! Your score: ${result.score}%`
           : `Assessment not passed. Your score: ${result.score}% (Passing: ${assessment.passingScore}%)`;
       toast.success(message);
       
-      // Reload to show results
+      // Reload to show results and let the parent update any related progress UI.
       await loadAssessment();
+      await onSubmitted?.();
     } catch (error) {
       console.error("Error submitting assessment:", error);
       setSubmissionStatus("error");
@@ -415,7 +448,7 @@ const AssessmentInterface = ({
       <Card>
         <CardContent className="flex flex-col items-center justify-center py-12">
           <FileQuestion className="w-16 h-16 text-muted-foreground mb-4" />
-          <p className="text-muted-foreground">No assessment available for this module</p>
+          <p className="text-muted-foreground">{emptyStateMessage}</p>
         </CardContent>
       </Card>
     );
@@ -430,7 +463,7 @@ const AssessmentInterface = ({
               <div className={`flex items-center gap-2 ${getResultTextClasses(latestResult)}`}>
                 <CheckCircle2 className="w-5 h-5" />
                 <p className="text-sm font-medium">
-                  {latestResult.reviewStatus && latestResult.reviewStatus !== "approved"
+                  {latestResult.reviewStatus && !(latestResult.reviewStatus === "approved" && Boolean(latestResult.reviewedAt || latestResult.reviewedBy))
                     ? getLatestResultMessage(latestResult, assessment)
                     : latestResult.passed
                       ? `Assessment passed. Final score: ${latestResult.score}%`
@@ -444,7 +477,9 @@ const AssessmentInterface = ({
         )}
         <Card>
         <CardContent className="flex flex-col items-center justify-center py-12">
-          {latestResult?.passed ? (
+          {latestResult?.reviewStatus && !(latestResult.reviewStatus === "approved" && Boolean(latestResult.reviewedAt || latestResult.reviewedBy)) ? (
+            <Clock className="w-16 h-16 text-sky-600 dark:text-sky-400 mb-4" />
+          ) : latestResult?.passed ? (
             <CheckCircle2 className="w-16 h-16 text-green-600 dark:text-green-400 mb-4" />
           ) : (
             <AlertCircle className="w-16 h-16 text-muted-foreground mb-4" />
@@ -543,6 +578,9 @@ const AssessmentInterface = ({
             {attemptMode === "revision"
               ? "Your previous answers were copied into this revision attempt. Draft responses continue to save automatically on this device while you update them."
               : "Draft responses save automatically on this device while you work."}
+          </p>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Submitted assessments remain in a submitted state until a trainer or admin reviews and approves the result.
           </p>
           <p className="mt-2 text-sm text-muted-foreground">
             Question order and answer choices are shuffled for each attempt. Copy, paste, and similar browser shortcuts are limited to discourage casual sharing, but client-side controls are not a full security boundary.

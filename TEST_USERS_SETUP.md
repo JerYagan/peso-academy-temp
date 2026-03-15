@@ -24,11 +24,11 @@ This guide explains how to create initial test users for authentication testing 
 | Email | Password | Role | Name |
 |-------|----------|------|------|
 | `jobseeker@peso.academy` | `password123` | jobseeker | Juan Dela Cruz |
-| `admin@peso.academy` | `admin123` | admin | Admin User |
-| `trainer@peso.academy` | `trainer123` | trainer | Trainer Maria |
-| `employer@peso.academy` | `employer123` | employer | ABC Company |
-| `validator@peso.academy` | `validator123` | validator | Validator John |
-| `spd@peso.academy` | `spd123` | spd | SPD Manager |
+| `admin@peso.academy` | `password123` | admin | Admin User |
+| `trainer@peso.academy` | `password123` | trainer | Trainer Maria |
+| `employer@peso.academy` | `password123` | employer | ABC Company |
+| `validator@peso.academy` | `password123` | validator | Validator John |
+| `spd@peso.academy` | `password123` | spd | SPD Manager |
 
 ### Method 2: Using SQL Script (Automated)
 

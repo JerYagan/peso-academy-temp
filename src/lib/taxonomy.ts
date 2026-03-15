@@ -62,6 +62,32 @@ export const TAXONOMY_TOPIC_TAGS = [
   "Creative Design",
 ] as const;
 
+export const TAXONOMY_INDUSTRY_TAGS = [
+  "Digital Services",
+  "Office Administration",
+  "Customer Service",
+  "Retail and Sales",
+  "Entrepreneurship",
+  "Hospitality and Tourism",
+  "Construction and Trades",
+  "Creative and Design",
+] as const;
+
+export const TAXONOMY_CAREER_PATHS = [
+  "Administrative Assistant",
+  "Office Staff",
+  "Customer Service Associate",
+  "Retail Sales Associate",
+  "Digital Support Associate",
+  "Marketing Assistant",
+  "Graphic Designer",
+  "Web Developer",
+  "Mobile App Developer",
+  "Entrepreneur",
+  "Hospitality Service Associate",
+  "Construction Support Technician",
+] as const;
+
 export type TaxonomyCourseCategory = string;
 export type TaxonomySkillTag = string;
 export type TaxonomyTopicTag = string;
@@ -286,14 +312,14 @@ export const canonicalizeCourseCategory = (value: string | null | undefined): Ta
   if (normalized.includes("construction") || normalized.includes("safety")) return "Construction & Trades";
   if (normalized.includes("creative") || normalized.includes("design")) return "Creative & Design";
   if (normalized === "other" || normalized === "others") return "Others";
-  return normalizeDisplayValue(value) || null;
+  return null;
 };
 
 export const canonicalizeSkillTag = (value: string | null | undefined): TaxonomySkillTag | null =>
-  canonicalizeWithLookup(value, getSkillLookup(), SKILL_ALIASES) || normalizeDisplayValue(value) || null;
+  canonicalizeWithLookup(value, getSkillLookup(), SKILL_ALIASES);
 
 export const canonicalizeTopicTag = (value: string | null | undefined): TaxonomyTopicTag | null =>
-  canonicalizeWithLookup(value, getTopicLookup(), TOPIC_ALIASES) || normalizeDisplayValue(value) || null;
+  canonicalizeWithLookup(value, getTopicLookup(), TOPIC_ALIASES);
 
 export const normalizeSkillTags = (values?: readonly string[] | null): TaxonomySkillTag[] =>
   dedupe((values || []).map((value) => canonicalizeSkillTag(value)).filter(Boolean) as TaxonomySkillTag[]);

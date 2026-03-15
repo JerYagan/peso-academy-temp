@@ -7,6 +7,7 @@ import {
   BookOpen,
   ChevronDown,
   ClipboardList,
+  FileQuestion,
   FileSpreadsheet,
   LogOut,
   Settings,
@@ -92,9 +93,12 @@ const DashboardLayout = ({ children }: DashboardLayoutProps) => {
             icon: ClipboardList,
             items: [
               { type: "link", path: "/admin/users", label: "Users", icon: Users },
+              { type: "link", path: "/admin/learners", label: "Learners", icon: Users },
               { type: "link", path: "/admin/courses", label: "Courses", icon: BookOpen },
               { type: "link", path: "/admin/taxonomy", label: "Taxonomy", icon: Tags },
               { type: "link", path: "/admin/enrollments", label: "Enrollments", icon: ClipboardList },
+              { type: "link", path: "/admin/certificates", label: "Certificates", icon: Award },
+              { type: "link", path: "/admin/assessment-reviews", label: "Assessment Reviews", icon: FileQuestion },
             ],
           },
           {
@@ -109,10 +113,25 @@ const DashboardLayout = ({ children }: DashboardLayoutProps) => {
       case "trainer":
         return [
           { type: "link", path: "/trainer/dashboard", label: "Trainer Dashboard", icon: BarChart3 },
-          { type: "link", path: "/verification", label: "Verification", icon: ShieldCheck },
-          { type: "link", path: "/trainer/courses", label: "My Courses", icon: BookOpen },
-          { type: "link", path: "/trainer/taxonomy", label: "Taxonomy", icon: Tags },
-          { type: "link", path: "/trainer/learners", label: "Learners", icon: Users },
+          {
+            type: "group",
+            label: "Manage",
+            icon: ClipboardList,
+            items: [
+              { type: "link", path: "/trainer/courses", label: "My Courses", icon: BookOpen },
+              { type: "link", path: "/trainer/learners", label: "Learners", icon: Users },
+              { type: "link", path: "/trainer/assessment-reviews", label: "Assessment Reviews", icon: FileQuestion },
+              { type: "link", path: "/trainer/certificates", label: "Certificates", icon: Award },
+            ],
+          },
+          {
+            type: "group",
+            label: "Configure",
+            icon: Tags,
+            items: [
+              { type: "link", path: "/trainer/taxonomy", label: "Taxonomy", icon: Tags },
+            ],
+          },
         ];
       default:
         return [];
@@ -126,8 +145,8 @@ const DashboardLayout = ({ children }: DashboardLayoutProps) => {
       <header className="border-b bg-card">
         <div className="container mx-auto px-4">
           <div className="flex h-16 items-center justify-between gap-4">
-            <Link to="/" className="flex items-center gap-2">
-              <img src={logoSrc} alt="PESO Academy" className="h-9 w-auto object-contain sm:h-10" />
+            <Link to="/" className="flex items-center gap-3">
+              <img src={logoSrc} alt="PESO Academy" className="h-12 w-auto object-contain sm:h-14" />
             </Link>
 
             <nav className="hidden items-center gap-1 md:flex">
@@ -217,28 +236,6 @@ const DashboardLayout = ({ children }: DashboardLayoutProps) => {
                       {t("dashboardLayout.menuSettings")}
                     </Link>
                   </DropdownMenuItem>
-                  {user?.role === "admin" ? (
-                    <>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuSub>
-                        <DropdownMenuSubTrigger>
-                          <ShieldCheck className="mr-2 h-4 w-4" />
-                          Admin shortcuts
-                        </DropdownMenuSubTrigger>
-                        <DropdownMenuSubContent className="w-56">
-                          <DropdownMenuItem asChild>
-                            <Link to="/admin/dashboard" className="cursor-pointer">Dashboard</Link>
-                          </DropdownMenuItem>
-                          <DropdownMenuItem asChild>
-                            <Link to="/verification" className="cursor-pointer">Verification</Link>
-                          </DropdownMenuItem>
-                          <DropdownMenuItem asChild>
-                            <Link to="/admin/enrollments" className="cursor-pointer">Enrollments</Link>
-                          </DropdownMenuItem>
-                        </DropdownMenuSubContent>
-                      </DropdownMenuSub>
-                    </>
-                  ) : null}
                   <DropdownMenuSeparator />
                   <DropdownMenuItem onClick={handleLogout} className="cursor-pointer text-destructive">
                     <LogOut className="mr-2 h-4 w-4" />

@@ -161,17 +161,12 @@ const Login = () => {
             />
             <span>{t("login.rememberMe")}</span>
           </label>
-          <button
-            type="button"
+          <Link
+            to="/forgot-password"
             className="font-medium text-primary transition-colors hover:text-primary/80"
-            onClick={() => {
-              toast.info("Password recovery is not configured yet.", {
-                description: t("login.forgotPasswordDescription"),
-              });
-            }}
           >
             {t("login.forgotPassword")}
-          </button>
+          </Link>
         </div>
 
         <Button type="submit" className="h-12 w-full rounded-xl text-base font-semibold" disabled={loading}>

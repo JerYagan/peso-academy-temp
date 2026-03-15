@@ -194,9 +194,20 @@ This tells the system:
 
 - which courses the learner already joined
 - which ones they finished
+- how far they have progressed through required modules and required graded assessments
 - which categories they keep returning to
 - whether they are building momentum
 - whether they are revisiting content without finishing it
+
+### Phase 6 rule for progress and completion
+
+After the assessment ownership changes, PESO Academy now treats learner progress and learner completion as related but different concepts.
+
+- `enrollments.progress` combines completed modules with required graded-assessment completion
+- graded assessments still have to be submitted before a course can enter completion review
+- a course is not treated as completed until the enrollment reaches the approval workflow and is approved
+
+This matters because the recommendation system can still use assessment performance while keeping visible course progress aligned with the full learner path, not only the module path.
 
 ## 4. Assessment performance data
 
@@ -222,6 +233,19 @@ This tells the system:
 - whether they are ready for more advanced material or need more foundational support
 
 One important detail is that the assessment-only advisory mode needs scored assessment evidence. If an assessment has been submitted but is still waiting for manual review, the activity and time are still visible, but the score-based recommendation signal is weaker or unavailable until a score exists.
+
+### Phase 6 rule for graded assessments and practice quizzes
+
+Only graded assessment submissions contribute score-bearing recommendation evidence.
+
+In practice, that means:
+
+- `assessment_attempts` and `assessment_answers` remain the source of graded assessment evidence
+- scored recommendation inputs come from submitted graded attempts with real scores
+- inline practice quizzes inside modules remain formative and do not write grade-bearing attempt rows
+- practice quiz interactions may still matter as engagement or study-behavior signals, but not as assessment score evidence
+
+This separation prevents practice-quiz outcomes from polluting average assessment score, assessment-only recommendation mode, or predictive analytics that depend on graded performance.
 
 ## 5. Similar learner behavior
 
@@ -801,3 +825,26 @@ The new assessment and completion workflow does not remove this capability. Inst
 - actual learning time from officially credited course hours
 
 That allows PESO Academy to keep recommendations relevant while also respecting trainer-reviewed learning workflows.
+
+## Plan (Write it in a different markdown)
+
+### System
+- Implement a forgot password flow for learners who signed up with email and password
+- Strengthen sign up and login flows with better error handling and user feedback
+- Make the notifications work for all users
+- Remove the functionality for limiting the amount of tries for assessments
+
+### Learner
+- Dashboard: in My Courses section, all the courses listed there should look like the one in the Browse Courses page, with the course image, title, category, duration, and progress and continue button.
+- Dashboard: Remove Recent Assessment Scores and Module Completion Records
+- Dashboard: Make the dashboard, specially the section with statistics (Review) more user friendly and less overwhelming for new learners. Consider using more visuals, tooltips, or progressive disclosure to show detailed stats only when learners want to see them.
+- Progress page: make the Course Progress an actual progress bar instead of a bar graph.
+- Progress page: Recent Learning Session should only show the last 5 sessions and have a "See all" button to view the full history in a separate page or modal. This will make it less overwhelming and more focused on recent activity.
+- Profile: Remove statistics related to assessments and module completions in the profile page
+- Onboarding: in every onboarding section, the learner is required to select at least one option. This is to ensure that the recommendation system has enough data to provide relevant course suggestions from the start.
+
+### Trainer
+- 
+
+### Regarding Assessments, Quizzes, and Scoring for the Analytics and Recommendation System
+- 

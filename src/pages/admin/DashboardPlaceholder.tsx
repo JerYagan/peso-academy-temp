@@ -10,9 +10,7 @@ import {
   FileSpreadsheet,
   Gauge,
   Loader2,
-  RefreshCw,
   ShieldCheck,
-  Sparkles,
   TrendingUp,
   UserCog,
   Users,
@@ -34,21 +32,12 @@ import {
 
 import DashboardLayout from "@/components/DashboardLayout";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   AdminDashboardAnalytics,
-  CollaborativeRecommendationDebugData,
   reportingService,
 } from "@/services/reportingService";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { toast } from "sonner";
 import { moduleSessionService, type AdminRecentSessionSummary } from "@/services/moduleSessionService";
 import { supabase } from "@/lib/supabase";
@@ -78,6 +67,12 @@ const adminActions = [
     description: "Review learner enrollments and course assignment activity.",
     href: "/admin/enrollments",
     icon: ClipboardList,
+  },
+  {
+    title: "Manage certificates",
+    description: "Release certificates and monitor what is pending or already issued.",
+    href: "/admin/certificates",
+    icon: Award,
   },
   {
     title: "View audit logs",
@@ -116,12 +111,6 @@ interface AdminRecentSessionCard extends AdminRecentSessionSummary {
   learnerName: string | null;
   learnerEmail: string | null;
   needsAttention: boolean;
-}
-
-interface AdminLearnerOption {
-  id: string;
-  name: string | null;
-  email: string | null;
 }
 
 const SHORT_SESSION_SECONDS = 5 * 60;
@@ -181,33 +170,10 @@ const formatEnrollmentStatus = (status: string) => {
   }
 };
 
-const dedupeLearnerOptions = (learners: AdminLearnerOption[]) => {
-  const learnerMap = new Map<string, AdminLearnerOption>();
-
-  for (const learner of learners) {
-    if (!learner.id) {
-      continue;
-    }
-
-    learnerMap.set(learner.id, learner);
-  }
-
-  return Array.from(learnerMap.values()).sort((left, right) => {
-    const leftLabel = left.name || left.email || left.id;
-    const rightLabel = right.name || right.email || right.id;
-    return leftLabel.localeCompare(rightLabel);
-  });
-};
-
 const AdminDashboardPlaceholder = () => {
   const [analytics, setAnalytics] = useState<AdminDashboardAnalytics | null>(null);
   const [loading, setLoading] = useState(true);
   const [recentSessionActivity, setRecentSessionActivity] = useState<AdminRecentSessionCard[]>([]);
-  const [learnerOptions, setLearnerOptions] = useState<AdminLearnerOption[]>([]);
-  const [selectedLearnerId, setSelectedLearnerId] = useState("");
-  const [collaborativeDebug, setCollaborativeDebug] = useState<CollaborativeRecommendationDebugData | null>(null);
-  const [collaborativeLoading, setCollaborativeLoading] = useState(false);
-  const [collaborativeRefreshKey, setCollaborativeRefreshKey] = useState(0);
 
   useEffect(() => {
     const loadDashboardMetrics = async () => {
@@ -220,8 +186,6 @@ const AdminDashboardPlaceholder = () => {
 
         let learnerDirectory = new Map<string, { name: string | null; email: string | null }>();
         const learnerIds = Array.from(new Set(sessionActivity.map((session) => session.learnerId)));
-        let learners: AdminLearnerOption[] = [];
-
         if (supabase) {
           if (learnerIds.length > 0) {
             const { data: users, error } = await supabase
@@ -235,44 +199,11 @@ const AdminDashboardPlaceholder = () => {
               learnerDirectory = new Map(
                 (users || []).map((user) => [user.id, { name: user.name || null, email: user.email || null }])
               );
-
-              learners = (users || []).map((user) => ({
-                id: user.id,
-                name: user.name || null,
-                email: user.email || null,
-              }));
             }
-          }
-
-          const { data: learnerRows, error: learnerRowsError } = await supabase
-            .from("users")
-            .select("id, name, email")
-            .eq("role", "trainee")
-            .order("name", { ascending: true });
-
-          if (learnerRowsError) {
-            console.warn("Failed to load full learner selector for admin dashboard:", learnerRowsError);
-          } else {
-            learners = dedupeLearnerOptions([
-              ...learners,
-              ...(learnerRows || []).map((learner) => ({
-                id: learner.id,
-                name: learner.name || null,
-                email: learner.email || null,
-              })),
-            ]);
           }
         }
 
         setAnalytics(dashboardAnalytics);
-        setLearnerOptions(learners);
-        setSelectedLearnerId((currentLearnerId) => {
-          if (currentLearnerId && learners.some((learner) => learner.id === currentLearnerId)) {
-            return currentLearnerId;
-          }
-
-          return learners[0]?.id || "";
-        });
         setRecentSessionActivity(
           sessionActivity.map((session) => {
             const learner = learnerDirectory.get(session.learnerId);
@@ -299,28 +230,6 @@ const AdminDashboardPlaceholder = () => {
 
     void loadDashboardMetrics();
   }, []);
-
-  useEffect(() => {
-    const loadCollaborativeDebug = async () => {
-      if (!selectedLearnerId) {
-        setCollaborativeDebug(null);
-        return;
-      }
-
-      try {
-        setCollaborativeLoading(true);
-        const debugData = await reportingService.getCollaborativeRecommendationDebugData(selectedLearnerId);
-        setCollaborativeDebug(debugData);
-      } catch (error) {
-        console.error("Failed to load collaborative recommendation evidence:", error);
-        toast.error("Failed to load collaborative recommendation evidence");
-      } finally {
-        setCollaborativeLoading(false);
-      }
-    };
-
-    void loadCollaborativeDebug();
-  }, [selectedLearnerId, collaborativeRefreshKey]);
 
   const statCards = useMemo(() => {
     if (!analytics) return [];
@@ -376,7 +285,6 @@ const AdminDashboardPlaceholder = () => {
   const engagementDelta = latestTrend && previousTrend
     ? latestTrend.activeLearners - previousTrend.activeLearners
     : 0;
-  const selectedLearner = learnerOptions.find((learner) => learner.id === selectedLearnerId) || null;
   const courseRiskChartData = analytics?.riskCourseInsights.map((course) => ({
     name: course.courseTitle.length > 18 ? `${course.courseTitle.slice(0, 18)}...` : course.courseTitle,
     riskScore: course.riskScore,
@@ -790,6 +698,12 @@ const AdminDashboardPlaceholder = () => {
                     <CardDescription>Stored course-risk and learner-disengagement scores refreshed from current platform activity.</CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-4">
+                    <div className="rounded-2xl border border-primary/15 bg-primary/5 p-4">
+                      <p className="text-sm font-medium text-foreground">How to use Predictive Oversight</p>
+                      <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                        Treat this as an early-warning view. High-risk counts and score trends help you spot courses with slipping completion or learners showing disengagement patterns so you can follow up in enrollments, learner activity, or reports before the issue spreads.
+                      </p>
+                    </div>
                     <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                       <div className="rounded-2xl border border-border/70 bg-muted/30 p-4">
                         <p className="text-sm text-muted-foreground">High-risk courses</p>
@@ -1005,156 +919,6 @@ const AdminDashboardPlaceholder = () => {
                     </CardContent>
                   </Card>
                 </div>
-
-                <Card className="border-border/80">
-                  <CardHeader className="gap-4">
-                    <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                      <div className="space-y-1.5">
-                        <div className="flex items-center gap-2">
-                          <Sparkles className="h-5 w-5 text-primary" />
-                          <CardTitle>Hybrid recommendation evidence</CardTitle>
-                        </div>
-                        <CardDescription>
-                          Inspect the collaborative-filtering evidence behind learner recommendations before the final hybrid scorer blends it with content and performance signals.
-                        </CardDescription>
-                      </div>
-                      <div className="flex w-full flex-col gap-2 sm:flex-row lg:w-auto">
-                        <Select value={selectedLearnerId} onValueChange={setSelectedLearnerId}>
-                          <SelectTrigger className="min-w-[260px]">
-                            <SelectValue placeholder="Select a learner" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {learnerOptions.map((learner) => (
-                              <SelectItem key={learner.id} value={learner.id}>
-                                {learner.name || learner.email || learner.id}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <Button
-                          variant="outline"
-                          onClick={() => setCollaborativeRefreshKey((currentValue) => currentValue + 1)}
-                          disabled={!selectedLearnerId || collaborativeLoading}
-                        >
-                          <RefreshCw className={collaborativeLoading ? "animate-spin" : ""} />
-                          Refresh
-                        </Button>
-                      </div>
-                    </div>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    {learnerOptions.length === 0 ? (
-                      <p className="text-sm text-muted-foreground">No learners are available for collaborative recommendation inspection yet.</p>
-                    ) : collaborativeLoading ? (
-                      <div className="flex items-center justify-center py-10 text-sm text-muted-foreground">
-                        <Loader2 className="mr-3 h-5 w-5 animate-spin" />
-                        Loading collaborative recommendation evidence...
-                      </div>
-                    ) : !collaborativeDebug ? (
-                      <p className="text-sm text-muted-foreground">Select a learner to inspect recommendation evidence.</p>
-                    ) : (
-                      <>
-                        <div className="grid gap-3 md:grid-cols-3">
-                          <div className="rounded-2xl border border-border/70 bg-muted/30 p-4">
-                            <p className="text-sm text-muted-foreground">Selected learner</p>
-                            <p className="mt-2 text-lg font-semibold">{selectedLearner?.name || selectedLearner?.email || selectedLearnerId}</p>
-                            <p className="mt-1 text-xs text-muted-foreground">{selectedLearner?.email || "Learner record loaded from the admin directory"}</p>
-                          </div>
-                          <div className="rounded-2xl border border-border/70 bg-muted/30 p-4">
-                            <p className="text-sm text-muted-foreground">Compared enrolled courses</p>
-                            <p className="mt-2 text-3xl font-semibold tracking-tight">{collaborativeDebug.targetCourseCount}</p>
-                          </div>
-                          <div className="rounded-2xl border border-border/70 bg-muted/30 p-4">
-                            <p className="text-sm text-muted-foreground">Similar learners / candidates</p>
-                            <p className="mt-2 text-3xl font-semibold tracking-tight">{collaborativeDebug.similarLearnerCount} / {collaborativeDebug.candidates.length}</p>
-                          </div>
-                        </div>
-
-                        {collaborativeDebug.targetCourseCount === 0 ? (
-                          <div className="rounded-2xl border border-dashed border-border/80 p-5 text-sm text-muted-foreground">
-                            This learner does not have enough enrollment history yet. Collaborative filtering starts once the learner has active or completed course history to compare against other trainees.
-                          </div>
-                        ) : collaborativeDebug.candidates.length === 0 ? (
-                          <div className="rounded-2xl border border-dashed border-border/80 p-5 text-sm text-muted-foreground">
-                            No collaborative candidates were produced for this learner yet. The learner may have unique course history, or the current dataset may not have enough overlapping paths.
-                          </div>
-                        ) : (
-                          <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
-                            <div className="space-y-3">
-                              <div>
-                                <h3 className="text-base font-semibold">Collaborative candidate courses</h3>
-                                <p className="text-sm text-muted-foreground">
-                                  These are the courses contributed by similar-learner behavior before the full hybrid ranker blends them with profile, content, and performance signals.
-                                </p>
-                              </div>
-                              {collaborativeDebug.candidates.map((candidate) => (
-                                <div key={candidate.courseId} className="rounded-2xl border border-border/70 p-4">
-                                  <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                                    <div className="space-y-2">
-                                      <div>
-                                        <p className="font-semibold">{candidate.courseTitle}</p>
-                                        <p className="text-sm text-muted-foreground">{candidate.reason}</p>
-                                      </div>
-                                      <div className="flex flex-wrap gap-2">
-                                        <Badge variant="secondary">{Math.round(candidate.normalizedScore * 100)}% collaborative score</Badge>
-                                        <Badge variant="outline">Raw {candidate.rawScore.toFixed(2)}</Badge>
-                                        <Badge variant="outline">{candidate.supportCount} similar learners</Badge>
-                                        <Badge variant="outline">{candidate.completedBySimilarLearners} completions</Badge>
-                                      </div>
-                                    </div>
-                                    <div className="rounded-xl bg-primary/10 px-3 py-2 text-right text-sm text-primary">
-                                      <p className="font-semibold">{candidate.supportingLearnerIds.length}</p>
-                                      <p className="text-xs uppercase tracking-[0.16em]">Supporters</p>
-                                    </div>
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-
-                            <div className="space-y-3">
-                              <div>
-                                <h3 className="text-base font-semibold">Top similar learners</h3>
-                                <p className="text-sm text-muted-foreground">Similarity is based on shared course history, overlap completions, and progress closeness.</p>
-                              </div>
-                              {collaborativeDebug.neighbors.map((neighbor) => (
-                                <div key={neighbor.learnerId} className="rounded-2xl border border-border/70 p-4">
-                                  <div className="flex items-start justify-between gap-3">
-                                    <div>
-                                      <p className="font-semibold">{neighbor.learnerName || "Unknown learner"}</p>
-                                      <p className="text-sm text-muted-foreground">{neighbor.learnerEmail || neighbor.learnerId}</p>
-                                    </div>
-                                    <Badge variant="secondary">Similarity {neighbor.similarityScore.toFixed(2)}</Badge>
-                                  </div>
-                                  <div className="mt-3 flex flex-wrap gap-2">
-                                    <Badge variant="outline">{neighbor.overlapCount} shared courses</Badge>
-                                    <Badge variant="outline">{neighbor.completedOverlapCount} completed overlaps</Badge>
-                                    <Badge variant="outline">{Math.round(neighbor.averageProgressCloseness * 100)}% progress match</Badge>
-                                  </div>
-                                  <div className="mt-4 space-y-2">
-                                    {neighbor.sharedCourses.map((course) => (
-                                      <div key={`${neighbor.learnerId}-${course.courseId}`} className="rounded-xl bg-muted/30 p-3">
-                                        <div className="flex items-start justify-between gap-3">
-                                          <div>
-                                            <p className="text-sm font-medium">{course.courseTitle}</p>
-                                            <p className="text-xs text-muted-foreground">Neighbor status: {formatEnrollmentStatus(course.neighborStatus)}</p>
-                                          </div>
-                                          <div className="text-right text-xs text-muted-foreground">
-                                            <p>Learner {Math.round(course.learnerProgress)}%</p>
-                                            <p>Neighbor {Math.round(course.neighborProgress)}%</p>
-                                          </div>
-                                        </div>
-                                      </div>
-                                    ))}
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                      </>
-                    )}
-                  </CardContent>
-                </Card>
               </TabsContent>
             </Tabs>
           </>

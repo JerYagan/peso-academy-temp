@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import DashboardLayout from "@/components/DashboardLayout";
-import { DerivedAssessmentSummary } from "@/components/course/DerivedAssessmentSummary";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -30,19 +29,48 @@ import {
   Trash2,
 } from "lucide-react";
 import { courseService, moduleService } from "@/services/supabaseDatabaseService";
-import { assessmentService, type Assessment } from "@/services/assessmentService";
+import {
+  assessmentService,
+  type Assessment,
+  type AssessmentQuestion,
+  type CourseAssessmentInput,
+} from "@/services/assessmentService";
 import { ContentBlockComponent, type ContentBlock, type ContentBlockType } from "@/components/course/ContentBlock";
 import { ModulePreview } from "@/components/course/ModulePreview";
 import { TaxonomyTagField } from "@/components/course/TaxonomyTagField";
 import { useAuth } from "@/contexts/AuthContext";
-import { createDefaultContentBlock, getQuizAssessmentSummary, parseModuleContentBlocks } from "@/lib/contentBlocks";
-import { getAllowedSkillTagsForCategory, getAllowedTopicTagsForCategory } from "@/lib/taxonomy";
+import { createDefaultContentBlock, importPracticeQuizQuestions, parseModuleContentBlocks } from "@/lib/contentBlocks";
+import { hasCanonicalSkillMatch, hasCanonicalTopicMatch, normalizeSkillTags, normalizeTopicTags } from "@/lib/taxonomy";
 import { supabase } from "@/lib/supabase";
 import { toast } from "sonner";
 import type { Course, Module } from "@/types";
 
 type EditorTab = "content" | "settings" | "preview";
 type UploadField = "module_thumbnail" | "module_document";
+type AssessmentQuestionDraft = {
+  localId: string;
+  id?: string;
+  question: string;
+  questionType: AssessmentQuestion["questionType"];
+  options: string[];
+  correctAnswer: string;
+  points: number;
+  explanation: string;
+};
+
+type CourseAssessmentDraft = {
+  localId: string;
+  id?: string;
+  title: string;
+  description: string;
+  timeLimit: string;
+  passingScore: number;
+  maxAttempts: number;
+  allowRetryAfterPassing: boolean;
+  isActive: boolean;
+  prerequisiteModuleIds: string[];
+  questions: AssessmentQuestionDraft[];
+};
 
 const BLOCK_TYPE_OPTIONS: Array<{ value: ContentBlockType; label: string; icon: typeof Type }> = [
   { value: "text", label: "Text", icon: Type },
@@ -64,6 +92,113 @@ const DEFAULT_ASSESSMENT_CONFIG = {
   passingScore: 70,
   maxAttempts: 3,
   allowRetryAfterPassing: false,
+};
+
+const createAssessmentDraftId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+
+const createEmptyAssessmentQuestion = (): AssessmentQuestionDraft => ({
+  localId: createAssessmentDraftId(),
+  question: "",
+  questionType: "multiple_choice",
+  options: ["", ""],
+  correctAnswer: "",
+  points: 1,
+  explanation: "",
+});
+
+const createEmptyCourseAssessment = (): CourseAssessmentDraft => ({
+  localId: createAssessmentDraftId(),
+  title: "",
+  description: "",
+  timeLimit: "",
+  passingScore: DEFAULT_ASSESSMENT_CONFIG.passingScore,
+  maxAttempts: DEFAULT_ASSESSMENT_CONFIG.maxAttempts,
+  allowRetryAfterPassing: DEFAULT_ASSESSMENT_CONFIG.allowRetryAfterPassing,
+  isActive: true,
+  prerequisiteModuleIds: [],
+  questions: [createEmptyAssessmentQuestion()],
+});
+
+const mapAssessmentQuestionToDraft = (question: AssessmentQuestion): AssessmentQuestionDraft => ({
+  localId: createAssessmentDraftId(),
+  id: question.id,
+  question: question.question,
+  questionType: question.questionType,
+  options: question.questionType === "essay" ? [] : question.questionType === "true_false" ? ["True", "False"] : question.options || ["", ""],
+  correctAnswer: question.correctAnswer || "",
+  points: question.points,
+  explanation: question.explanation || "",
+});
+
+const mapAssessmentToDraft = (assessment: Assessment, questions: AssessmentQuestion[]): CourseAssessmentDraft => ({
+  localId: createAssessmentDraftId(),
+  id: assessment.id,
+  title: assessment.title,
+  description: assessment.description || "",
+  timeLimit: assessment.timeLimit ? String(assessment.timeLimit) : "",
+  passingScore: assessment.passingScore,
+  maxAttempts: assessment.maxAttempts,
+  allowRetryAfterPassing: assessment.allowRetryAfterPassing,
+  isActive: assessment.isActive,
+  prerequisiteModuleIds: assessment.prerequisiteModuleIds || [],
+  questions: questions.length > 0 ? questions.map(mapAssessmentQuestionToDraft) : [createEmptyAssessmentQuestion()],
+});
+
+const normalizeAssessmentDraft = (assessment: CourseAssessmentDraft): CourseAssessmentInput => ({
+  id: assessment.id,
+  title: assessment.title.trim(),
+  description: assessment.description.trim() || undefined,
+  timeLimit: assessment.timeLimit.trim() ? Math.max(1, Number.parseInt(assessment.timeLimit, 10) || 0) : undefined,
+  passingScore: Math.min(100, Math.max(1, assessment.passingScore)),
+  maxAttempts: Math.max(1, assessment.maxAttempts),
+  allowRetryAfterPassing: assessment.allowRetryAfterPassing,
+  isActive: assessment.isActive,
+  prerequisiteModuleIds: assessment.prerequisiteModuleIds,
+  questions: assessment.questions.map((question, index) => ({
+    id: question.id,
+    question: question.question.trim(),
+    questionType: question.questionType,
+    options: question.questionType === "essay" ? [] : question.questionType === "true_false" ? ["True", "False"] : question.options,
+    correctAnswer: question.questionType === "essay" ? undefined : question.correctAnswer,
+    points: Math.max(1, question.points),
+    order: index + 1,
+    explanation: question.explanation.trim() || undefined,
+  })),
+});
+
+const validateAssessmentDraft = (assessment: CourseAssessmentDraft): string | null => {
+  if (!assessment.title.trim()) {
+    return "Each graded assessment needs a title.";
+  }
+
+  if (assessment.questions.length === 0) {
+    return `\"${assessment.title || "Untitled assessment"}\" needs at least one question.`;
+  }
+
+  for (const question of assessment.questions) {
+    if (!question.question.trim()) {
+      return `\"${assessment.title || "Untitled assessment"}\" has a question with no prompt.`;
+    }
+
+    if (question.points <= 0) {
+      return `\"${assessment.title || "Untitled assessment"}\" has a question with invalid points.`;
+    }
+
+    if (question.questionType === "essay") {
+      continue;
+    }
+
+    const normalizedOptions = (question.questionType === "true_false" ? ["True", "False"] : question.options).map((option) => option.trim()).filter(Boolean);
+    if (normalizedOptions.length < 2) {
+      return `\"${assessment.title || "Untitled assessment"}\" has a question that needs at least two answer options.`;
+    }
+
+    if (!question.correctAnswer.trim()) {
+      return `\"${assessment.title || "Untitled assessment"}\" has a question without a correct answer.`;
+    }
+  }
+
+  return null;
 };
 
 const ModuleEditorPage = () => {
@@ -93,28 +228,28 @@ const ModuleEditorPage = () => {
     module_document: "",
   });
   const [contentBlocks, setContentBlocks] = useState<ContentBlock[]>([]);
+  const [courseAssessments, setCourseAssessments] = useState<CourseAssessmentDraft[]>([]);
+  const [deletedAssessmentIds, setDeletedAssessmentIds] = useState<string[]>([]);
+  const inheritedSkillOptions = useMemo(() => normalizeSkillTags(course?.skills || []), [course?.skills]);
+  const inheritedTopicOptions = useMemo(() => normalizeTopicTags(course?.topicTags || []), [course?.topicTags]);
+  const importedPracticeQuestions = useMemo(() => importPracticeQuizQuestions(contentBlocks), [contentBlocks]);
 
-  const [currentAssessment, setCurrentAssessment] = useState<Assessment | null>(null);
-  const [assessmentConfig, setAssessmentConfig] = useState(DEFAULT_ASSESSMENT_CONFIG);
-  const allowedSkillOptions = getAllowedSkillTagsForCategory(course?.category);
-  const allowedTopicOptions = getAllowedTopicTagsForCategory(course?.category);
-  const derivedAssessmentSummary = useMemo(() => getQuizAssessmentSummary(contentBlocks), [contentBlocks]);
-
-  const loadModuleAssessment = useCallback(async (targetModuleId: string) => {
+  const loadCourseAssessments = useCallback(async (targetCourseId: string) => {
     try {
-      const assessment = await assessmentService.getAssessmentByModule(targetModuleId, {
-        syncDerivedFromModuleContent: true,
-      });
-      setCurrentAssessment(assessment);
-      setAssessmentConfig({
-        passingScore: assessment?.passingScore ?? DEFAULT_ASSESSMENT_CONFIG.passingScore,
-        maxAttempts: assessment?.maxAttempts ?? DEFAULT_ASSESSMENT_CONFIG.maxAttempts,
-        allowRetryAfterPassing: assessment?.allowRetryAfterPassing ?? DEFAULT_ASSESSMENT_CONFIG.allowRetryAfterPassing,
-      });
+      const assessments = await assessmentService.getCourseAssessments(targetCourseId);
+      const loadedAssessments = await Promise.all(
+        assessments.map(async (assessment) => {
+          const questions = await assessmentService.getAssessmentQuestions(assessment.id);
+          return mapAssessmentToDraft(assessment, questions);
+        }),
+      );
+
+      setCourseAssessments(loadedAssessments);
+      setDeletedAssessmentIds([]);
     } catch (error) {
-      console.error("Error loading assessment:", error);
-      toast.error("Failed to load module assessment");
-      setAssessmentConfig(DEFAULT_ASSESSMENT_CONFIG);
+      console.error("Error loading course assessments:", error);
+      toast.error("Failed to load course graded assessments");
+      setCourseAssessments([]);
     }
   }, []);
 
@@ -150,14 +285,12 @@ const ModuleEditorPage = () => {
           description: "",
           materials: [],
           prerequisites: [],
-          skillTags: [],
-          topicTags: [],
+          skillTags: normalizeSkillTags(courseData.skills || []),
+          topicTags: normalizeTopicTags(courseData.topicTags || []),
           module_thumbnail: "",
           module_document: "",
         });
         setContentBlocks([]);
-        setCurrentAssessment(null);
-        setAssessmentConfig(DEFAULT_ASSESSMENT_CONFIG);
         return;
       }
 
@@ -175,20 +308,19 @@ const ModuleEditorPage = () => {
         description: targetModule.description || "",
         materials: targetModule.materials || [],
         prerequisites: targetModule.prerequisites || [],
-        skillTags: targetModule.skillTags || [],
-        topicTags: targetModule.topicTags || [],
+        skillTags: normalizeSkillTags(targetModule.skillTags || []).filter((tag) => hasCanonicalSkillMatch(tag, courseData.skills || [])),
+        topicTags: normalizeTopicTags(targetModule.topicTags || []).filter((tag) => hasCanonicalTopicMatch(tag, courseData.topicTags || [])),
         module_thumbnail: targetModule.module_thumbnail || "",
         module_document: targetModule.module_document || "",
       });
       setContentBlocks(parseModuleContentBlocks(targetModule.content));
-      await loadModuleAssessment(targetModule.id);
     } catch (error) {
       console.error("Error loading module editor:", error);
       toast.error("Failed to load module editor");
     } finally {
       setLoading(false);
     }
-  }, [basePath, courseId, loadModuleAssessment, moduleId, navigate]);
+  }, [basePath, courseId, loadCourseAssessments, moduleId, navigate]);
 
   useEffect(() => {
     void loadEditor();
@@ -282,15 +414,9 @@ const ModuleEditorPage = () => {
       toast.error("Modules must include at least one approved skill tag and one approved topic tag");
       return;
     }
-    if (status === "finalized" && derivedAssessmentSummary.gradableQuizBlockCount > 0 && !derivedAssessmentSummary.readyForAssessment) {
-      toast.error(derivedAssessmentSummary.invalidIssues[0]?.message || "Finalize requires at least one valid quiz block for the assessment.");
-      return;
-    }
 
     setSaving(true);
     try {
-      let assessmentSyncWarning: string | null = null;
-
       const payload = {
         course_id: courseId,
         title: formData.title.trim(),
@@ -306,68 +432,111 @@ const ModuleEditorPage = () => {
         status,
       };
 
-      const assessmentSettings = {
-        title: currentAssessment?.title,
-        description: currentAssessment?.description,
-        timeLimit: currentAssessment?.timeLimit,
-        passingScore: assessmentConfig.passingScore,
-        maxAttempts: assessmentConfig.maxAttempts,
-        allowRetryAfterPassing: assessmentConfig.allowRetryAfterPassing,
-        isActive: currentAssessment?.isActive,
-        skillTags: formData.skillTags,
-        topicTags: formData.topicTags,
-      };
-
       if (editingModule) {
         const updatedModule = await moduleService.updateModule(editingModule.id, payload);
-        if (derivedAssessmentSummary.readyForAssessment || derivedAssessmentSummary.gradableQuizBlockCount === 0) {
-          try {
-            const syncedAssessment = await assessmentService.syncDerivedAssessmentFromQuizBlocks(
-              updatedModule.id,
-              payload.title,
-              contentBlocks,
-              assessmentSettings,
-            );
-            setCurrentAssessment(syncedAssessment);
-          } catch (error) {
-            console.error("Assessment sync failed after module update:", error);
-            assessmentSyncWarning = "Module saved, but the quiz-derived assessment could not be synced. Review the quiz blocks and save again.";
-          }
-        }
         setEditingModule(updatedModule);
         setModules((current) => current.map((module) => (module.id === updatedModule.id ? updatedModule : module)));
-        toast.success(status === "finalized" ? "Module finalized" : "Module saved as draft");
-        if (assessmentSyncWarning) {
-          toast.warning(assessmentSyncWarning);
-        }
       } else {
         const createdModule = await moduleService.createModule(payload as Omit<Module, "id" | "created_at">);
-        if (derivedAssessmentSummary.readyForAssessment || derivedAssessmentSummary.gradableQuizBlockCount === 0) {
-          try {
-            await assessmentService.syncDerivedAssessmentFromQuizBlocks(
-              createdModule.id,
-              payload.title,
-              contentBlocks,
-              assessmentSettings,
-            );
-          } catch (error) {
-            console.error("Assessment sync failed after module creation:", error);
-            assessmentSyncWarning = "Module created, but the quiz-derived assessment could not be synced yet. Review the quiz blocks and save again.";
-          }
-        }
-        toast.success(status === "finalized" ? "Module created and finalized" : "Module saved as draft");
-        if (assessmentSyncWarning) {
-          toast.warning(assessmentSyncWarning);
-        }
+        setEditingModule(createdModule);
+        setModules((current) => [...current, createdModule].sort((left, right) => left.order - right.order));
         navigate(`${basePath}/${courseId}/modules/${createdModule.id}/edit`, { replace: true });
-        return;
       }
+
+      toast.success(status === "finalized" ? "Module saved" : "Module draft saved");
     } catch (error) {
       console.error("Error saving module:", error);
       toast.error(editingModule ? "Failed to update module" : "Failed to create module");
     } finally {
       setSaving(false);
     }
+  };
+
+  const updateAssessmentDraft = (localId: string, updates: Partial<CourseAssessmentDraft>) => {
+    setCourseAssessments((current) => current.map((assessment) => (
+      assessment.localId === localId ? { ...assessment, ...updates } : assessment
+    )));
+  };
+
+  const updateAssessmentQuestionDraft = (
+    assessmentLocalId: string,
+    questionLocalId: string,
+    updates: Partial<AssessmentQuestionDraft>,
+  ) => {
+    setCourseAssessments((current) => current.map((assessment) => {
+      if (assessment.localId !== assessmentLocalId) {
+        return assessment;
+      }
+
+      return {
+        ...assessment,
+        questions: assessment.questions.map((question) => (
+          question.localId === questionLocalId ? { ...question, ...updates } : question
+        )),
+      };
+    }));
+  };
+
+  const addCourseAssessment = () => {
+    setCourseAssessments((current) => [...current, createEmptyCourseAssessment()]);
+  };
+
+  const removeCourseAssessment = (assessment: CourseAssessmentDraft) => {
+    if (assessment.id) {
+      setDeletedAssessmentIds((current) => Array.from(new Set([...current, assessment.id!])));
+    }
+
+    setCourseAssessments((current) => current.filter((candidate) => candidate.localId !== assessment.localId));
+  };
+
+  const addAssessmentQuestion = (assessmentLocalId: string) => {
+    setCourseAssessments((current) => current.map((assessment) => (
+      assessment.localId === assessmentLocalId
+        ? { ...assessment, questions: [...assessment.questions, createEmptyAssessmentQuestion()] }
+        : assessment
+    )));
+  };
+
+  const removeAssessmentQuestion = (assessmentLocalId: string, questionLocalId: string) => {
+    setCourseAssessments((current) => current.map((assessment) => {
+      if (assessment.localId !== assessmentLocalId) {
+        return assessment;
+      }
+
+      const nextQuestions = assessment.questions.filter((question) => question.localId !== questionLocalId);
+      return {
+        ...assessment,
+        questions: nextQuestions.length > 0 ? nextQuestions : [createEmptyAssessmentQuestion()],
+      };
+    }));
+  };
+
+  const importPracticeQuizzesIntoAssessment = (assessmentLocalId: string) => {
+    if (importedPracticeQuestions.length === 0) {
+      toast.error("Add at least one practice quiz block in the Content tab before importing.");
+      return;
+    }
+
+    setCourseAssessments((current) => current.map((assessment) => {
+      if (assessment.localId !== assessmentLocalId) {
+        return assessment;
+      }
+
+      return {
+        ...assessment,
+        questions: importedPracticeQuestions.map((question) => ({
+          localId: createAssessmentDraftId(),
+          question: question.question,
+          questionType: question.questionType,
+          options: question.questionType === "essay" ? [] : question.questionType === "true_false" ? ["True", "False"] : question.options || ["", ""],
+          correctAnswer: question.correctAnswer || "",
+          points: question.points,
+          explanation: question.explanation || "",
+        })),
+      };
+    }));
+
+    toast.success("Practice quiz wording imported into the graded assessment draft.");
   };
 
   if (loading) {
@@ -504,6 +673,9 @@ const ModuleEditorPage = () => {
                     <CardTitle>Content Blocks</CardTitle>
                   </CardHeader>
                   <CardContent className="space-y-4">
+                    <div className="rounded-lg border border-dashed px-4 py-3 text-sm text-muted-foreground">
+                      Practice quizzes live here for inline learner feedback only. Use the dedicated course assessment manager from the module list page to manage scored questions, passing rules, and prerequisite-based unlocks.
+                    </div>
                     {contentBlocks.length > 0 ? (
                       <div className="space-y-4">
                         {contentBlocks.map((block, index) => (
@@ -539,76 +711,6 @@ const ModuleEditorPage = () => {
                         Select a content type from the panel to start building this module.
                       </div>
                     )}
-                  </CardContent>
-                </Card>
-
-                <DerivedAssessmentSummary
-                  contentBlocks={contentBlocks}
-                  emptyMessage="Add graded quiz blocks here to generate the module assessment automatically."
-                />
-
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-lg">Assessment Configuration</CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <p className="text-sm text-muted-foreground">
-                      Trainers and admins can tune how the quiz-derived module assessment behaves for trainees.
-                    </p>
-                    <div className="grid gap-4 md:grid-cols-2">
-                      <div className="space-y-2">
-                        <Label htmlFor="assessment-passing-score">Passing Score (%)</Label>
-                        <Input
-                          id="assessment-passing-score"
-                          type="number"
-                          min={1}
-                          max={100}
-                          value={assessmentConfig.passingScore}
-                          onChange={(event) => {
-                            const nextValue = Number.parseInt(event.target.value, 10);
-                            setAssessmentConfig((current) => ({
-                              ...current,
-                              passingScore: Number.isFinite(nextValue) ? Math.min(100, Math.max(1, nextValue)) : DEFAULT_ASSESSMENT_CONFIG.passingScore,
-                            }));
-                          }}
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="assessment-max-attempts">Allowed Attempts</Label>
-                        <Input
-                          id="assessment-max-attempts"
-                          type="number"
-                          min={1}
-                          max={20}
-                          value={assessmentConfig.maxAttempts}
-                          onChange={(event) => {
-                            const nextValue = Number.parseInt(event.target.value, 10);
-                            setAssessmentConfig((current) => ({
-                              ...current,
-                              maxAttempts: Number.isFinite(nextValue) ? Math.min(20, Math.max(1, nextValue)) : DEFAULT_ASSESSMENT_CONFIG.maxAttempts,
-                            }));
-                          }}
-                        />
-                      </div>
-                    </div>
-                    <div className="flex items-start gap-3 rounded-lg border p-4">
-                      <Checkbox
-                        id="assessment-allow-retry-after-pass"
-                        checked={assessmentConfig.allowRetryAfterPassing}
-                        onCheckedChange={(checked) => {
-                          setAssessmentConfig((current) => ({
-                            ...current,
-                            allowRetryAfterPassing: checked === true,
-                          }));
-                        }}
-                      />
-                      <div className="space-y-1">
-                        <Label htmlFor="assessment-allow-retry-after-pass">Allow retry after passing</Label>
-                        <p className="text-sm text-muted-foreground">
-                          When disabled, trainees stop getting new attempts as soon as they pass. When enabled, they can retry until they exhaust the configured attempt limit.
-                        </p>
-                      </div>
-                    </div>
                   </CardContent>
                 </Card>
               </div>
@@ -707,22 +809,26 @@ const ModuleEditorPage = () => {
 
                 <TaxonomyTagField
                   label="Module Skill Tags"
-                  options={allowedSkillOptions}
+                  options={inheritedSkillOptions}
                   values={formData.skillTags}
                   onChange={(skillTags) => setFormData((current) => ({ ...current, skillTags }))}
-                  placeholder="Select approved skill tags"
-                  description="Use approved skill tags only so trainer analytics and recommendations stay consistent."
+                  placeholder={inheritedSkillOptions.length > 0 ? "Select course skill tags" : "Add skill tags on the course first"}
+                  description="Module skill tags inherit from the parent course so module metadata stays aligned with course taxonomy."
                   termType="skill_tag"
+                  allowCreate={false}
+                  restrictToOptions
                 />
 
                 <TaxonomyTagField
                   label="Module Topic Tags"
-                  options={allowedTopicOptions}
+                  options={inheritedTopicOptions}
                   values={formData.topicTags}
                   onChange={(topicTags) => setFormData((current) => ({ ...current, topicTags }))}
-                  placeholder="Select approved topic tags"
-                  description="Topic-level learner performance summaries and analytics use these tags directly."
+                  placeholder={inheritedTopicOptions.length > 0 ? "Select course topic tags" : "Add topic tags on the course first"}
+                  description="Module topic tags inherit from the parent course so reporting stays consistent from course down to module level."
                   termType="topic_tag"
+                  allowCreate={false}
+                  restrictToOptions
                 />
 
                 <Separator />

@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { Languages, Loader2, Lock, Monitor, Moon, Palette, ShieldCheck, Sun, UserRound } from "lucide-react";
+import { BellRing, Languages, Loader2, Lock, Monitor, Moon, Palette, Send, ShieldCheck, Sun, UserRound } from "lucide-react";
 import DashboardLayout from "@/components/DashboardLayout";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
 import { Badge } from "@/components/ui/badge";
@@ -8,10 +8,14 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLocale } from "@/contexts/LocaleContext";
 import { useThemePreference } from "@/contexts/ThemePreferenceContext";
+import { isPasswordPolicySatisfied } from "@/lib/passwordPolicy";
 import { supabase } from "@/lib/supabase";
+import { notificationService, type TestNotificationAudience } from "@/services/notificationService";
 import { supabaseAuthService } from "@/services/supabaseAuthService";
 import { toast } from "sonner";
 
@@ -25,6 +29,11 @@ const SettingsPage = () => {
     confirmPassword: "",
   });
   const [changingPassword, setChangingPassword] = useState(false);
+  const [testNotificationAudience, setTestNotificationAudience] = useState<TestNotificationAudience>("all");
+  const [testNotificationMessage, setTestNotificationMessage] = useState(
+    "Admin notification test: please confirm this alert is visible in your notification center.",
+  );
+  const [sendingTestNotification, setSendingTestNotification] = useState(false);
 
   const themeOptions = [
     { value: "system", label: t("settings.themeSystem"), icon: Monitor },
@@ -32,6 +41,13 @@ const SettingsPage = () => {
     { value: "dark", label: t("settings.themeDark"), icon: Moon },
   ] as const;
   const isThemeSavedToProfile = user?.themePreference === themePreference;
+  const showLanguageSettings = user?.role === "trainee";
+  const showAdminNotificationTools = user?.role === "admin";
+  const pageSubtitle = showLanguageSettings
+    ? t("settings.pageSubtitle")
+    : language === "tl"
+      ? "Pamahalaan ang appearance at security preferences ng account mula sa iisang lugar."
+      : "Manage your appearance and account security preferences from one place.";
 
   const activeThemeLabel =
     resolvedTheme === "dark"
@@ -39,6 +55,19 @@ const SettingsPage = () => {
       : resolvedTheme === "light"
         ? t("settings.themeLight")
         : t("settings.themeSystem");
+
+  const testNotificationAudienceOptions = useMemo(
+    () => [
+      { value: "all", label: "All users", description: "Broadcast to every user profile in the system." },
+      { value: "trainees", label: "Learners only", description: "Send only to trainee accounts." },
+      { value: "trainers", label: "Trainers only", description: "Send only to trainer accounts." },
+      { value: "admins", label: "Admins only", description: "Send only to admin accounts." },
+      { value: "self", label: "My account only", description: "Quick self-check without notifying other users." },
+    ] satisfies Array<{ value: TestNotificationAudience; label: string; description: string }>,
+    [],
+  );
+
+  const selectedTestAudience = testNotificationAudienceOptions.find((option) => option.value === testNotificationAudience);
 
   const handleChangePassword = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -49,7 +78,7 @@ const SettingsPage = () => {
       toast.error(t("settings.passwordValidationRequired"));
       return;
     }
-    if (newPassword.length < 6) {
+    if (!isPasswordPolicySatisfied(newPassword)) {
       toast.error(t("settings.passwordValidationLength"));
       return;
     }
@@ -88,36 +117,71 @@ const SettingsPage = () => {
     }
   };
 
+  const handleSendTestNotification = async (event: React.FormEvent) => {
+    event.preventDefault();
+
+    if (!user?.id || user.role !== "admin") {
+      toast.error("Only admins can send test notifications.");
+      return;
+    }
+
+    const trimmedMessage = testNotificationMessage.trim();
+    if (!trimmedMessage) {
+      toast.error("Enter a test message before sending the notification.");
+      return;
+    }
+
+    setSendingTestNotification(true);
+    try {
+      const result = await notificationService.sendTestNotification(user.id, testNotificationAudience, trimmedMessage);
+
+      if (!result.success) {
+        toast.error(result.error || "Failed to send test notification.");
+        return;
+      }
+
+      toast.success(
+        result.recipients === 1
+          ? "Test notification sent to 1 recipient."
+          : `Test notification sent to ${result.recipients} recipients.`,
+      );
+    } finally {
+      setSendingTestNotification(false);
+    }
+  };
+
   return (
     <DashboardLayout>
       <div className="space-y-8">
         <div className="space-y-2">
           <h1 className="text-3xl font-bold tracking-tight">{t("settings.pageTitle")}</h1>
-          <p className="max-w-3xl text-sm leading-6 text-muted-foreground">{t("settings.pageSubtitle")}</p>
+          <p className="max-w-3xl text-sm leading-6 text-muted-foreground">{pageSubtitle}</p>
         </div>
 
-        <div className="grid gap-6 xl:grid-cols-[1.05fr_0.95fr]">
-          <Card>
-            <CardHeader>
-              <div className="flex items-center gap-2 text-primary">
-                <Languages className="h-4 w-4" />
-                <CardTitle>{t("settings.languageTitle")}</CardTitle>
-              </div>
-              <CardDescription>{t("settings.languageBody")}</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <LanguageSwitcher />
-              <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
-                <span>
-                  {t("settings.currentLanguage")}: {t(`common.languages.${language}`)}
-                </span>
-                <Badge variant={isPersisting ? "secondary" : "outline"}>
-                  {isPersisting ? t("settings.profileSyncSaving") : t("settings.profileSyncReady")}
-                </Badge>
-                {user?.languagePreference ? <Badge variant="outline">{user.email}</Badge> : null}
-              </div>
-            </CardContent>
-          </Card>
+        <div className={`grid gap-6 ${showLanguageSettings ? "xl:grid-cols-[1.05fr_0.95fr]" : "xl:grid-cols-1"}`}>
+          {showLanguageSettings ? (
+            <Card>
+              <CardHeader>
+                <div className="flex items-center gap-2 text-primary">
+                  <Languages className="h-4 w-4" />
+                  <CardTitle>{t("settings.languageTitle")}</CardTitle>
+                </div>
+                <CardDescription>{t("settings.languageBody")}</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <LanguageSwitcher />
+                <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
+                  <span>
+                    {t("settings.currentLanguage")}: {t(`common.languages.${language}`)}
+                  </span>
+                  <Badge variant={isPersisting ? "secondary" : "outline"}>
+                    {isPersisting ? t("settings.profileSyncSaving") : t("settings.profileSyncReady")}
+                  </Badge>
+                  {user?.languagePreference ? <Badge variant="outline">{user.email}</Badge> : null}
+                </div>
+              </CardContent>
+            </Card>
+          ) : null}
 
           <Card>
             <CardHeader>
@@ -230,6 +294,71 @@ const SettingsPage = () => {
             </form>
           </CardContent>
         </Card>
+
+        {showAdminNotificationTools ? (
+          <Card className="border-primary/20">
+            <CardHeader>
+              <div className="flex items-center gap-2 text-primary">
+                <BellRing className="h-4 w-4" />
+                <CardTitle>Notification Test</CardTitle>
+              </div>
+              <CardDescription>
+                Send a system announcement from Admin Settings to verify notification delivery for the selected audience.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={handleSendTestNotification} className="grid gap-4 xl:grid-cols-[0.8fr_1.2fr_auto] xl:items-end">
+                <div className="space-y-2">
+                  <Label htmlFor="settings-test-notification-audience">Audience</Label>
+                  <Select
+                    value={testNotificationAudience}
+                    onValueChange={(value) => setTestNotificationAudience(value as TestNotificationAudience)}
+                  >
+                    <SelectTrigger id="settings-test-notification-audience">
+                      <SelectValue placeholder="Select audience" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {testNotificationAudienceOptions.map((option) => (
+                        <SelectItem key={option.value} value={option.value}>
+                          {option.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">{selectedTestAudience?.description}</p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="settings-test-notification-message">Message</Label>
+                  <Textarea
+                    id="settings-test-notification-message"
+                    value={testNotificationMessage}
+                    onChange={(event) => setTestNotificationMessage(event.target.value)}
+                    placeholder="Enter a message that recipients can confirm in their notification center."
+                    rows={4}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    This creates a system announcement notification and includes test metadata for audit purposes.
+                  </p>
+                </div>
+
+                <Button type="submit" className="gap-2" disabled={sendingTestNotification}>
+                  {sendingTestNotification ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Sending
+                    </>
+                  ) : (
+                    <>
+                      <Send className="h-4 w-4" />
+                      Send test
+                    </>
+                  )}
+                </Button>
+              </form>
+            </CardContent>
+          </Card>
+        ) : null}
 
         <Card className="border-primary/15 bg-primary/5">
           <CardHeader>

@@ -16,6 +16,8 @@ export interface CourseTrainerSummary {
   email?: string | null;
 }
 
+export type CourseTraineeAudience = "general_public" | "peso_client" | "peso_employee";
+
 export interface Course {
   id: string;
   title: string;
@@ -35,6 +37,7 @@ export interface Course {
   topicTags?: string[];
   industryTags?: string[];
   careerPaths?: string[];
+  traineeAudience: CourseTraineeAudience;
   enrolledCount: number;
   rating: number;
   createdAt: string;
@@ -72,13 +75,19 @@ export interface EnrollmentModuleProgress {
 
 export interface EnrollmentAssessmentProgress {
   assessmentId: string;
-  moduleId: string;
+  courseId?: string;
+  moduleId?: string;
   assessmentTitle: string;
+  assessmentThumbnail?: string;
+  prerequisiteModuleIds?: string[];
+  derivedFromModuleQuiz?: boolean;
   latestAttemptId?: string;
   requiresManualReview: boolean;
   submittedAt?: string;
   timeSpent?: number;
   reviewStatus?: "submitted" | "under_review" | "needs_revision" | "approved";
+  reviewedAt?: string;
+  reviewedBy?: string;
   reviewFeedback?: string;
   earnedPoints?: number;
   totalPoints?: number;

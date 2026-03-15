@@ -68,7 +68,12 @@ const Notifications = () => {
   };
 
   const handleMarkAsRead = async (notificationId: string) => {
-    await notificationService.markAsRead(notificationId);
+    const success = await notificationService.markAsRead(notificationId);
+    if (!success) {
+      toast.error("Could not mark notification as read");
+      return;
+    }
+
     setNotifications((prev) =>
       prev.map((n) => (n.id === notificationId ? { ...n, read: true } : n))
     );
@@ -77,13 +82,23 @@ const Notifications = () => {
   const handleMarkAllAsRead = async () => {
     if (!user) return;
 
-    await notificationService.markAllAsRead(user.id);
+    const success = await notificationService.markAllAsRead(user.id);
+    if (!success) {
+      toast.error("Could not mark all notifications as read");
+      return;
+    }
+
     setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
     toast.success("All notifications marked as read");
   };
 
   const handleDelete = async (notificationId: string) => {
-    await notificationService.deleteNotification(notificationId);
+    const success = await notificationService.deleteNotification(notificationId);
+    if (!success) {
+      toast.error("Could not delete notification");
+      return;
+    }
+
     setNotifications((prev) => prev.filter((n) => n.id !== notificationId));
     toast.success("Notification deleted");
   };
@@ -91,7 +106,12 @@ const Notifications = () => {
   const handleDeleteAllRead = async () => {
     if (!user) return;
 
-    await notificationService.deleteAllRead(user.id);
+    const success = await notificationService.deleteAllRead(user.id);
+    if (!success) {
+      toast.error("Could not clear read notifications");
+      return;
+    }
+
     setNotifications((prev) => prev.filter((n) => !n.read));
     toast.success("All read notifications deleted");
   };
@@ -111,6 +131,8 @@ const Notifications = () => {
       navigate("/dashboard");
     } else if (notification.metadata?.certificateId) {
       navigate("/certificates");
+    } else {
+      toast.info("This notification has no linked record to open yet.");
     }
   };
 
@@ -132,6 +154,10 @@ const Notifications = () => {
         return "💬";
       case "assessment_graded":
         return "📝";
+      case "course_assigned":
+        return "🎯";
+      case "system_announcement":
+        return "📢";
       default:
         return "🔔";
     }
@@ -147,6 +173,9 @@ const Notifications = () => {
         return "text-red-600 dark:text-red-400";
       case "submission_revision_requested":
         return "text-yellow-600 dark:text-yellow-400";
+      case "course_assigned":
+      case "system_announcement":
+        return "text-blue-600 dark:text-blue-400";
       default:
         return "text-blue-600 dark:text-blue-400";
     }

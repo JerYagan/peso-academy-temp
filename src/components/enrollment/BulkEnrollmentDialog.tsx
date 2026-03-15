@@ -31,9 +31,11 @@ export const BulkEnrollmentDialog = ({
   const [loading, setLoading] = useState(false);
   const [enrolling, setEnrolling] = useState(false);
   const [selectedCount, setSelectedCount] = useState(0);
+  const [submissionErrors, setSubmissionErrors] = useState<string[]>([]);
 
   useEffect(() => {
     if (open) {
+      setSubmissionErrors([]);
       loadUsers();
     }
   }, [open]);
@@ -101,15 +103,16 @@ export const BulkEnrollmentDialog = ({
     }
 
     setEnrolling(true);
+    setSubmissionErrors([]);
     try {
       const result = await enrollmentService.bulkEnroll(selectedUserIds, course.id);
+      setSubmissionErrors(result.errors);
       
       if (result.success > 0) {
         toast.success(`Successfully enrolled ${result.success} user(s)`);
         if (result.failed > 0) {
-          toast.warning(`${result.failed} user(s) were already enrolled or failed`);
+          toast.warning(`${result.failed} user(s) were blocked, already enrolled, or failed validation`);
         }
-        onOpenChange(false);
         onSuccess?.();
       } else {
         toast.error("Failed to enroll users: " + result.errors.join(", "));
@@ -159,6 +162,17 @@ export const BulkEnrollmentDialog = ({
             </Button>
           </div>
 
+          {submissionErrors.length > 0 ? (
+            <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+              <p className="font-medium">Enrollment issues</p>
+              <ul className="mt-2 list-disc space-y-1 pl-5">
+                {submissionErrors.map((error, index) => (
+                  <li key={`${error}-${index}`}>{error}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
           {/* Users List */}
           <ScrollArea className="flex-1 border rounded-lg">
             {loading ? (
@@ -181,11 +195,18 @@ export const BulkEnrollmentDialog = ({
                     <div className="flex-1 min-w-0">
                       <div className="font-medium truncate">{user.name || "No name"}</div>
                       <div className="text-sm text-muted-foreground truncate">{user.email}</div>
-                      {user.role && (
-                        <Badge variant="outline" className="mt-1 text-xs">
-                          {user.role}
-                        </Badge>
-                      )}
+                      <div className="mt-1 flex flex-wrap gap-1">
+                        {user.role ? (
+                          <Badge variant="outline" className="text-xs">
+                            {user.role}
+                          </Badge>
+                        ) : null}
+                        {user.traineeType ? (
+                          <Badge variant="secondary" className="text-xs">
+                            {user.traineeType === "peso_client" ? "PESO Client" : "PESO Employee"}
+                          </Badge>
+                        ) : null}
+                      </div>
                     </div>
                     {user.selected && (
                       <CheckCircle2 className="w-5 h-5 text-primary" />

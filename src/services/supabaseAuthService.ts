@@ -1,5 +1,6 @@
 import { User, normalizeUserRole } from "@/types/auth";
 import { isAllowedEmployeeRegistrationEmail } from "@/lib/employeeRegistration";
+import { isPasswordPolicySatisfied, PASSWORD_POLICY_ERROR_MESSAGE } from "@/lib/passwordPolicy";
 import { normalizePhoneNumber, normalizePostalCode, validatePhoneNumber, validatePostalCode } from "@/lib/profileFieldValidation";
 import { supabase, handleSupabaseError } from "@/lib/supabase";
 import { systemSettingsService } from "@/services/systemSettingsService";
@@ -329,7 +330,7 @@ export const supabaseAuthService = {
     name: string,
     role: User["role"],
     profile?: Partial<User>
-  ): Promise<{ user: User | null; error: Error | null }> => {
+  ): Promise<{ user: User | null; error: Error | null; requiresEmailVerification?: boolean }> => {
     if (!supabase) {
       return { user: null, error: new Error("Supabase client not initialized") };
     }
@@ -345,6 +346,13 @@ export const supabaseAuthService = {
     
     // Trim and normalize email
     const trimmedEmail = email.trim().toLowerCase();
+
+    if (!isPasswordPolicySatisfied(password)) {
+      return {
+        user: null,
+        error: new Error(PASSWORD_POLICY_ERROR_MESSAGE),
+      };
+    }
     
     try {
       const canonicalRole = normalizeUserRole(role);
@@ -411,6 +419,10 @@ export const supabaseAuthService = {
         email: trimmedEmail,
         password,
         options: {
+          emailRedirectTo:
+            canonicalRole === "trainee" && typeof window !== "undefined"
+              ? `${window.location.origin}/login`
+              : undefined,
           data: {
             name,
             role: canonicalRole,
@@ -540,6 +552,11 @@ export const supabaseAuthService = {
       if (!authData?.user) {
         console.error("No user created and no error was returned - unexpected state");
         return { user: null, error: new Error("Failed to create user account") };
+      }
+
+      const requiresEmailVerification = !adminCreateInProgress && canonicalRole === "trainee" && !authData.session;
+      if (requiresEmailVerification) {
+        return { user: null, error: null, requiresEmailVerification: true };
       }
 
       // Wait a bit for the trigger to create the profile automatically
@@ -765,6 +782,8 @@ export const supabaseAuthService = {
           onboardingWeeklyCommitment: profile?.onboardingWeeklyCommitment,
           onboardingDigitalComfort: profile?.onboardingDigitalComfort,
           onboardingCompletedAt: profile?.onboardingCompletedAt,
+          languagePreference: profile?.languagePreference ?? "en",
+          themePreference: profile?.themePreference ?? "system",
           skills: profile?.skills,
           createdAt: authData.user.created_at || new Date().toISOString(),
         };
@@ -804,6 +823,14 @@ export const supabaseAuthService = {
         onboardingWeeklyCommitment: getMetadataString(authData.user.user_metadata?.onboarding_weekly_commitment) as User["onboardingWeeklyCommitment"] | undefined,
         onboardingDigitalComfort: getMetadataString(authData.user.user_metadata?.onboarding_digital_comfort) as User["onboardingDigitalComfort"] | undefined,
         onboardingCompletedAt: getMetadataString(authData.user.user_metadata?.onboarding_completed_at),
+        languagePreference:
+          (profileData.language_preference as User["languagePreference"] | undefined) ||
+          (getMetadataString(authData.user.user_metadata?.language_preference) as User["languagePreference"] | undefined) ||
+          "en",
+        themePreference:
+          (profileData.theme_preference as User["themePreference"] | undefined) ||
+          (getMetadataString(authData.user.user_metadata?.theme_preference) as User["themePreference"] | undefined) ||
+          "system",
         onboardingModalSeenAt: profileData.onboarding_modal_seen_at || undefined,
         skills: profileData.skills || undefined,
         createdAt: profileData.created_at,
@@ -833,6 +860,10 @@ export const supabaseAuthService = {
         email,
         password,
       });
+      if (error?.message?.toLowerCase().includes("email not confirmed")) {
+        return { error: new Error("Check your email and confirm your account before signing in.") };
+      }
+
       return { error: error || null };
     } catch (error) {
       return {
@@ -1221,8 +1252,8 @@ export const supabaseAuthService = {
     if (!supabase) {
       return { error: new Error("Supabase client not initialized") };
     }
-    if (!newPassword || newPassword.length < 6) {
-      return { error: new Error("Password must be at least 6 characters") };
+    if (!isPasswordPolicySatisfied(newPassword)) {
+      return { error: new Error(PASSWORD_POLICY_ERROR_MESSAGE) };
     }
     try {
       const { error } = await supabase.auth.updateUser({ password: newPassword });

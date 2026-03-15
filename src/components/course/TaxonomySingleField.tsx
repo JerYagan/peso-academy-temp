@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Command, CommandEmpty, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
+import { Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList } from "@/components/ui/command";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Check, ChevronsUpDown, Loader2, Plus } from "lucide-react";
@@ -15,6 +15,8 @@ interface TaxonomySingleFieldProps {
   description?: string;
   termType: TaxonomyTermType;
   fallbackOptions?: readonly string[];
+  allowCreate?: boolean;
+  restrictToOptions?: boolean;
 }
 
 export const TaxonomySingleField = ({
@@ -25,6 +27,8 @@ export const TaxonomySingleField = ({
   description,
   termType,
   fallbackOptions = [],
+  allowCreate = true,
+  restrictToOptions = false,
 }: TaxonomySingleFieldProps) => {
   const [open, setOpen] = useState(false);
   const [searchValue, setSearchValue] = useState("");
@@ -33,6 +37,14 @@ export const TaxonomySingleField = ({
   const [creatingOption, setCreatingOption] = useState(false);
 
   const normalizedSearch = searchValue.trim().replace(/\s+/g, " ");
+  const filteredOptions = useMemo(() => {
+    const normalized = normalizedSearch.toLowerCase();
+    if (!normalized) {
+      return options;
+    }
+
+    return options.filter((option) => option.toLowerCase().includes(normalized));
+  }, [normalizedSearch, options]);
   const hasExactMatch = useMemo(
     () => options.some((option) => option.toLowerCase() === normalizedSearch.toLowerCase()),
     [normalizedSearch, options],
@@ -42,6 +54,14 @@ export const TaxonomySingleField = ({
     let active = true;
 
     const loadOptions = async () => {
+      setOptions([...fallbackOptions]);
+
+      if (restrictToOptions) {
+        setOptions([...fallbackOptions]);
+        setLoadingOptions(false);
+        return;
+      }
+
       setLoadingOptions(true);
       try {
         const taxonomyOptions = await taxonomyService.getOptions();
@@ -53,8 +73,12 @@ export const TaxonomySingleField = ({
           setOptions(taxonomyOptions.courseCategories);
         } else if (termType === "skill_tag") {
           setOptions(taxonomyOptions.skillTags);
-        } else {
+        } else if (termType === "topic_tag") {
           setOptions(taxonomyOptions.topicTags);
+        } else if (termType === "industry_tag") {
+          setOptions(taxonomyOptions.industryTags);
+        } else {
+          setOptions(taxonomyOptions.careerPaths);
         }
       } catch (error) {
         console.warn("Failed to load taxonomy options:", error);
@@ -73,7 +97,7 @@ export const TaxonomySingleField = ({
     return () => {
       active = false;
     };
-  }, [fallbackOptions, termType]);
+  }, [fallbackOptions, restrictToOptions, termType]);
 
   const handleSelect = (selected: string) => {
     onChange(selected);
@@ -83,6 +107,10 @@ export const TaxonomySingleField = ({
 
   const handleCreate = async () => {
     if (!normalizedSearch || hasExactMatch) {
+      return;
+    }
+
+    if (!allowCreate) {
       return;
     }
 
@@ -112,17 +140,23 @@ export const TaxonomySingleField = ({
           </Button>
         </PopoverTrigger>
         <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
-          <Command>
+          <Command shouldFilter={false}>
             <CommandInput placeholder={`Search ${label.toLowerCase()}...`} value={searchValue} onValueChange={setSearchValue} />
             <CommandList>
-              <CommandEmpty>{creatingOption ? "Creating option..." : "No matching options found."}</CommandEmpty>
-              {options.map((option) => (
-                <CommandItem key={option} value={option} onSelect={() => handleSelect(option)}>
-                  <Check className={cn("mr-2 h-4 w-4", value === option ? "opacity-100" : "opacity-0")} />
-                  {option}
-                </CommandItem>
-              ))}
-              {normalizedSearch && !hasExactMatch ? (
+              {filteredOptions.length === 0 && !loadingOptions && !(allowCreate && normalizedSearch && !hasExactMatch) ? (
+                <CommandEmpty>{creatingOption ? "Creating option..." : "No matching options found."}</CommandEmpty>
+              ) : null}
+              {filteredOptions.length > 0 ? (
+                <CommandGroup>
+                  {filteredOptions.map((option) => (
+                    <CommandItem key={option} value={option} onSelect={() => handleSelect(option)}>
+                      <Check className={cn("mr-2 h-4 w-4", value === option ? "opacity-100" : "opacity-0")} />
+                      {option}
+                    </CommandItem>
+                  ))}
+                </CommandGroup>
+              ) : null}
+              {allowCreate && normalizedSearch && !hasExactMatch ? (
                 <CommandItem onSelect={() => void handleCreate()} disabled={creatingOption}>
                   {creatingOption ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
                   Create "{normalizedSearch}"

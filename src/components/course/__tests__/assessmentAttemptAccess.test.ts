@@ -66,6 +66,20 @@ describe("deriveAssessmentAttemptAccess", () => {
     expect(access.attemptBlockMessage).toContain("waiting for trainer review");
   });
 
+  it("blocks new attempts for auto-scored submissions until approval is finished", () => {
+    const access = deriveAssessmentAttemptAccess(assessmentFixture, quizQuestionsFixture, [
+      createAttempt({
+        submittedAt: "2026-03-13T00:05:00.000Z",
+        reviewStatus: "submitted",
+        requiresManualReview: true,
+        score: 100,
+      }),
+    ]);
+
+    expect(access.shouldStartNewAttempt).toBe(false);
+    expect(access.attemptBlockMessage).toContain("waiting for trainer review");
+  });
+
   it("creates a seeded revision attempt when trainer requests changes", () => {
     const previousAnswers = {
       "question-1": "Original draft answer",
@@ -92,6 +106,7 @@ describe("deriveAssessmentAttemptAccess", () => {
       createAttempt({
         submittedAt: "2026-03-13T00:05:00.000Z",
         reviewStatus: "approved",
+        requiresManualReview: true,
         passed: true,
         score: 92,
       }),

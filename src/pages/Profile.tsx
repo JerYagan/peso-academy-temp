@@ -26,7 +26,6 @@ import {
   Phone,
   Save,
   ShieldCheck,
-  Sparkles,
   Target,
   TrendingUp,
   User,
@@ -56,6 +55,7 @@ import {
   validatePhoneNumber,
   validatePostalCode,
 } from "@/lib/profileFieldValidation";
+import { uploadTraineePhysicalIdDocument, validatePhysicalIdFile } from "@/lib/traineeVerificationDocuments";
 
 const genderOptions: Array<{ value: NonNullable<AuthUser["gender"]>; label: string }> = [
   { value: "male", label: "Male" },
@@ -182,6 +182,8 @@ const Profile = () => {
   const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
   const [performanceSummary, setPerformanceSummary] = useState<LearnerPerformanceSummary | null>(null);
   const [loadingData, setLoadingData] = useState(true);
+  const [verificationDocumentFile, setVerificationDocumentFile] = useState<File | null>(null);
+  const [uploadingVerificationDocument, setUploadingVerificationDocument] = useState(false);
   const [formData, setFormData] = useState({
     name: "",
     email: "",
@@ -205,7 +207,7 @@ const Profile = () => {
   const copy = language === "tl"
     ? {
         recommendationProfile: "Recommendation profile",
-        recommendationProfileBody: "Ang learner inputs na ito ang nagpapakain sa personalized recommendations at predictive reporting.",
+        recommendationProfileBody: "Ang learner inputs na ito ang nagpapakain sa personalized recommendations at mas relevant na learning guidance.",
         industryInterests: "Industry interests",
         preferredCategories: "Preferred categories",
         currentSkillLevel: "Current skill level",
@@ -238,8 +240,8 @@ const Profile = () => {
         profileCompletion: "Pagkakumpleto ng profile",
         requiredCoverage: "Required coverage",
         recommendedAction: "Inirerekomendang aksyon",
-        recommendedActionIncomplete: "Kumpletuhin ang kulang na demographic at location details para masuportahan ang trainee analytics at reporting.",
-        recommendedActionComplete: "Kumpleto na ang iyong trainee record at handa na para sa reporting use.",
+        recommendedActionIncomplete: "Kumpletuhin ang kulang na demographic at location details para mas tumpak ang learner recommendations at progress guidance.",
+        recommendedActionComplete: "Kumpleto na ang iyong learner record at handa na para sa recommendations at progress review.",
         learnerAnalytics: "Learner Profile Analytics",
         learnerAnalyticsBody: "Ang profile signals na ito ay ginagamit na ngayon sa recommendation refreshes at downstream predictive reporting inputs.",
         recommendationSignalCoverage: "Recommendation signal coverage",
@@ -259,10 +261,52 @@ const Profile = () => {
         completedModules: "Completed Modules",
         moduleProgress: "Module Progress",
         completionRate: "Completion rate",
+        pageTitle: "Profile",
+        pageSubtitle: "Pamahalaan ang iyong learner information, panatilihing updated ang demographic details, at suriin ang iyong training activity sa iisang lugar.",
+        editProfile: "I-edit ang Profile",
+        nextProfileAction: "Susunod na aksyon sa profile",
+        profileLabel: "Profile",
+        signalsLabel: "Signals",
+        readinessLabel: "Readiness",
+        fullName: "Buong Pangalan",
+        emailLabel: "Email",
+        emailCannotChange: "Hindi mababago ang email",
+        phoneLabel: "Phone",
+        dateOfBirthLabel: "Petsa ng Kapanganakan",
+        addressLabel: "Address",
+        addressPlaceholder: "House number, street, subdivision",
+        genderLabel: "Kasarian",
+        selectGender: "Piliin ang kasarian",
+        civilStatusLabel: "Katayuang Sibil",
+        selectCivilStatus: "Piliin ang katayuang sibil",
+        employmentStatusLabel: "Katayuan sa Trabaho",
+        selectEmploymentStatus: "Piliin ang katayuan sa trabaho",
+        occupationLabel: "Trabaho",
+        occupationPlaceholder: "Kasalukuyang trabaho o pangunahing hanapbuhay",
+        educationLevelLabel: "Antas ng Edukasyon",
+        educationLevelPlaceholder: "Pinakamataas na natapos na antas",
+        barangayLabel: "Barangay",
+        cityMunicipalityLabel: "Lungsod / Munisipalidad",
+        provinceLabel: "Probinsya",
+        postalCodeLabel: "Postal Code",
+        verificationDocumentTitle: "Verification document",
+        verificationDocumentBody: "I-upload o palitan dito ang iyong PESO employee ID image kung kailangan pa ng supporting document ang verification ng account mo.",
+        verificationStatusLabel: "Verification status",
+        verificationDocumentOnFile: "May dokumentong naka-file",
+        verificationDocumentMissing: "Walang dokumento",
+        verificationDocumentReady: "May employee verification document ka nang naka-file. Mag-upload lamang ng kapalit kung humingi ang staff ng mas malinaw na kopya.",
+        verificationDocumentPrompt: "Kung nakapag-register ka bago ma-upload ang employee ID mo, isumite ito rito para makumpleto ng staff ang verification ng account mo.",
+        verificationRejectedBody: "Na-reject ang dati mong verification submission. Mag-upload ng kapalit na larawan at tingnan ang notes sa ibaba.",
+        verificationDocumentInput: "Larawan ng employee ID",
+        verificationDocumentHelp: "Mag-upload ng malinaw na JPG, PNG, o WebP image hanggang 5 MB.",
+        verificationUploading: "Ina-upload...",
+        verificationUploadAction: "I-upload ang dokumento",
+        verificationUploadSuccess: "Na-upload ang verification document. Ibinalik ang account mo sa pending review.",
+        verificationUploadError: "Hindi namin ma-upload ang verification document mo. Pakisubukang muli.",
       }
     : {
         recommendationProfile: "Recommendation profile",
-        recommendationProfileBody: "These learner inputs feed personalized recommendations and predictive reporting.",
+        recommendationProfileBody: "These learner inputs feed personalized recommendations and more relevant learning guidance.",
         industryInterests: "Industry interests",
         preferredCategories: "Preferred categories",
         currentSkillLevel: "Current skill level",
@@ -295,8 +339,8 @@ const Profile = () => {
         profileCompletion: "Profile completion",
         requiredCoverage: "Required coverage",
         recommendedAction: "Recommended action",
-        recommendedActionIncomplete: "Complete missing demographic and location details to support trainee analytics and reporting.",
-        recommendedActionComplete: "Your trainee record is fully populated and ready for reporting use.",
+        recommendedActionIncomplete: "Complete missing demographic and location details so learner recommendations and progress guidance stay accurate.",
+        recommendedActionComplete: "Your learner record is fully populated and ready for recommendations and progress review.",
         learnerAnalytics: "Learner Profile Analytics",
         learnerAnalyticsBody: "These profile signals now feed recommendation refreshes and downstream predictive reporting inputs.",
         recommendationSignalCoverage: "Recommendation signal coverage",
@@ -316,6 +360,48 @@ const Profile = () => {
         completedModules: "Completed Modules",
         moduleProgress: "Module Progress",
         completionRate: "Completion rate",
+        pageTitle: "Profile",
+        pageSubtitle: "Maintain your learner information, keep your demographic details current, and review your training activity in one place.",
+        editProfile: "Edit Profile",
+        nextProfileAction: "Next profile action",
+        profileLabel: "Profile",
+        signalsLabel: "Signals",
+        readinessLabel: "Readiness",
+        fullName: "Full Name",
+        emailLabel: "Email",
+        emailCannotChange: "Email cannot be changed",
+        phoneLabel: "Phone",
+        dateOfBirthLabel: "Date of Birth",
+        addressLabel: "Address",
+        addressPlaceholder: "House number, street, subdivision",
+        genderLabel: "Gender",
+        selectGender: "Select gender",
+        civilStatusLabel: "Civil Status",
+        selectCivilStatus: "Select civil status",
+        employmentStatusLabel: "Employment Status",
+        selectEmploymentStatus: "Select employment status",
+        occupationLabel: "Occupation",
+        occupationPlaceholder: "Current job or primary occupation",
+        educationLevelLabel: "Education Level",
+        educationLevelPlaceholder: "Highest level completed",
+        barangayLabel: "Barangay",
+        cityMunicipalityLabel: "City / Municipality",
+        provinceLabel: "Province",
+        postalCodeLabel: "Postal Code",
+        verificationDocumentTitle: "Verification document",
+        verificationDocumentBody: "Upload or replace your PESO employee ID image here if account verification still needs supporting documents.",
+        verificationStatusLabel: "Verification status",
+        verificationDocumentOnFile: "Document on file",
+        verificationDocumentMissing: "Document missing",
+        verificationDocumentReady: "Your employee verification document is already on file. Upload a replacement only if staff asked for a clearer copy.",
+        verificationDocumentPrompt: "If you registered before uploading your employee ID, submit it here so staff can finish verifying your account.",
+        verificationRejectedBody: "Your previous verification submission was rejected. Upload a replacement image and review the notes below.",
+        verificationDocumentInput: "Employee ID image",
+        verificationDocumentHelp: "Upload a clear JPG, PNG, or WebP image up to 5 MB.",
+        verificationUploading: "Uploading...",
+        verificationUploadAction: "Upload document",
+        verificationUploadSuccess: "Verification document uploaded. Your account has been returned to pending review.",
+        verificationUploadError: "We could not upload your verification document. Please try again.",
       };
 
   const updateFormField = <K extends keyof typeof formData>(field: K, value: (typeof formData)[K]) => {
@@ -336,6 +422,14 @@ const Profile = () => {
   };
 
   const isLearner = user?.role === "trainee";
+  const isEmployeeLearner = isLearner && user?.traineeType === "peso_employee";
+  const hasUploadedVerificationDocument = Boolean(user?.physicalId && user.physicalId.includes("/"));
+
+  useEffect(() => {
+    if (!isEmployeeLearner) {
+      setVerificationDocumentFile(null);
+    }
+  }, [isEmployeeLearner]);
 
   const loadProfileData = async () => {
     if (!user) return;
@@ -529,19 +623,58 @@ const Profile = () => {
     }
   };
 
+  const handleVerificationDocumentChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const nextFile = event.target.files?.[0] || null;
+
+    if (!nextFile) {
+      setVerificationDocumentFile(null);
+      return;
+    }
+
+    const validationError = validatePhysicalIdFile(nextFile);
+    if (validationError) {
+      toast.error(validationError);
+      setVerificationDocumentFile(null);
+      event.target.value = "";
+      return;
+    }
+
+    setVerificationDocumentFile(nextFile);
+  };
+
+  const handleVerificationDocumentUpload = async () => {
+    if (!user || !verificationDocumentFile) {
+      return;
+    }
+
+    setUploadingVerificationDocument(true);
+    try {
+      const verificationSubmittedAt = new Date().toISOString();
+      const uploadedPath = await uploadTraineePhysicalIdDocument(user.id, verificationDocumentFile);
+
+      await updateUser({
+        physicalId: uploadedPath,
+        verificationSubmittedAt,
+        verificationStatus: "pending",
+      });
+
+      setVerificationDocumentFile(null);
+      toast.success(copy.verificationUploadSuccess);
+    } catch (error) {
+      console.error("Error uploading verification document:", error);
+      toast.error(error instanceof Error ? error.message : copy.verificationUploadError);
+    } finally {
+      setUploadingVerificationDocument(false);
+    }
+  };
+
   if (!user) return null;
 
   const completedEnrollments = enrollments.filter((enrollment) => enrollment.status === "completed").length;
   const inProgressEnrollments = enrollments.filter((enrollment) => enrollment.status === "in-progress").length;
   const age = calculateAge(user.dateOfBirth);
   const completionRate = enrollments.length > 0 ? Math.round((completedEnrollments / enrollments.length) * 100) : 0;
-  const averageAssessmentScore = performanceSummary?.averageAssessmentScore || 0;
-  const completedModules = performanceSummary?.modulesCompleted || 0;
-  const totalModules = performanceSummary?.totalModules || 0;
   const totalLearningMinutes = performanceSummary?.totalLearningMinutes || 0;
-  const moduleCompletionRate = performanceSummary?.overallModuleCompletionRate || 0;
-  const strongestTopic = performanceSummary?.strongestTopic?.topic || null;
-  const needsImprovementTopic = performanceSummary?.needsImprovementTopic?.topic || null;
   const industryInterestCount = user.industryInterests?.length || 0;
   const preferredCategoryCount = user.preferredCategories?.length || 0;
   const profileSkillCount = user.skills?.length || 0;
@@ -588,23 +721,29 @@ const Profile = () => {
   );
   const profilePrimaryAction = profileCompletion < 100
     ? {
-        title: "Complete the profile fields that drive recommendations",
-        description: "Fill the missing identity, location, and preference fields so personalized suggestions and predictive insights stay grounded in current learner data.",
+        title: language === "tl" ? "Kumpletuhin ang mga profile field na nagpapagana sa recommendations" : "Complete the profile fields that drive recommendations",
+        description: language === "tl"
+          ? "Punan ang kulang na identity, location, at preference fields para manatiling nakabatay sa kasalukuyang learner data ang personalized suggestions at progress guidance."
+          : "Fill the missing identity, location, and preference fields so personalized suggestions and progress guidance stay grounded in current learner data.",
         href: "#profile-editor",
-        label: isEditing ? "Continue editing" : "Edit profile",
+        label: isEditing ? (language === "tl" ? "Ipagpatuloy ang pag-edit" : "Continue editing") : copy.editProfile,
       }
     : inProgressEnrollments > 0
       ? {
-          title: "Return to your active learning path",
-          description: "Your learner profile is already in good shape. The next high-value step is to continue an in-progress course or review progress detail.",
+          title: language === "tl" ? "Bumalik sa iyong aktibong learning path" : "Return to your active learning path",
+          description: language === "tl"
+            ? "Maayos na ang learner profile mo. Ang susunod na high-value step ay ipagpatuloy ang kasalukuyang kurso o suriin ang detalye ng progreso."
+            : "Your learner profile is already in good shape. The next high-value step is to continue an in-progress course or review progress detail.",
           href: "/dashboard",
-          label: "Open dashboard",
+          label: language === "tl" ? "Buksan ang dashboard" : "Open dashboard",
         }
       : {
-          title: "Use your finished profile to start training",
-          description: "Your profile has the core signals needed for stronger recommendations. Enroll in a course to begin generating learning history.",
+          title: language === "tl" ? "Gamitin ang kumpletong profile mo para magsimulang mag-training" : "Use your finished profile to start training",
+          description: language === "tl"
+            ? "Mayroon na sa profile mo ang pangunahing signals na kailangan para sa mas matibay na recommendations. Mag-enroll sa kurso para makapagsimulang bumuo ng learning history."
+            : "Your profile has the core signals needed for stronger recommendations. Enroll in a course to begin generating learning history.",
           href: "/courses",
-          label: "Browse courses",
+          label: copy.browseCourses,
         };
 
   const toggleFormListValue = (field: "industryInterests" | "preferredCategories", value: string) => {
@@ -660,16 +799,16 @@ const Profile = () => {
               )}
             </div>
             <div>
-              <h1 className="text-3xl font-semibold tracking-tight">Profile</h1>
+              <h1 className="text-3xl font-semibold tracking-tight">{copy.pageTitle}</h1>
               <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground sm:text-base">
-                Maintain your learner information, keep your demographic details current, and review your training activity in one place.
+                {copy.pageSubtitle}
               </p>
             </div>
           </div>
           {!isEditing && (
             <Button className="gap-2 self-start md:self-auto" onClick={() => setIsEditing(true)}>
               <PencilLine className="h-4 w-4" />
-              Edit Profile
+              {copy.editProfile}
             </Button>
           )}
         </div>
@@ -678,7 +817,7 @@ const Profile = () => {
           <Card className="border-primary/15 bg-card">
             <CardContent className="flex flex-col gap-5 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6">
               <div className="max-w-2xl">
-                <p className="text-xs font-medium uppercase tracking-[0.18em] text-primary">Next profile action</p>
+                <p className="text-xs font-medium uppercase tracking-[0.18em] text-primary">{copy.nextProfileAction}</p>
                 <h2 className="mt-2 text-xl font-semibold tracking-[-0.03em]">{profilePrimaryAction.title}</h2>
                 <p className="mt-2 text-sm leading-6 text-muted-foreground">{profilePrimaryAction.description}</p>
               </div>
@@ -686,15 +825,15 @@ const Profile = () => {
               <div className="flex w-full flex-col gap-4 sm:w-auto sm:min-w-[320px]">
                 <div className="grid gap-3 sm:grid-cols-3">
                   <div className="rounded-2xl border border-border/60 bg-background/70 p-3.5">
-                    <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Profile</p>
+                    <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">{copy.profileLabel}</p>
                     <p className="mt-1.5 text-2xl font-semibold">{profileCompletion}%</p>
                   </div>
                   <div className="rounded-2xl border border-border/60 bg-background/70 p-3.5">
-                    <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Signals</p>
+                    <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">{copy.signalsLabel}</p>
                     <p className="mt-1.5 text-2xl font-semibold">{recommendationSignalCoverage}%</p>
                   </div>
                   <div className="rounded-2xl border border-border/60 bg-background/70 p-3.5">
-                    <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Readiness</p>
+                    <p className="text-[11px] uppercase tracking-[0.16em] text-muted-foreground">{copy.readinessLabel}</p>
                     <p className="mt-1.5 text-2xl font-semibold">{predictiveReadiness}%</p>
                   </div>
                 </div>
@@ -709,7 +848,7 @@ const Profile = () => {
                   )}
                   <Button asChild variant="outline">
                     <Link to={hasLearningHistory ? "/progress" : "/courses"}>
-                      {hasLearningHistory ? "View progress" : "Browse courses"}
+                      {hasLearningHistory ? copy.viewProgress : copy.browseCourses}
                     </Link>
                   </Button>
                 </div>
@@ -771,7 +910,7 @@ const Profile = () => {
                     <div className="space-y-6">
                       <div className="grid gap-4 md:grid-cols-2">
                         <div className="space-y-2">
-                          <Label htmlFor="name">Full Name</Label>
+                          <Label htmlFor="name">{copy.fullName}</Label>
                           <Input
                             id="name"
                             value={formData.name}
@@ -780,7 +919,7 @@ const Profile = () => {
                         </div>
 
                         <div className="space-y-2">
-                          <Label htmlFor="email">Email</Label>
+                          <Label htmlFor="email">{copy.emailLabel}</Label>
                           <Input
                             id="email"
                             type="email"
@@ -788,11 +927,11 @@ const Profile = () => {
                             onChange={(e) => updateFormField("email", e.target.value)}
                             disabled
                           />
-                          <p className="text-xs text-muted-foreground">Email cannot be changed</p>
+                          <p className="text-xs text-muted-foreground">{copy.emailCannotChange}</p>
                         </div>
 
                         <div className="space-y-2">
-                          <Label htmlFor="phone">Phone</Label>
+                          <Label htmlFor="phone">{copy.phoneLabel}</Label>
                           <Input
                             id="phone"
                             value={formData.phone}
@@ -802,7 +941,7 @@ const Profile = () => {
                         </div>
 
                         <div className="space-y-2">
-                          <Label htmlFor="date-of-birth">Date of Birth</Label>
+                          <Label htmlFor="date-of-birth">{copy.dateOfBirthLabel}</Label>
                           <Input
                             id="date-of-birth"
                             type="date"
@@ -813,21 +952,21 @@ const Profile = () => {
                       </div>
 
                       <div className="space-y-2">
-                        <Label htmlFor="address">Address</Label>
+                        <Label htmlFor="address">{copy.addressLabel}</Label>
                         <Textarea
                           id="address"
                           value={formData.address}
                           onChange={(e) => updateFormField("address", e.target.value)}
-                          placeholder="House number, street, subdivision"
+                          placeholder={copy.addressPlaceholder}
                         />
                       </div>
 
                       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
                         <div className="space-y-2">
-                          <Label htmlFor="gender">Gender</Label>
+                          <Label htmlFor="gender">{copy.genderLabel}</Label>
                           <Select value={formData.gender} onValueChange={(value) => setFormData({ ...formData, gender: value as AuthUser["gender"] })}>
                             <SelectTrigger id="gender">
-                              <SelectValue placeholder="Select gender" />
+                              <SelectValue placeholder={copy.selectGender} />
                             </SelectTrigger>
                             <SelectContent>
                               {genderOptions.map((option) => (
@@ -840,10 +979,10 @@ const Profile = () => {
                         </div>
 
                         <div className="space-y-2">
-                          <Label htmlFor="civil-status">Civil Status</Label>
+                          <Label htmlFor="civil-status">{copy.civilStatusLabel}</Label>
                           <Select value={formData.civilStatus} onValueChange={(value) => setFormData({ ...formData, civilStatus: value as AuthUser["civilStatus"] })}>
                             <SelectTrigger id="civil-status">
-                              <SelectValue placeholder="Select civil status" />
+                              <SelectValue placeholder={copy.selectCivilStatus} />
                             </SelectTrigger>
                             <SelectContent>
                               {civilStatusOptions.map((option) => (
@@ -856,13 +995,13 @@ const Profile = () => {
                         </div>
 
                         <div className="space-y-2">
-                          <Label htmlFor="employment-status">Employment Status</Label>
+                          <Label htmlFor="employment-status">{copy.employmentStatusLabel}</Label>
                           <Select
                             value={formData.employmentStatus}
                             onValueChange={(value) => setFormData({ ...formData, employmentStatus: value as AuthUser["employmentStatus"] })}
                           >
                             <SelectTrigger id="employment-status">
-                              <SelectValue placeholder="Select employment status" />
+                              <SelectValue placeholder={copy.selectEmploymentStatus} />
                             </SelectTrigger>
                             <SelectContent>
                               {employmentStatusOptions.map((option) => (
@@ -875,27 +1014,27 @@ const Profile = () => {
                         </div>
 
                         <div className="space-y-2 xl:col-span-2">
-                          <Label htmlFor="occupation">Occupation</Label>
+                          <Label htmlFor="occupation">{copy.occupationLabel}</Label>
                           <Input
                             id="occupation"
                             value={formData.occupation}
                             onChange={(e) => updateFormField("occupation", e.target.value)}
-                            placeholder="Current job or primary occupation"
+                            placeholder={copy.occupationPlaceholder}
                           />
                         </div>
 
                         <div className="space-y-2">
-                          <Label htmlFor="education-level">Education Level</Label>
+                          <Label htmlFor="education-level">{copy.educationLevelLabel}</Label>
                           <Input
                             id="education-level"
                             value={formData.educationLevel}
                             onChange={(e) => updateFormField("educationLevel", e.target.value)}
-                            placeholder="Highest level completed"
+                            placeholder={copy.educationLevelPlaceholder}
                           />
                         </div>
 
                         <div className="space-y-2">
-                          <Label htmlFor="barangay">Barangay</Label>
+                          <Label htmlFor="barangay">{copy.barangayLabel}</Label>
                           <Input
                             id="barangay"
                             value={formData.barangay}
@@ -904,7 +1043,7 @@ const Profile = () => {
                         </div>
 
                         <div className="space-y-2">
-                          <Label htmlFor="city-municipality">City / Municipality</Label>
+                          <Label htmlFor="city-municipality">{copy.cityMunicipalityLabel}</Label>
                           <Input
                             id="city-municipality"
                             value={formData.cityMunicipality}
@@ -913,7 +1052,7 @@ const Profile = () => {
                         </div>
 
                         <div className="space-y-2">
-                          <Label htmlFor="province">Province</Label>
+                          <Label htmlFor="province">{copy.provinceLabel}</Label>
                           <Input
                             id="province"
                             value={formData.province}
@@ -922,7 +1061,7 @@ const Profile = () => {
                         </div>
 
                         <div className="space-y-2">
-                          <Label htmlFor="postal-code">Postal Code</Label>
+                          <Label htmlFor="postal-code">{copy.postalCodeLabel}</Label>
                           <Input
                             id="postal-code"
                             value={formData.postalCode}
@@ -1159,193 +1298,214 @@ const Profile = () => {
               </CardContent>
             </Card>
 
-            {isLearner && (
+            {isEmployeeLearner ? (
               <Card>
                 <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-xl">
-                    <Sparkles className="h-5 w-5 text-primary" />
-                    {copy.learnerAnalytics}
-                  </CardTitle>
-                  <CardDescription>
-                    {copy.learnerAnalyticsBody}
-                  </CardDescription>
+                  <CardTitle className="text-xl">{copy.verificationDocumentTitle}</CardTitle>
+                  <CardDescription>{copy.verificationDocumentBody}</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="grid gap-3 sm:grid-cols-2">
-                    <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
-                      <p className="text-sm text-muted-foreground">{copy.recommendationSignalCoverage}</p>
-                      <p className="mt-3 text-3xl font-semibold">{recommendationSignalCoverage}%</p>
-                      <p className="mt-2 text-xs text-muted-foreground">{copy.recommendationCoverageBody}</p>
-                    </div>
-                    <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
-                      <p className="text-sm text-muted-foreground">{copy.predictiveReadiness}</p>
-                      <p className="mt-3 text-3xl font-semibold">{predictiveReadiness}%</p>
-                      <p className="mt-2 text-xs text-muted-foreground">{copy.predictiveReadinessBody}</p>
-                    </div>
-                    <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
-                      <p className="text-sm text-muted-foreground">{copy.industryInterests}</p>
-                      <p className="mt-3 text-3xl font-semibold">{industryInterestCount}</p>
-                    </div>
-                    <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
-                      <p className="text-sm text-muted-foreground">{copy.preferredCategories}</p>
-                      <p className="mt-3 text-3xl font-semibold">{preferredCategoryCount}</p>
-                    </div>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <Badge variant={user.verificationStatus === "verified" ? "default" : user.verificationStatus === "rejected" ? "destructive" : "secondary"}>
+                      {copy.verificationStatusLabel}: {prettifyValue(user.verificationStatus || "pending")}
+                    </Badge>
+                    <Badge variant={hasUploadedVerificationDocument ? "outline" : "secondary"}>
+                      {hasUploadedVerificationDocument ? copy.verificationDocumentOnFile : copy.verificationDocumentMissing}
+                    </Badge>
                   </div>
 
-                  <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
-                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">{copy.whyThisMatters}</p>
-                    <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                      {copy.whyThisMattersBody}
-                    </p>
+                  <p className="text-sm leading-6 text-muted-foreground">
+                    {user.verificationStatus === "rejected" && user.verificationNotes
+                      ? `${copy.verificationRejectedBody} ${user.verificationNotes}`
+                      : hasUploadedVerificationDocument
+                        ? copy.verificationDocumentReady
+                        : copy.verificationDocumentPrompt}
+                  </p>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="profile-verification-document">{copy.verificationDocumentInput}</Label>
+                    <Input
+                      id="profile-verification-document"
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp"
+                      onChange={handleVerificationDocumentChange}
+                      className="h-12 rounded-xl border-border/80 bg-muted/30 px-4"
+                      disabled={uploadingVerificationDocument}
+                    />
+                    <p className="text-xs text-muted-foreground">{copy.verificationDocumentHelp}</p>
                   </div>
+
+                  {verificationDocumentFile ? (
+                    <div className="rounded-2xl border border-border/60 bg-background/60 p-4 text-sm text-muted-foreground">
+                      <p className="font-medium text-foreground">{verificationDocumentFile.name}</p>
+                      <p>{(verificationDocumentFile.size / (1024 * 1024)).toFixed(2)} MB</p>
+                    </div>
+                  ) : null}
+
+                  <Button className="gap-2" onClick={handleVerificationDocumentUpload} disabled={!verificationDocumentFile || uploadingVerificationDocument}>
+                    {uploadingVerificationDocument ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        {copy.verificationUploading}
+                      </>
+                    ) : (
+                      <>
+                        <Save className="h-4 w-4" />
+                        {copy.verificationUploadAction}
+                      </>
+                    )}
+                  </Button>
                 </CardContent>
               </Card>
-            )}
+            ) : null}
 
-            {isLearner && (
-              <Card>
-                <CardHeader>
-                  <CardTitle className="text-xl">{copy.trainingSnapshot}</CardTitle>
-                  <CardDescription>{copy.trainingSnapshotBody}</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {loadingData ? (
+            {isLearner ? (
+              <div className="grid gap-6 md:grid-cols-2">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-xl">{copy.trainingSnapshot}</CardTitle>
+                    <CardDescription>{copy.trainingSnapshotBody}</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {loadingData ? (
+                      <div className="grid gap-3 sm:grid-cols-2">
+                        {Array.from({ length: 6 }).map((_, index) => (
+                          <div key={index} className="space-y-3 rounded-2xl border border-border/60 bg-background/60 p-4">
+                            <Skeleton className="h-4 w-32" />
+                            <Skeleton className="h-8 w-20" />
+                            <Skeleton className="h-4 w-24" />
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <>
+                        <div className="grid gap-3 sm:grid-cols-2">
+                          <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
+                            <div className="flex items-center justify-between">
+                              <p className="text-sm text-muted-foreground">{copy.enrolledCourses}</p>
+                              <BookOpen className="h-4 w-4 text-primary" />
+                            </div>
+                            <p className="mt-3 text-3xl font-semibold">{enrollments.length}</p>
+                          </div>
+                          <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
+                            <div className="flex items-center justify-between">
+                              <p className="text-sm text-muted-foreground">{copy.certificates}</p>
+                              <Award className="h-4 w-4 text-amber-500" />
+                            </div>
+                            <p className="mt-3 text-3xl font-semibold">{certificates.length}</p>
+                          </div>
+                          <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
+                            <div className="flex items-center justify-between">
+                              <p className="text-sm text-muted-foreground">{copy.completed}</p>
+                              <BadgeCheck className="h-4 w-4 text-emerald-500" />
+                            </div>
+                            <p className="mt-3 text-3xl font-semibold">{completedEnrollments}</p>
+                          </div>
+                          <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
+                            <div className="flex items-center justify-between">
+                              <p className="text-sm text-muted-foreground">{copy.inProgress}</p>
+                              <GraduationCap className="h-4 w-4 text-sky-500" />
+                            </div>
+                            <p className="mt-3 text-3xl font-semibold">{inProgressEnrollments}</p>
+                          </div>
+                          <div className="rounded-2xl border border-border/60 bg-background/60 p-4 sm:col-span-2">
+                            <div className="flex items-center justify-between">
+                              <p className="text-sm text-muted-foreground">{copy.totalLearningTime}</p>
+                              <Clock3 className="h-4 w-4 text-primary" />
+                            </div>
+                            <p className="mt-3 text-3xl font-semibold">{formatLearningTime(totalLearningMinutes)}</p>
+                          </div>
+                        </div>
+
+                        <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
+                          <div className="mb-2 flex items-center justify-between text-sm">
+                            <span className="text-muted-foreground">{copy.completionRate}</span>
+                            <span className="font-medium">{completionRate}%</span>
+                          </div>
+                          <div className="h-2 rounded-full bg-muted">
+                            <div className="h-2 rounded-full bg-emerald-500 transition-all" style={{ width: `${completionRate}%` }} />
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-xl">{language === "tl" ? "Account Summary" : "Account Summary"}</CardTitle>
+                    <CardDescription>
+                      {language === "tl" ? "Mabilisang detalye na nakakabit sa kasalukuyan mong learner account." : "Quick details tied to your current learner account."}
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-3">
+                    <div className="flex items-center gap-3 rounded-2xl border border-border/60 bg-background/60 p-4">
+                      <Mail className="h-4 w-4 text-primary" />
+                      <div>
+                        <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">{language === "tl" ? "Primary email" : "Primary email"}</p>
+                        <p className="mt-1 text-sm font-medium">{user.email}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3 rounded-2xl border border-border/60 bg-background/60 p-4">
+                      <Phone className="h-4 w-4 text-primary" />
+                      <div>
+                        <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">{language === "tl" ? "Contact number" : "Contact number"}</p>
+                        <p className="mt-1 text-sm font-medium">{user.phone || copy.notProvided}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3 rounded-2xl border border-border/60 bg-background/60 p-4">
+                      <MapPin className="h-4 w-4 text-primary" />
+                      <div>
+                        <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">{language === "tl" ? "Primary location" : "Primary location"}</p>
+                        <p className="mt-1 text-sm font-medium">{user.cityMunicipality || user.province || copy.notProvided}</p>
+                      </div>
+                    </div>
                     <div className="grid gap-3 sm:grid-cols-2">
-                      {Array.from({ length: 6 }).map((_, index) => (
-                        <div key={index} className="rounded-2xl border border-border/60 bg-background/60 p-4 space-y-3">
-                          <Skeleton className="h-4 w-32" />
-                          <Skeleton className="h-8 w-20" />
-                          <Skeleton className="h-4 w-24" />
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <>
-                      <div className="grid gap-3 sm:grid-cols-2">
-                        <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
-                          <div className="flex items-center justify-between">
-                            <p className="text-sm text-muted-foreground">{copy.enrolledCourses}</p>
-                            <BookOpen className="h-4 w-4 text-primary" />
-                          </div>
-                          <p className="mt-3 text-3xl font-semibold">{enrollments.length}</p>
-                        </div>
-                        <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
-                          <div className="flex items-center justify-between">
-                            <p className="text-sm text-muted-foreground">{copy.certificates}</p>
-                            <Award className="h-4 w-4 text-amber-500" />
-                          </div>
-                          <p className="mt-3 text-3xl font-semibold">{certificates.length}</p>
-                        </div>
-                        <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
-                          <div className="flex items-center justify-between">
-                            <p className="text-sm text-muted-foreground">{copy.completed}</p>
-                            <BadgeCheck className="h-4 w-4 text-emerald-500" />
-                          </div>
-                          <p className="mt-3 text-3xl font-semibold">{completedEnrollments}</p>
-                        </div>
-                        <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
-                          <div className="flex items-center justify-between">
-                            <p className="text-sm text-muted-foreground">{copy.inProgress}</p>
-                            <GraduationCap className="h-4 w-4 text-sky-500" />
-                          </div>
-                          <p className="mt-3 text-3xl font-semibold">{inProgressEnrollments}</p>
-                        </div>
-                        <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
-                          <div className="flex items-center justify-between">
-                            <p className="text-sm text-muted-foreground">{copy.averageAssessmentScore}</p>
-                            <Target className="h-4 w-4 text-primary" />
-                          </div>
-                          <p className="mt-3 text-3xl font-semibold">{averageAssessmentScore}%</p>
-                        </div>
-                        <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
-                          <div className="flex items-center justify-between">
-                            <p className="text-sm text-muted-foreground">{copy.totalLearningTime}</p>
-                            <Clock3 className="h-4 w-4 text-primary" />
-                          </div>
-                          <p className="mt-3 text-3xl font-semibold">{formatLearningTime(totalLearningMinutes)}</p>
-                        </div>
-                        <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
-                          <div className="flex items-center justify-between">
-                            <p className="text-sm text-muted-foreground">{copy.completedModules}</p>
-                            <BookOpen className="h-4 w-4 text-primary" />
-                          </div>
-                          <p className="mt-3 text-3xl font-semibold">{completedModules}</p>
-                        </div>
-                        <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
-                          <div className="flex items-center justify-between">
-                            <p className="text-sm text-muted-foreground">{copy.moduleProgress}</p>
-                            <TrendingUp className="h-4 w-4 text-primary" />
-                          </div>
-                          <p className="mt-3 text-3xl font-semibold">{moduleCompletionRate}%</p>
-                          <p className="mt-2 text-xs text-muted-foreground">{completedModules} of {totalModules} modules completed</p>
-                        </div>
-                      </div>
-
                       <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
-                        <div className="mb-2 flex items-center justify-between text-sm">
-                          <span className="text-muted-foreground">{copy.completionRate}</span>
-                          <span className="font-medium">{completionRate}%</span>
-                        </div>
-                        <div className="h-2 rounded-full bg-muted">
-                          <div className="h-2 rounded-full bg-emerald-500 transition-all" style={{ width: `${completionRate}%` }} />
-                        </div>
+                        <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">{copy.signalsLabel}</p>
+                        <p className="mt-2 text-2xl font-semibold">{recommendationSignalCoverage}%</p>
+                        <p className="mt-1 text-xs text-muted-foreground">{copy.recommendationCoverageBody}</p>
                       </div>
-
-                      <div className="grid gap-3 sm:grid-cols-2">
-                        <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-900/40 dark:bg-emerald-950/20">
-                          <p className="text-xs uppercase tracking-[0.16em] text-emerald-700 dark:text-emerald-300">Strong Skill</p>
-                          <p className="mt-2 text-lg font-semibold text-emerald-900 dark:text-emerald-100">{strongestTopic || "Build more history"}</p>
-                          <p className="mt-2 text-sm leading-6 text-emerald-800/80 dark:text-emerald-200/80">
-                            {strongestTopic
-                              ? "Your recommendation signals currently treat this as a strength to extend with higher-fit follow-on courses."
-                              : "Complete more scored work to identify a reliable strength signal."}
-                          </p>
-                        </div>
-                        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 dark:border-amber-900/40 dark:bg-amber-950/20">
-                          <p className="text-xs uppercase tracking-[0.16em] text-amber-700 dark:text-amber-300">Needs Improvement</p>
-                          <p className="mt-2 text-lg font-semibold text-amber-900 dark:text-amber-100">{needsImprovementTopic || "No focus area yet"}</p>
-                          <p className="mt-2 text-sm leading-6 text-amber-800/80 dark:text-amber-200/80">
-                            {needsImprovementTopic
-                              ? "This focus area now feeds remedial course suggestions and progress tracking across your learner profile."
-                              : "Finish more than one scored topic to surface a consistent improvement target."}
-                          </p>
-                        </div>
+                      <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
+                        <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">{copy.readinessLabel}</p>
+                        <p className="mt-2 text-2xl font-semibold">{predictiveReadiness}%</p>
+                        <p className="mt-1 text-xs text-muted-foreground">{copy.predictiveReadinessBody}</p>
                       </div>
-                    </>
-                  )}
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            ) : (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-xl">Account Summary</CardTitle>
+                  <CardDescription>Quick details tied to your current account.</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="flex items-center gap-3 rounded-2xl border border-border/60 bg-background/60 p-4">
+                    <Mail className="h-4 w-4 text-primary" />
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Primary email</p>
+                      <p className="mt-1 text-sm font-medium">{user.email}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3 rounded-2xl border border-border/60 bg-background/60 p-4">
+                    <Phone className="h-4 w-4 text-primary" />
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Contact number</p>
+                      <p className="mt-1 text-sm font-medium">{user.phone || "Not provided"}</p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3 rounded-2xl border border-border/60 bg-background/60 p-4">
+                    <MapPin className="h-4 w-4 text-primary" />
+                    <div>
+                      <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Primary location</p>
+                      <p className="mt-1 text-sm font-medium">{user.cityMunicipality || user.province || "Not provided"}</p>
+                    </div>
+                  </div>
                 </CardContent>
               </Card>
             )}
-
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-xl">Account Summary</CardTitle>
-                <CardDescription>Quick details tied to your current learner account.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="flex items-center gap-3 rounded-2xl border border-border/60 bg-background/60 p-4">
-                  <Mail className="h-4 w-4 text-primary" />
-                  <div>
-                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Primary email</p>
-                    <p className="mt-1 text-sm font-medium">{user.email}</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3 rounded-2xl border border-border/60 bg-background/60 p-4">
-                  <Phone className="h-4 w-4 text-primary" />
-                  <div>
-                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Contact number</p>
-                    <p className="mt-1 text-sm font-medium">{user.phone || "Not provided"}</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3 rounded-2xl border border-border/60 bg-background/60 p-4">
-                  <MapPin className="h-4 w-4 text-primary" />
-                  <div>
-                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Primary location</p>
-                    <p className="mt-1 text-sm font-medium">{user.cityMunicipality || user.province || "Not provided"}</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
           </div>
         </div>
       </div>

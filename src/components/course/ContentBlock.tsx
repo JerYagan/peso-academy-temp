@@ -10,7 +10,6 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { X, GripVertical, Type, Code, Video, FileQuestion, Plus, ImageIcon, FileText, Link2, Upload } from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
-  DEFAULT_QUIZ_BLOCK_POINTS,
   TRUE_FALSE_QUIZ_OPTIONS,
   type ContentBlock,
   type ContentBlockType,
@@ -256,7 +255,10 @@ export const ContentBlockComponent = ({
       case "quiz":
         return (
           <div className="space-y-4">
-            <div className="grid gap-4 md:grid-cols-2">
+            <div className="rounded-lg border border-dashed px-4 py-3 text-sm text-muted-foreground">
+              Practice quiz only. Learner answers here are for inline feedback inside the module and are not used as graded assessment scores.
+            </div>
+            <div className="space-y-2">
               <div className="space-y-2">
                 <Label>Question Type</Label>
                 <Select
@@ -273,7 +275,7 @@ export const ContentBlockComponent = ({
                             : block.options || ["", ""],
                       correctAnswer: questionType === "essay" ? undefined : block.correctAnswer ?? 0,
                       sourceQuestionKey: block.sourceQuestionKey || block.id,
-                      isGradable: block.isGradable ?? true,
+                      isGradable: false,
                     });
                   }}
                 >
@@ -286,19 +288,6 @@ export const ContentBlockComponent = ({
                     <SelectItem value="essay">Essay</SelectItem>
                   </SelectContent>
                 </Select>
-              </div>
-              <div className="space-y-2">
-                <Label>Points</Label>
-                <Input
-                  type="number"
-                  min="1"
-                  value={block.points ?? DEFAULT_QUIZ_BLOCK_POINTS}
-                  onChange={(e) =>
-                    handleUpdate({
-                      points: Math.max(DEFAULT_QUIZ_BLOCK_POINTS, Number.parseInt(e.target.value, 10) || DEFAULT_QUIZ_BLOCK_POINTS),
-                    })
-                  }
-                />
               </div>
             </div>
             <div className="space-y-2">
@@ -373,11 +362,11 @@ export const ContentBlockComponent = ({
               </div>
             )}
             <div className="space-y-2">
-              <Label>Explanation (optional)</Label>
+              <Label>{block.questionType === "essay" ? "Learner Guidance (optional)" : "Feedback / Explanation (optional)"}</Label>
               <Textarea
                 value={block.explanation || ""}
                 onChange={(e) => handleUpdate({ explanation: e.target.value })}
-                placeholder={block.questionType === "essay" ? "Add guidance for reviewers or post-review learner feedback..." : "Explain why this answer is correct..."}
+                placeholder={block.questionType === "essay" ? "Add optional learner guidance or reflection instructions..." : "Explain the answer or add formative feedback..."}
                 rows={3}
               />
             </div>
@@ -419,7 +408,7 @@ export const ContentBlockComponent = ({
       case "image":
         return "Image Block";
       case "quiz":
-        return "Quiz Block";
+        return "Practice Quiz Block";
       case "document":
         return "Document Block";
       case "learning_material":

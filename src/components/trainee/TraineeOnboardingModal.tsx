@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, ArrowRight, CheckCircle2 } from "lucide-react";
+import { ArrowLeft, ArrowRight, CheckCircle2, Search } from "lucide-react";
 import { TaxonomyTagField } from "@/components/course/TaxonomyTagField";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -24,8 +25,6 @@ import {
   createInitialTraineeOnboardingFormData,
   getOnboardingSignalCoverage,
   getSuggestedOnboardingSkillLevel,
-  ONBOARDING_CATEGORY_OPTIONS,
-  ONBOARDING_INDUSTRY_OPTIONS,
   ONBOARDING_SKILL_LEVEL_OPTIONS,
   parseOnboardingSkillsInput,
   TRAINEE_ONBOARDING_DRAFT_KEY,
@@ -47,8 +46,43 @@ type TraineeOnboardingModalProps = {
   onCompleted?: (summary: TraineeOnboardingSummary) => void;
 };
 
+const mergeOptions = (...groups: Array<readonly string[] | undefined>) => {
+  const seen = new Set<string>();
+
+  return groups.flat().reduce<string[]>((result, value) => {
+    if (!value) {
+      return result;
+    }
+
+    const normalized = value.trim().replace(/\s+/g, " ");
+    const key = normalized.toLowerCase();
+
+    if (!normalized || seen.has(key)) {
+      return result;
+    }
+
+    seen.add(key);
+    result.push(normalized);
+    return result;
+  }, []);
+};
+
+const pickRandomOptions = (options: string[], limit: number) => {
+  if (options.length <= limit) {
+    return [...options];
+  }
+
+  const shuffled = [...options];
+
+  for (let index = shuffled.length - 1; index > 0; index -= 1) {
+    const randomIndex = Math.floor(Math.random() * (index + 1));
+    [shuffled[index], shuffled[randomIndex]] = [shuffled[randomIndex], shuffled[index]];
+  }
+
+  return shuffled.slice(0, limit);
+};
+
 const renderReadinessQuestion = (
-  name: string,
   label: string,
   description: string,
   value: string,
@@ -56,11 +90,18 @@ const renderReadinessQuestion = (
   onChange: (value: string) => void,
 ) => (
   <div className="space-y-4 rounded-2xl border border-border/70 bg-background p-4 shadow-sm">
-    <div>
-      <p className="font-medium text-foreground">{label}</p>
-      <p className="mt-1 text-sm leading-6 text-muted-foreground">{description}</p>
+    <div className="flex flex-wrap items-start justify-between gap-3">
+      <div className="space-y-1">
+        <p className="font-medium text-foreground">{label}</p>
+        <p className="text-xs leading-5 text-muted-foreground">{description}</p>
+      </div>
+      {value ? (
+        <Badge variant="secondary" className="rounded-full px-3 py-1 text-[11px] font-semibold">
+          {options.find((option) => option.value === value)?.label}
+        </Badge>
+      ) : null}
     </div>
-    <div className="grid gap-2">
+    <div className="grid gap-2 sm:grid-cols-3">
       {options.map((option) => {
         const isSelected = value === option.value;
 
@@ -76,19 +117,136 @@ const renderReadinessQuestion = (
                 : "border-border/70 bg-muted/18 text-foreground hover:border-primary/35 hover:bg-primary/5",
             )}
           >
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <span className="block font-medium text-foreground">{option.label}</span>
-                <span className="mt-1 block text-sm leading-6 text-muted-foreground">{option.hint}</span>
-              </div>
-              <CheckCircle2 className={cn("mt-0.5 h-4 w-4 shrink-0", isSelected ? "text-primary" : "text-muted-foreground/35")} />
+            <div className="flex items-center justify-between gap-3">
+              <span className="block font-medium text-foreground">{option.label}</span>
+              <CheckCircle2 className={cn("h-4 w-4 shrink-0", isSelected ? "text-primary" : "text-muted-foreground/35")} />
             </div>
           </button>
         );
       })}
     </div>
+    <p className="min-h-5 text-xs leading-5 text-muted-foreground">
+      {options.find((option) => option.value === value)?.hint || description}
+    </p>
   </div>
 );
+
+type SearchableSelectionFieldProps = {
+  label: string;
+  options: string[];
+  sampledOptions: string[];
+  searchValue: string;
+  onSearchChange: (value: string) => void;
+  selectedValues: string[];
+  onToggle: (value: string) => void;
+  searchPlaceholder: string;
+  emptyMessage: string;
+  displayValue: (value: string) => string;
+  maxVisibleOptions?: number;
+  dropdownMaxResults?: number;
+};
+
+const SearchableSelectionField = ({
+  label,
+  options,
+  sampledOptions,
+  searchValue,
+  onSearchChange,
+  selectedValues,
+  onToggle,
+  searchPlaceholder,
+  emptyMessage,
+  displayValue,
+  maxVisibleOptions = 10,
+  dropdownMaxResults = 5,
+}: SearchableSelectionFieldProps) => {
+  const normalizedSearch = searchValue.trim().toLowerCase();
+  const sampledGridOptions = mergeOptions(selectedValues, sampledOptions).slice(0, Math.max(maxVisibleOptions, selectedValues.length));
+  const dropdownOptions = normalizedSearch
+    ? options.filter((option) => displayValue(option).toLowerCase().includes(normalizedSearch)).slice(0, dropdownMaxResults)
+    : [];
+
+  return (
+    <div className="space-y-3">
+      <Label>{label}</Label>
+
+      <div className="relative">
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          value={searchValue}
+          onChange={(event) => onSearchChange(event.target.value)}
+          placeholder={searchPlaceholder}
+          className="h-11 rounded-xl border-border/80 bg-muted/20 pl-10"
+        />
+
+        {normalizedSearch ? (
+          <div className="absolute left-0 right-0 top-[calc(100%+0.5rem)] z-20 rounded-xl border border-border/80 bg-background p-2 shadow-lg">
+            {dropdownOptions.length > 0 ? (
+              <div className="space-y-1">
+                {dropdownOptions.map((option) => {
+                  const isSelected = selectedValues.includes(option);
+
+                  return (
+                    <button
+                      key={option}
+                      type="button"
+                      onClick={() => {
+                        onToggle(option);
+                        onSearchChange("");
+                      }}
+                      className={cn(
+                        "flex w-full items-start gap-3 rounded-lg px-3 py-2 text-left text-sm transition-colors",
+                        isSelected
+                          ? "bg-primary/8 text-foreground"
+                          : "hover:bg-muted/60 text-foreground",
+                      )}
+                    >
+                      <Checkbox checked={isSelected} className="mt-0.5 pointer-events-none" />
+                      <span>{displayValue(option)}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="px-3 py-2 text-sm text-muted-foreground">{emptyMessage}</div>
+            )}
+          </div>
+        ) : null}
+      </div>
+
+      {sampledGridOptions.length > 0 ? (
+        <div className="grid gap-3 md:grid-cols-2">
+          {sampledGridOptions.map((option) => {
+            const isSelected = selectedValues.includes(option);
+
+            return (
+              <label
+                key={option}
+                className={cn(
+                  "flex items-start gap-3 rounded-xl border p-3 text-sm text-foreground transition-colors",
+                  isSelected
+                    ? "border-primary/45 bg-primary/6"
+                    : "border-border/70 bg-muted/20 hover:border-primary/35 hover:bg-primary/5 dark:bg-muted/10 dark:hover:bg-primary/10",
+                )}
+              >
+                <Checkbox
+                  checked={isSelected}
+                  onCheckedChange={() => onToggle(option)}
+                  className="mt-0.5"
+                />
+                <span>{displayValue(option)}</span>
+              </label>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="rounded-xl border border-dashed border-border/80 bg-muted/10 px-4 py-6 text-center text-sm text-muted-foreground">
+          {emptyMessage}
+        </div>
+      )}
+    </div>
+  );
+};
 
 export default function TraineeOnboardingModal({
   open,
@@ -96,12 +254,18 @@ export default function TraineeOnboardingModal({
   onDismiss,
   onCompleted,
 }: TraineeOnboardingModalProps) {
-  const { t, getMessage } = useLocale();
+  const { t, getMessage, language } = useLocale();
   const { updateUser } = useAuth();
   const [formData, setFormData] = useState<TraineeOnboardingFormData>(() => createInitialTraineeOnboardingFormData(user));
   const [currentStep, setCurrentStep] = useState(0);
   const [saving, setSaving] = useState(false);
   const [skillTagOptions, setSkillTagOptions] = useState<string[]>([]);
+  const [industryOptions, setIndustryOptions] = useState<string[]>(() => mergeOptions(user.industryInterests));
+  const [categoryOptions, setCategoryOptions] = useState<string[]>(() => mergeOptions(user.preferredCategories));
+  const [industrySampledOptions, setIndustrySampledOptions] = useState<string[]>(() => pickRandomOptions(mergeOptions(user.industryInterests), 10));
+  const [categorySampledOptions, setCategorySampledOptions] = useState<string[]>(() => pickRandomOptions(mergeOptions(user.preferredCategories), 10));
+  const [industrySearch, setIndustrySearch] = useState("");
+  const [categorySearch, setCategorySearch] = useState("");
 
   useEffect(() => {
     if (open) {
@@ -162,26 +326,40 @@ export default function TraineeOnboardingModal({
       };
     }
 
-    const loadSkillTags = async () => {
+    const loadOnboardingOptions = async () => {
       try {
         const options = await taxonomyService.getOptions();
         if (active) {
           setSkillTagOptions(options.skillTags);
+          const resolvedIndustryOptions = mergeOptions(options.industryTags, user.industryInterests);
+          const resolvedCategoryOptions = mergeOptions(options.courseCategories, user.preferredCategories);
+
+          setIndustryOptions(resolvedIndustryOptions);
+          setCategoryOptions(resolvedCategoryOptions);
+          setIndustrySampledOptions(pickRandomOptions(resolvedIndustryOptions, 10));
+          setCategorySampledOptions(pickRandomOptions(resolvedCategoryOptions, 10));
         }
       } catch (error) {
-        console.warn("Failed to load onboarding skill taxonomy options:", error);
+        console.warn("Failed to load onboarding taxonomy options:", error);
         if (active) {
           setSkillTagOptions([]);
+          const fallbackIndustryOptions = mergeOptions(user.industryInterests);
+          const fallbackCategoryOptions = mergeOptions(user.preferredCategories);
+
+          setIndustryOptions(fallbackIndustryOptions);
+          setCategoryOptions(fallbackCategoryOptions);
+          setIndustrySampledOptions(pickRandomOptions(fallbackIndustryOptions, 10));
+          setCategorySampledOptions(pickRandomOptions(fallbackCategoryOptions, 10));
         }
       }
     };
 
-    void loadSkillTags();
+    void loadOnboardingOptions();
 
     return () => {
       active = false;
     };
-  }, [open]);
+  }, [open, user.industryInterests, user.preferredCategories]);
 
   const resolvedVerificationStatus = user.verificationStatus ?? "pending";
   const resolvedTraineeType = user.traineeType ? t(`onboarding.traineeTypes.${user.traineeType}`) : t("onboarding.traineeTypes.default");
@@ -201,9 +379,50 @@ export default function TraineeOnboardingModal({
   const stepCount = steps.length;
   const canGoBack = currentStep > 0;
   const isLastStep = currentStep === stepCount - 1;
+  const interestsSearchPlaceholder = t("onboarding.interests.searchPlaceholder");
+  const interestsEmpty = t("onboarding.interests.emptyState");
 
   const setField = <K extends keyof TraineeOnboardingFormData>(field: K, value: TraineeOnboardingFormData[K]) => {
     setFormData((current) => ({ ...current, [field]: value }));
+  };
+
+  const onboardingValidationCopy = language === "tl"
+    ? {
+        interests: "Pumili ng kahit isang industry interest at isang preferred category bago magpatuloy.",
+        readiness: "Sagutin ang lahat ng readiness questions bago magpatuloy.",
+        skills: "Pumili ng skill level at magdagdag ng kahit isang skill bago tapusin ang onboarding.",
+      }
+    : {
+        interests: "Select at least one industry interest and one preferred category before continuing.",
+        readiness: "Answer all readiness questions before continuing.",
+        skills: "Select a skill level and add at least one skill before completing onboarding.",
+      };
+
+  const validateStep = (step: number) => {
+    if (step === 0) {
+      if (formData.industryInterests.length === 0 || formData.preferredCategories.length === 0) {
+        toast.error(onboardingValidationCopy.interests);
+        return false;
+      }
+
+      return true;
+    }
+
+    if (step === 1) {
+      if (!formData.confidenceLevel || !formData.weeklyCommitment || !formData.digitalComfort) {
+        toast.error(onboardingValidationCopy.readiness);
+        return false;
+      }
+
+      return true;
+    }
+
+    if (!effectiveSkillLevel || parseOnboardingSkillsInput(formData.existingSkills).length === 0) {
+      toast.error(onboardingValidationCopy.skills);
+      return false;
+    }
+
+    return true;
   };
 
   const toggleSelection = (field: "industryInterests" | "preferredCategories", value: string) => {
@@ -309,6 +528,10 @@ export default function TraineeOnboardingModal({
   };
 
   const handleNext = () => {
+    if (!validateStep(currentStep)) {
+      return;
+    }
+
     setCurrentStep((value) => Math.min(value + 1, stepCount - 1));
   };
 
@@ -358,7 +581,16 @@ export default function TraineeOnboardingModal({
                   key={step.title}
                   type="button"
                   className={`min-h-14 rounded-2xl border px-4 py-3 text-left text-sm font-semibold transition-colors ${index === currentStep ? "border-primary/60 bg-primary text-primary-foreground shadow-sm" : index < currentStep ? "border-emerald-300 bg-emerald-50 text-emerald-800 dark:border-emerald-700/60 dark:bg-emerald-950/30 dark:text-emerald-200" : "border-border bg-muted/35 text-foreground/72 hover:border-primary/30 hover:text-foreground"}`}
-                  onClick={() => setCurrentStep(index)}
+                  onClick={() => {
+                    if (index <= currentStep) {
+                      setCurrentStep(index);
+                      return;
+                    }
+
+                    if (validateStep(currentStep)) {
+                      setCurrentStep(index);
+                    }
+                  }}
                   disabled={saving}
                 >
                   <span className="block">{step.title}</span>
@@ -377,36 +609,32 @@ export default function TraineeOnboardingModal({
                   <p className="text-sm leading-6 text-foreground/72">{t("onboarding.interests.description")}</p>
                 </div>
 
-                <div className="space-y-3">
-                  <Label>{t("onboarding.interests.industryLabel")}</Label>
-                  <div className="grid gap-3 md:grid-cols-2">
-                    {ONBOARDING_INDUSTRY_OPTIONS.map((interest) => (
-                      <label key={interest} className="flex items-start gap-3 rounded-xl border border-border/70 bg-muted/20 p-3 text-sm text-foreground transition-colors hover:border-primary/35 hover:bg-primary/5 dark:bg-muted/10 dark:hover:bg-primary/10">
-                        <Checkbox
-                          checked={formData.industryInterests.includes(interest)}
-                          onCheckedChange={() => toggleSelection("industryInterests", interest)}
-                          className="mt-0.5"
-                        />
-                        <span>{industryLabels[interest] || interest}</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
+                <div className="grid gap-4">
+                  <SearchableSelectionField
+                    label={t("onboarding.interests.industryLabel")}
+                    options={industryOptions}
+                    sampledOptions={industrySampledOptions}
+                    searchValue={industrySearch}
+                    onSearchChange={setIndustrySearch}
+                    selectedValues={formData.industryInterests}
+                    onToggle={(value) => toggleSelection("industryInterests", value)}
+                    searchPlaceholder={interestsSearchPlaceholder.replace("{{label}}", t("onboarding.interests.industryLabel").toLowerCase())}
+                    emptyMessage={interestsEmpty}
+                    displayValue={(value) => industryLabels[value] || value}
+                  />
 
-                <div className="space-y-3">
-                  <Label>{t("onboarding.interests.categoryLabel")}</Label>
-                  <div className="grid gap-3 md:grid-cols-2">
-                    {ONBOARDING_CATEGORY_OPTIONS.map((category) => (
-                      <label key={category} className="flex items-start gap-3 rounded-xl border border-border/70 bg-muted/20 p-3 text-sm text-foreground transition-colors hover:border-primary/35 hover:bg-primary/5 dark:bg-muted/10 dark:hover:bg-primary/10">
-                        <Checkbox
-                          checked={formData.preferredCategories.includes(category)}
-                          onCheckedChange={() => toggleSelection("preferredCategories", category)}
-                          className="mt-0.5"
-                        />
-                        <span>{categoryLabels[category] || category}</span>
-                      </label>
-                    ))}
-                  </div>
+                  <SearchableSelectionField
+                    label={t("onboarding.interests.categoryLabel")}
+                    options={categoryOptions}
+                    sampledOptions={categorySampledOptions}
+                    searchValue={categorySearch}
+                    onSearchChange={setCategorySearch}
+                    selectedValues={formData.preferredCategories}
+                    onToggle={(value) => toggleSelection("preferredCategories", value)}
+                    searchPlaceholder={interestsSearchPlaceholder.replace("{{label}}", t("onboarding.interests.categoryLabel").toLowerCase())}
+                    emptyMessage={interestsEmpty}
+                    displayValue={(value) => categoryLabels[value] || value}
+                  />
                 </div>
               </div>
             ) : null}
@@ -421,13 +649,12 @@ export default function TraineeOnboardingModal({
                   <p className="text-sm leading-6 text-foreground/72">{t("onboarding.readiness.description")}</p>
                 </div>
 
-                <div className="grid gap-4 lg:grid-cols-3">
+                <div className="grid gap-4">
                   {readinessQuestions.map((question) => {
                     const fieldName = question.key as "confidenceLevel" | "weeklyCommitment" | "digitalComfort";
                     return (
                       <div key={question.key}>
                         {renderReadinessQuestion(
-                          question.key,
                           question.label,
                           question.description,
                           formData[fieldName],
@@ -512,7 +739,16 @@ export default function TraineeOnboardingModal({
               {t("onboarding.actions.back")}
             </Button>
             {isLastStep ? (
-              <Button onClick={() => void handleComplete()} disabled={saving}>
+              <Button
+                onClick={() => {
+                  if (!validateStep(currentStep)) {
+                    return;
+                  }
+
+                  void handleComplete();
+                }}
+                disabled={saving}
+              >
                 {saving ? t("onboarding.actions.saving") : t("onboarding.actions.complete")}
               </Button>
             ) : (

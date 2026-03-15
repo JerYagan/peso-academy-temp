@@ -245,7 +245,7 @@ const TrainerDashboardPlaceholder = () => {
                     <p className="text-sm text-muted-foreground">Recommendation health</p>
                     <p className="mt-2 font-medium text-foreground">
                       {analytics.recommendationAnalytics.totalImpressions > 0
-                        ? `${analytics.recommendationAnalytics.averageCtr}% CTR and ${analytics.recommendationAnalytics.averageAcceptRate}% accept rate across your surfaced recommendations.`
+                        ? `${analytics.recommendationAnalytics.averageCtr}% Click Through Rate and ${analytics.recommendationAnalytics.averageAcceptRate}% accept rate across your surfaced recommendations.`
                         : "Recommendation performance will appear here once learners begin interacting with suggested courses."}
                     </p>
                   </div>
@@ -700,7 +700,7 @@ const TrainerDashboardPlaceholder = () => {
                   <Card>
                     <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-3">
                       <div>
-                        <CardTitle className="text-sm font-medium text-muted-foreground">Recommendation CTR</CardTitle>
+                        <CardTitle className="text-sm font-medium text-muted-foreground">Recommendation Click Through Rate</CardTitle>
                         <div className="mt-2 text-3xl font-semibold tracking-tight">{analytics.recommendationAnalytics.averageCtr}%</div>
                       </div>
                       <MousePointerClick className="h-5 w-5 text-primary" />
@@ -753,7 +753,7 @@ const TrainerDashboardPlaceholder = () => {
                               <YAxis tickLine={false} axisLine={false} domain={[0, 100]} />
                               <Tooltip />
                               <Legend />
-                              <Bar dataKey="ctr" name="CTR" fill={chartPalette.accent} radius={[6, 6, 0, 0]} />
+                              <Bar dataKey="ctr" name="Click Through Rate" fill={chartPalette.accent} radius={[6, 6, 0, 0]} />
                               <Bar dataKey="acceptRate" name="Accept rate" fill={chartPalette.primary} radius={[6, 6, 0, 0]} />
                             </BarChart>
                           </ResponsiveContainer>
@@ -784,7 +784,7 @@ const TrainerDashboardPlaceholder = () => {
                             </div>
                             <div className="mt-4 grid gap-3 sm:grid-cols-3">
                               <div>
-                                <p className="text-xs text-muted-foreground">CTR</p>
+                                <p className="text-xs text-muted-foreground">Click Through Rate</p>
                                 <p className="mt-1 text-lg font-semibold">{course.ctr}%</p>
                               </div>
                               <div>

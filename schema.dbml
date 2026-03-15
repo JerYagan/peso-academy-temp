@@ -1,0 +1,797 @@
+Project peso_academy {
+  database_type: 'PostgreSQL'
+  Note: 'Derived from Supabase migrations through 072_fix_course_scoped_assessment_attempt_rls.sql. Legacy jobs and job_applications tables were dropped in migration 023 and are intentionally excluded. auth.users is included as a minimal external stub for foreign-key references.'
+}
+
+Enum user_role {
+  admin
+  trainer
+  trainee
+}
+
+Enum course_level {
+  Beginner
+  Intermediate
+  Advanced
+}
+
+Enum enrollment_status {
+  enrolled
+  in-progress
+  completed
+  dropped
+}
+
+Enum submission_status {
+  pending
+  approved
+  rejected
+  revision_requested
+}
+
+Enum certificate_type {
+  completion
+  participation
+}
+
+Enum question_type {
+  multiple_choice
+  true_false
+  short_answer
+  essay
+}
+
+Table auth.users {
+  id uuid [pk]
+
+  Note: 'External Supabase auth table stub used only for foreign-key references from public schema objects.'
+}
+
+Table public.role_aliases {
+  role_code text [pk]
+  display_name text [not null]
+  description text
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+
+  Note: 'role_code is check-constrained in the live database to admin, trainer, or trainee.'
+}
+
+Table public.permissions {
+  id text [pk]
+  name text [not null]
+  description text [not null]
+  category text [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+}
+
+Table public.roles {
+  id text [pk]
+  name text [not null]
+  description text [not null]
+  category text [not null]
+  icon text
+  color text
+  dashboard_route text [not null]
+  can_signup boolean [not null]
+  metadata jsonb
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+
+  Note: 'category is check-constrained to internal or end_user.'
+}
+
+Table public.role_permissions {
+  id uuid [pk]
+  role_id text [not null]
+  permission_id text [not null]
+  created_at timestamptz [not null]
+
+  Indexes {
+    (role_id, permission_id) [unique]
+  }
+}
+
+Table public.users {
+  id uuid [pk]
+  email text [not null, unique]
+  name text [not null]
+  role user_role [not null]
+  trainee_type text
+  verification_status text [not null]
+  employee_id text
+  physical_id text
+  verification_submitted_at timestamptz
+  verified_at timestamptz
+  verified_by uuid
+  verification_notes text
+  onboarding_modal_seen_at timestamptz
+  avatar text
+  phone text
+  address text
+  date_of_birth date
+  gender text
+  civil_status text
+  employment_status text
+  occupation text
+  education_level text
+  barangay text
+  city_municipality text
+  province text
+  postal_code text
+  industry_interests text[]
+  preferred_categories text[]
+  onboarding_skill_level text
+  onboarding_confidence_level text
+  onboarding_weekly_commitment text
+  onboarding_digital_comfort text
+  onboarding_completed_at timestamptz
+  language_preference text [not null]
+  theme_preference text [not null]
+  skills text[]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+
+  Note: 'Several profile preference and verification fields are text columns with check constraints in SQL migrations, including trainee_type, verification_status, onboarding_skill_level, onboarding_confidence_level, onboarding_weekly_commitment, onboarding_digital_comfort, language_preference, theme_preference, gender, civil_status, employment_status, and phone format.'
+}
+
+Table public.user_permissions {
+  id uuid [pk]
+  user_id uuid [not null]
+  permission_id text [not null]
+  granted_by uuid
+  granted_at timestamptz [not null]
+  created_at timestamptz [not null]
+
+  Indexes {
+    (user_id, permission_id) [unique]
+  }
+}
+
+Table public.audit_logs {
+  id uuid [pk]
+  user_id uuid
+  event_type varchar(50) [not null]
+  event_category varchar(50) [not null]
+  description text
+  ip_address inet
+  user_agent text
+  metadata jsonb
+  success boolean
+  error_message text
+  created_at timestamptz [not null]
+}
+
+Table public.programs {
+  id uuid [pk]
+  title text [not null, unique]
+  description text [not null]
+  category text
+  created_by uuid
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+}
+
+Table public.courses {
+  id uuid [pk]
+  title text [not null]
+  description text [not null]
+  category text [not null]
+  level course_level [not null]
+  duration integer [not null]
+  instructor_id uuid [not null]
+  program_id uuid
+  thumbnail text
+  is_tesda_accredited boolean [not null]
+  skills text[] [not null]
+  skill_tags text[] [not null]
+  topic_tags text[] [not null]
+  industry_tags text[] [not null]
+  career_paths text[] [not null]
+  enrolled_count integer [not null]
+  rating numeric(3,2) [not null]
+  certificate_type certificate_type [not null]
+  published boolean [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+
+  Note: 'category, skill_tags, and topic_tags are further constrained by taxonomy validation checks in later migrations.'
+}
+
+Table public.modules {
+  id uuid [pk]
+  course_id uuid [not null]
+  title text [not null]
+  description text [not null]
+  order integer [not null]
+  content text
+  module_document text
+  materials text[]
+  prerequisites text[]
+  module_thumbnail text
+  status text [not null]
+  skill_tags text[] [not null]
+  topic_tags text[] [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+
+  Note: 'status is stored as text with a live check constraint limiting values to draft or finalized.'
+}
+
+Table public.assessments {
+  id uuid [pk]
+  course_id uuid [not null]
+  module_id uuid
+  title text [not null]
+  description text
+  assessment_thumbnail text
+  time_limit integer
+  passing_score integer
+  max_attempts integer
+  allow_retry_after_passing boolean [not null]
+  is_active boolean [not null]
+  prerequisite_module_ids uuid[] [not null]
+  derived_from_module_quiz boolean [not null]
+  skill_tags text[] [not null]
+  topic_tags text[] [not null]
+  display_order integer [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+
+  Indexes {
+    (module_id) [unique]
+  }
+}
+
+Table public.assessment_questions {
+  id uuid [pk]
+  assessment_id uuid [not null]
+  question text [not null]
+  question_type question_type [not null]
+  options jsonb
+  correct_answer text
+  points integer [not null]
+  order integer [not null]
+  explanation text
+  source_question_key text
+  derived_from_module_quiz boolean [not null]
+  is_active boolean [not null]
+  skill_tags text[] [not null]
+  topic_tags text[] [not null]
+  created_at timestamptz [not null]
+
+  Note: 'The live schema also has a partial unique index on (assessment_id, source_question_key) where source_question_key is not null and is_active = true.'
+}
+
+Table public.assessment_attempts {
+  id uuid [pk]
+  assessment_id uuid [not null]
+  enrollment_id uuid [not null]
+  user_id uuid [not null]
+  started_at timestamptz [not null]
+  submitted_at timestamptz
+  score integer
+  passed boolean
+  answers jsonb [not null]
+  time_spent integer
+  review_status text
+  requires_manual_review boolean [not null]
+  reviewed_at timestamptz
+  reviewed_by uuid
+  review_feedback text
+
+  Note: 'review_status is a text column with a check constraint limiting values to submitted, under_review, needs_revision, or approved.'
+}
+
+Table public.assessment_answers {
+  id uuid [pk]
+  attempt_id uuid [not null]
+  question_id uuid [not null]
+  answer text [not null]
+  is_correct boolean
+  points_earned integer
+  feedback text
+  review_status text
+  reviewed_at timestamptz
+  reviewed_by uuid
+
+  Note: 'review_status is a text column with a check constraint limiting values to submitted, under_review, needs_revision, or approved.'
+}
+
+Table public.learner_recommendations {
+  id uuid [pk]
+  user_id uuid [not null]
+  course_id uuid [not null]
+  source_surface text [not null]
+  rank integer [not null]
+  score numeric(10,4) [not null]
+  acceptance_probability numeric(6,2) [not null]
+  acceptance_band text [not null]
+  reasons jsonb [not null]
+  source_mix jsonb [not null]
+  recommendation_context jsonb [not null]
+  model_version text [not null]
+  generated_at timestamptz [not null]
+  last_impression_at timestamptz
+  last_click_at timestamptz
+  last_accept_at timestamptz
+  impression_count integer [not null]
+  click_count integer [not null]
+  accept_count integer [not null]
+  enrollment_count integer [not null]
+  completion_count integer [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+
+  Indexes {
+    (user_id, course_id, source_surface) [unique]
+  }
+}
+
+Table public.enrollments {
+  id uuid [pk]
+  user_id uuid [not null]
+  course_id uuid [not null]
+  progress integer [not null]
+  status enrollment_status [not null]
+  enrolled_at timestamptz [not null]
+  completed_at timestamptz
+  certificate_id uuid
+  originating_recommendation_id uuid
+  completion_approval_status text [not null]
+  completion_requested_at timestamptz
+  completion_reviewed_at timestamptz
+  completion_reviewed_by uuid
+  completion_feedback text
+  credited_duration_hours integer
+  actual_learning_minutes integer
+  updated_at timestamptz [not null]
+
+  Indexes {
+    (user_id, course_id) [unique]
+  }
+
+  Note: 'certificate_id remains an unconstrained UUID column in the live schema. completion_approval_status is text with a check constraint limiting values to not_ready, pending, approved, or needs_revision.'
+}
+
+Table public.enrollment_history {
+  id uuid [pk]
+  enrollment_id uuid
+  user_id uuid
+  course_id uuid
+  action varchar(50) [not null]
+  old_status varchar(50)
+  new_status varchar(50)
+  old_progress integer
+  new_progress integer
+  performed_by uuid
+  notes text
+  created_at timestamptz [not null]
+}
+
+Table public.module_completions {
+  id uuid [pk]
+  enrollment_id uuid [not null]
+  module_id uuid [not null]
+  completed_at timestamptz
+  time_spent integer
+
+  Indexes {
+    (enrollment_id, module_id) [unique]
+  }
+}
+
+Table public.module_sessions {
+  id uuid [pk]
+  user_id uuid [not null]
+  enrollment_id uuid [not null]
+  course_id uuid [not null]
+  module_id uuid [not null]
+  session_date date [not null]
+  started_at timestamptz [not null]
+  last_seen_at timestamptz [not null]
+  ended_at timestamptz
+  duration_seconds integer [not null]
+  session_status text [not null]
+  entry_source text
+  resume_position_seconds integer
+  metadata jsonb [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+
+  Note: 'session_status is a text column with a check constraint limiting values to active, completed, abandoned, or timed_out.'
+}
+
+Table public.submissions {
+  id uuid [pk]
+  enrollment_id uuid [not null]
+  module_id uuid [not null]
+  user_id uuid [not null]
+  submission_type varchar(50) [not null]
+  title varchar(255) [not null]
+  description text
+  content jsonb
+  file_path text
+  attachments jsonb
+  submitted_at timestamptz [not null]
+  status submission_status [not null]
+  priority varchar(20)
+  feedback text
+  validator_id uuid
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+}
+
+Table public.validations {
+  id uuid [pk]
+  submission_id uuid
+  validator_id uuid
+  validation_type varchar(50) [not null]
+  status varchar(50) [not null]
+  decision varchar(50)
+  feedback text
+  rating integer
+  metadata jsonb
+  started_at timestamptz
+  completed_at timestamptz
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+}
+
+Table public.feedback {
+  id uuid [pk]
+  validation_id uuid
+  submission_id uuid
+  validator_id uuid
+  feedback_type varchar(50) [not null]
+  title varchar(255)
+  content text [not null]
+  template_id uuid
+  rating integer
+  is_public boolean
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+
+  Note: 'template_id is present in the live schema but is not enforced as a foreign key.'
+}
+
+Table public.feedback_templates {
+  id uuid [pk]
+  name varchar(255) [not null]
+  category varchar(100)
+  content text [not null]
+  is_active boolean
+  created_by uuid
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+}
+
+Table public.certificates {
+  id uuid [pk]
+  user_id uuid [not null]
+  course_id uuid [not null]
+  certificate_number text [not null, unique]
+  certificate_type certificate_type [not null]
+  issued_at timestamptz [not null]
+  verification_code text [not null, unique]
+  issued_by uuid
+}
+
+Table public.notifications {
+  id uuid [pk]
+  user_id uuid [not null]
+  type text [not null]
+  message text [not null]
+  read boolean [not null]
+  created_at timestamptz [not null]
+}
+
+Table public.analytics_events {
+  id uuid [pk]
+  event_name text [not null]
+  event_date date [not null]
+  occurred_at timestamptz [not null]
+  user_id uuid
+  course_id uuid
+  module_id uuid
+  assessment_id uuid
+  enrollment_id uuid
+  recommendation_id uuid
+  surface text
+  session_id text
+  metadata jsonb [not null]
+  created_at timestamptz [not null]
+}
+
+Table public.analytics_user_daily {
+  id uuid [pk]
+  user_id uuid [not null]
+  metric_date date [not null]
+  enrollments_started integer [not null]
+  modules_completed integer [not null]
+  assessments_submitted integer [not null]
+  recommendation_impressions integer [not null]
+  recommendation_clicks integer [not null]
+  recommendation_accepts integer [not null]
+  total_learning_minutes integer [not null]
+  average_progress numeric(6,2) [not null]
+  progress_velocity numeric(8,2) [not null]
+  average_assessment_score numeric(6,2) [not null]
+  last_activity_at timestamptz
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+
+  Indexes {
+    (user_id, metric_date) [unique]
+  }
+}
+
+Table public.analytics_course_daily {
+  id uuid [pk]
+  course_id uuid [not null]
+  metric_date date [not null]
+  enrollments_started integer [not null]
+  enrollments_completed integer [not null]
+  certificates_issued integer [not null]
+  active_learners integer [not null]
+  course_views integer [not null]
+  recommendation_enrollments integer [not null]
+  total_learning_minutes integer [not null]
+  average_progress numeric(6,2) [not null]
+  average_assessment_score numeric(6,2) [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+
+  Indexes {
+    (course_id, metric_date) [unique]
+  }
+}
+
+Table public.analytics_module_daily {
+  id uuid [pk]
+  module_id uuid [not null]
+  course_id uuid [not null]
+  metric_date date [not null]
+  module_opens integer [not null]
+  completions integer [not null]
+  assessment_attempts integer [not null]
+  passed_attempts integer [not null]
+  failed_attempts integer [not null]
+  active_learners integer [not null]
+  average_score numeric(6,2) [not null]
+  pass_rate numeric(6,2) [not null]
+  failure_rate numeric(6,2) [not null]
+  average_time_spent_minutes numeric(8,2) [not null]
+  abandonment_rate numeric(6,2) [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+
+  Indexes {
+    (module_id, metric_date) [unique]
+  }
+}
+
+Table public.analytics_recommendation_daily {
+  id uuid [pk]
+  recommendation_id uuid [not null]
+  user_id uuid [not null]
+  course_id uuid [not null]
+  metric_date date [not null]
+  surface text [not null]
+  impressions integer [not null]
+  clicks integer [not null]
+  accepts integer [not null]
+  enrollments integer [not null]
+  completions integer [not null]
+  ctr numeric(6,2) [not null]
+  accept_rate numeric(6,2) [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+
+  Indexes {
+    (recommendation_id, metric_date, surface) [unique]
+  }
+}
+
+Table public.analytics_admin_daily {
+  id uuid [pk]
+  metric_date date [not null, unique]
+  total_enrollments integer [not null]
+  total_completions integer [not null]
+  active_learners integer [not null]
+  certificates_issued integer [not null]
+  recommendation_impressions integer [not null]
+  recommendation_clicks integer [not null]
+  recommendation_accepts integer [not null]
+  total_learning_minutes integer [not null]
+  average_assessment_score numeric(6,2) [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+}
+
+Table public.learner_skill_profiles {
+  id uuid [pk]
+  user_id uuid [not null, unique]
+  strongest_skill_tags text[] [not null]
+  improvement_skill_tags text[] [not null]
+  topic_summary jsonb [not null]
+  average_assessment_score numeric(6,2) [not null]
+  total_learning_minutes integer [not null]
+  modules_completed integer [not null]
+  generated_at timestamptz [not null]
+  model_version text [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+}
+
+Table public.module_quality_signals {
+  id uuid [pk]
+  module_id uuid [not null]
+  course_id uuid [not null]
+  snapshot_date date [not null]
+  attempt_count integer [not null]
+  completion_count integer [not null]
+  average_score numeric(6,2) [not null]
+  pass_rate numeric(6,2) [not null]
+  average_time_spent_minutes numeric(8,2) [not null]
+  abandonment_rate numeric(6,2) [not null]
+  quality_score numeric(6,2) [not null]
+  risk_level text [not null]
+  signal_summary jsonb [not null]
+  generated_at timestamptz [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+
+  Indexes {
+    (module_id, snapshot_date) [unique]
+  }
+}
+
+Table public.course_risk_scores {
+  id uuid [pk]
+  course_id uuid [not null]
+  snapshot_date date [not null]
+  active_enrollments integer [not null]
+  completed_enrollments integer [not null]
+  completion_rate numeric(6,2) [not null]
+  average_progress numeric(6,2) [not null]
+  average_time_spent_minutes numeric(8,2) [not null]
+  recommendation_acceptance_rate numeric(6,2) [not null]
+  risk_score numeric(6,2) [not null]
+  risk_level text [not null]
+  score_summary jsonb [not null]
+  generated_at timestamptz [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+
+  Indexes {
+    (course_id, snapshot_date) [unique]
+  }
+}
+
+Table public.learner_disengagement_scores {
+  id uuid [pk]
+  user_id uuid [not null]
+  snapshot_date date [not null]
+  active_enrollments integer [not null]
+  incomplete_enrollments integer [not null]
+  recent_session_count integer [not null]
+  repeated_short_session_count integer [not null]
+  inactive_days integer [not null]
+  disengagement_score numeric(6,2) [not null]
+  risk_level text [not null]
+  signal_summary jsonb [not null]
+  generated_at timestamptz [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+
+  Indexes {
+    (user_id, snapshot_date) [unique]
+  }
+}
+
+Table public.taxonomy_terms {
+  id uuid [pk]
+  term_type text [not null]
+  name text [not null]
+  is_active boolean [not null]
+  created_by uuid
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+
+  Indexes {
+    (term_type, name) [unique]
+  }
+
+  Note: 'The live unique index is case-insensitive on lower(trim(name)); DBML records the logical uniqueness only.'
+}
+
+Table public.system_settings {
+  key text [pk]
+  value_json jsonb [not null]
+  description text
+  is_public boolean [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+}
+
+Table public.user_phone_normalization_audit {
+  user_id uuid [pk]
+  original_phone text
+  normalized_phone text
+  migration_tag text [not null]
+  logged_at timestamptz [not null]
+}
+
+Ref: public.users.id > auth.users.id
+Ref: public.users.verified_by > public.users.id
+Ref: public.user_permissions.user_id > public.users.id
+Ref: public.user_permissions.permission_id > public.permissions.id
+Ref: public.user_permissions.granted_by > public.users.id
+Ref: public.role_permissions.role_id > public.roles.id
+Ref: public.role_permissions.permission_id > public.permissions.id
+Ref: public.audit_logs.user_id > auth.users.id
+Ref: public.programs.created_by > auth.users.id
+Ref: public.courses.instructor_id > public.users.id
+Ref: public.courses.program_id > public.programs.id
+Ref: public.modules.course_id > public.courses.id
+Ref: public.assessments.course_id > public.courses.id
+Ref: public.assessments.module_id > public.modules.id
+Ref: public.assessment_questions.assessment_id > public.assessments.id
+Ref: public.assessment_attempts.assessment_id > public.assessments.id
+Ref: public.assessment_attempts.enrollment_id > public.enrollments.id
+Ref: public.assessment_attempts.user_id > public.users.id
+Ref: public.assessment_attempts.reviewed_by > public.users.id
+Ref: public.assessment_answers.attempt_id > public.assessment_attempts.id
+Ref: public.assessment_answers.question_id > public.assessment_questions.id
+Ref: public.assessment_answers.reviewed_by > public.users.id
+Ref: public.learner_recommendations.user_id > public.users.id
+Ref: public.learner_recommendations.course_id > public.courses.id
+Ref: public.enrollments.user_id > public.users.id
+Ref: public.enrollments.course_id > public.courses.id
+Ref: public.enrollments.originating_recommendation_id > public.learner_recommendations.id
+Ref: public.enrollments.completion_reviewed_by > public.users.id
+Ref: public.enrollment_history.enrollment_id > public.enrollments.id
+Ref: public.enrollment_history.user_id > auth.users.id
+Ref: public.enrollment_history.course_id > public.courses.id
+Ref: public.enrollment_history.performed_by > auth.users.id
+Ref: public.module_completions.enrollment_id > public.enrollments.id
+Ref: public.module_completions.module_id > public.modules.id
+Ref: public.module_sessions.user_id > public.users.id
+Ref: public.module_sessions.enrollment_id > public.enrollments.id
+Ref: public.module_sessions.course_id > public.courses.id
+Ref: public.module_sessions.module_id > public.modules.id
+Ref: public.submissions.enrollment_id > public.enrollments.id
+Ref: public.submissions.module_id > public.modules.id
+Ref: public.submissions.user_id > public.users.id
+Ref: public.submissions.validator_id > public.users.id
+Ref: public.validations.submission_id > public.submissions.id
+Ref: public.validations.validator_id > auth.users.id
+Ref: public.feedback.validation_id > public.validations.id
+Ref: public.feedback.submission_id > public.submissions.id
+Ref: public.feedback.validator_id > auth.users.id
+Ref: public.feedback_templates.created_by > auth.users.id
+Ref: public.certificates.user_id > public.users.id
+Ref: public.certificates.course_id > public.courses.id
+Ref: public.certificates.issued_by > public.users.id
+Ref: public.notifications.user_id > public.users.id
+Ref: public.analytics_events.user_id > public.users.id
+Ref: public.analytics_events.course_id > public.courses.id
+Ref: public.analytics_events.module_id > public.modules.id
+Ref: public.analytics_events.assessment_id > public.assessments.id
+Ref: public.analytics_events.enrollment_id > public.enrollments.id
+Ref: public.analytics_events.recommendation_id > public.learner_recommendations.id
+Ref: public.analytics_user_daily.user_id > public.users.id
+Ref: public.analytics_course_daily.course_id > public.courses.id
+Ref: public.analytics_module_daily.module_id > public.modules.id
+Ref: public.analytics_module_daily.course_id > public.courses.id
+Ref: public.analytics_recommendation_daily.recommendation_id > public.learner_recommendations.id
+Ref: public.analytics_recommendation_daily.user_id > public.users.id
+Ref: public.analytics_recommendation_daily.course_id > public.courses.id
+Ref: public.learner_skill_profiles.user_id > public.users.id
+Ref: public.module_quality_signals.module_id > public.modules.id
+Ref: public.module_quality_signals.course_id > public.courses.id
+Ref: public.course_risk_scores.course_id > public.courses.id
+Ref: public.learner_disengagement_scores.user_id > public.users.id
+Ref: public.taxonomy_terms.created_by > public.users.id

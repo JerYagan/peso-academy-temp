@@ -160,6 +160,7 @@ export interface Database {
           level: 'Beginner' | 'Intermediate' | 'Advanced'
           duration: number
           instructor_id: string
+          trainee_audience: 'general_public' | 'peso_client' | 'peso_employee'
           thumbnail?: string | null
           is_tesda_accredited: boolean
           skills: string[]
@@ -179,6 +180,7 @@ export interface Database {
           level: 'Beginner' | 'Intermediate' | 'Advanced'
           duration: number
           instructor_id: string
+          trainee_audience?: 'general_public' | 'peso_client' | 'peso_employee'
           thumbnail?: string | null
           is_tesda_accredited?: boolean
           skills: string[]
@@ -198,6 +200,7 @@ export interface Database {
           level?: 'Beginner' | 'Intermediate' | 'Advanced'
           duration?: number
           instructor_id?: string
+          trainee_audience?: 'general_public' | 'peso_client' | 'peso_employee'
           thumbnail?: string | null
           is_tesda_accredited?: boolean
           skills?: string[]
@@ -252,6 +255,206 @@ export interface Database {
           created_at?: string
           updated_at?: string
           status?: string
+        }
+      }
+      assessments: {
+        Row: {
+          id: string
+          course_id: string
+          module_id?: string | null
+          title: string
+          description?: string | null
+          assessment_thumbnail?: string | null
+          time_limit?: number | null
+          passing_score?: number | null
+          max_attempts?: number | null
+          allow_retry_after_passing?: boolean | null
+          is_active: boolean
+          prerequisite_module_ids?: string[] | null
+          derived_from_module_quiz?: boolean | null
+          skill_tags?: string[] | null
+          topic_tags?: string[] | null
+          display_order?: number | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          course_id: string
+          module_id?: string | null
+          title: string
+          description?: string | null
+          assessment_thumbnail?: string | null
+          time_limit?: number | null
+          passing_score?: number | null
+          max_attempts?: number | null
+          allow_retry_after_passing?: boolean | null
+          is_active?: boolean
+          prerequisite_module_ids?: string[] | null
+          derived_from_module_quiz?: boolean | null
+          skill_tags?: string[] | null
+          topic_tags?: string[] | null
+          display_order?: number | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          course_id?: string
+          module_id?: string | null
+          title?: string
+          description?: string | null
+          assessment_thumbnail?: string | null
+          time_limit?: number | null
+          passing_score?: number | null
+          max_attempts?: number | null
+          allow_retry_after_passing?: boolean | null
+          is_active?: boolean
+          prerequisite_module_ids?: string[] | null
+          derived_from_module_quiz?: boolean | null
+          skill_tags?: string[] | null
+          topic_tags?: string[] | null
+          display_order?: number | null
+          created_at?: string
+          updated_at?: string
+        }
+      }
+      assessment_questions: {
+        Row: {
+          id: string
+          assessment_id: string
+          question: string
+          question_type: 'multiple_choice' | 'true_false' | 'short_answer' | 'essay'
+          options?: Json | null
+          correct_answer?: string | null
+          points: number
+          order: number
+          explanation?: string | null
+          source_question_key?: string | null
+          derived_from_module_quiz?: boolean | null
+          is_active?: boolean | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          assessment_id: string
+          question: string
+          question_type?: 'multiple_choice' | 'true_false' | 'short_answer' | 'essay'
+          options?: Json | null
+          correct_answer?: string | null
+          points?: number
+          order?: number
+          explanation?: string | null
+          source_question_key?: string | null
+          derived_from_module_quiz?: boolean | null
+          is_active?: boolean | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          assessment_id?: string
+          question?: string
+          question_type?: 'multiple_choice' | 'true_false' | 'short_answer' | 'essay'
+          options?: Json | null
+          correct_answer?: string | null
+          points?: number
+          order?: number
+          explanation?: string | null
+          source_question_key?: string | null
+          derived_from_module_quiz?: boolean | null
+          is_active?: boolean | null
+          created_at?: string
+        }
+      }
+      assessment_attempts: {
+        Row: {
+          id: string
+          assessment_id: string
+          enrollment_id: string
+          user_id: string
+          started_at: string
+          submitted_at?: string | null
+          score?: number | null
+          passed?: boolean | null
+          answers?: Json | null
+          time_spent?: number | null
+          review_status?: 'submitted' | 'under_review' | 'needs_revision' | 'approved' | null
+          requires_manual_review?: boolean | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          review_feedback?: string | null
+        }
+        Insert: {
+          id?: string
+          assessment_id: string
+          enrollment_id: string
+          user_id: string
+          started_at?: string
+          submitted_at?: string | null
+          score?: number | null
+          passed?: boolean | null
+          answers?: Json | null
+          time_spent?: number | null
+          review_status?: 'submitted' | 'under_review' | 'needs_revision' | 'approved' | null
+          requires_manual_review?: boolean | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          review_feedback?: string | null
+        }
+        Update: {
+          id?: string
+          assessment_id?: string
+          enrollment_id?: string
+          user_id?: string
+          started_at?: string
+          submitted_at?: string | null
+          score?: number | null
+          passed?: boolean | null
+          answers?: Json | null
+          time_spent?: number | null
+          review_status?: 'submitted' | 'under_review' | 'needs_revision' | 'approved' | null
+          requires_manual_review?: boolean | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+          review_feedback?: string | null
+        }
+      }
+      assessment_answers: {
+        Row: {
+          id: string
+          attempt_id: string
+          question_id: string
+          answer: string
+          is_correct?: boolean | null
+          points_earned?: number | null
+          feedback?: string | null
+          review_status?: 'submitted' | 'under_review' | 'needs_revision' | 'approved' | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+        }
+        Insert: {
+          id?: string
+          attempt_id: string
+          question_id: string
+          answer: string
+          is_correct?: boolean | null
+          points_earned?: number | null
+          feedback?: string | null
+          review_status?: 'submitted' | 'under_review' | 'needs_revision' | 'approved' | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
+        }
+        Update: {
+          id?: string
+          attempt_id?: string
+          question_id?: string
+          answer?: string
+          is_correct?: boolean | null
+          points_earned?: number | null
+          feedback?: string | null
+          review_status?: 'submitted' | 'under_review' | 'needs_revision' | 'approved' | null
+          reviewed_at?: string | null
+          reviewed_by?: string | null
         }
       }
       enrollments: {
@@ -462,6 +665,7 @@ export interface Database {
           user_id: string
           type: string
           message: string
+          metadata?: Json | null
           read: boolean
           created_at: string
         }
@@ -470,6 +674,7 @@ export interface Database {
           user_id: string
           type: string
           message: string
+          metadata?: Json | null
           read?: boolean
           created_at?: string
         }
@@ -478,6 +683,7 @@ export interface Database {
           user_id?: string
           type?: string
           message?: string
+          metadata?: Json | null
           read?: boolean
           created_at?: string
         }

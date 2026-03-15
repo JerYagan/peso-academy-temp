@@ -38,6 +38,10 @@ export interface Notification {
   };
 }
 
+export type TestNotificationAudience = "self" | "admins" | "trainers" | "trainees" | "all";
+
+const NOTIFICATION_SELECT_FIELDS = "id, user_id, type, message, read, created_at, metadata";
+
 const unsupportedNotificationColumns = new Set<string>();
 
 const normalizeMissingColumnName = (columnName: string | null | undefined): string | null => {
@@ -101,6 +105,9 @@ const sanitizeWritePayload = (payload: Record<string, unknown>, unsupportedColum
   return nextPayload;
 };
 
+const sanitizeWritePayloads = (payloads: Record<string, unknown>[], unsupportedColumns: Set<string>) =>
+  payloads.map((payload) => sanitizeWritePayload(payload, unsupportedColumns));
+
 const executeNotificationReadWithFallback = async <T>(
   execute: (selectClause: string) => Promise<{ data: T | null; error: any }>,
   selectClause: string,
@@ -149,6 +156,34 @@ const executeNotificationWriteWithFallback = async <T>(
   return execute(nextPayload);
 };
 
+const executeNotificationBulkWriteWithFallback = async <T>(
+  execute: (payloads: Record<string, unknown>[]) => Promise<{ data: T | null; error: any }>,
+  payloads: Record<string, unknown>[],
+): Promise<{ data: T | null; error: any }> => {
+  let nextPayloads = sanitizeWritePayloads(payloads, unsupportedNotificationColumns);
+
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const result = await execute(nextPayloads);
+    if (!result.error) {
+      return result;
+    }
+
+    const missingColumn = getMissingColumnName(result.error, "notifications");
+    if (!missingColumn || !nextPayloads.some((payload) => missingColumn in payload)) {
+      return result;
+    }
+
+    unsupportedNotificationColumns.add(missingColumn);
+    nextPayloads = nextPayloads.map((payload) => {
+      const nextPayload = { ...payload };
+      delete nextPayload[missingColumn];
+      return nextPayload;
+    });
+  }
+
+  return execute(nextPayloads);
+};
+
 const mapNotificationRow = (notif: any): Notification => ({
   id: notif.id,
   userId: notif.user_id,
@@ -195,7 +230,7 @@ export const notificationService = {
 
           return query;
         },
-        "*",
+        NOTIFICATION_SELECT_FIELDS,
       );
 
       if (error) {
@@ -262,7 +297,7 @@ export const notificationService = {
         (payload) => supabase
           .from("notifications")
           .insert(payload)
-          .select("*")
+          .select(NOTIFICATION_SELECT_FIELDS)
           .single(),
         {
           user_id: userId,
@@ -288,66 +323,195 @@ export const notificationService = {
     }
   },
 
+  sendTestNotification: async (
+    senderId: string,
+    audience: TestNotificationAudience,
+    message: string,
+  ): Promise<{ success: boolean; recipients: number; error?: string }> => {
+    if (!supabase) {
+      return { success: false, recipients: 0, error: "Supabase client not initialized." };
+    }
+
+    try {
+      let recipientIds: string[] = [];
+
+      if (audience === "self") {
+        recipientIds = [senderId];
+      } else {
+        let query = supabase.from("users").select("id");
+
+        if (audience === "admins") {
+          query = query.eq("role", "admin");
+        } else if (audience === "trainers") {
+          query = query.eq("role", "trainer");
+        } else if (audience === "trainees") {
+          query = query.eq("role", "trainee");
+        }
+
+        const { data, error } = await query;
+
+        if (error) {
+          handleSupabaseError(error);
+          return { success: false, recipients: 0, error: error.message || "Failed to load recipients." };
+        }
+
+        recipientIds = (data || []).map((row) => row.id).filter(Boolean);
+      }
+
+      const uniqueRecipientIds = [...new Set(recipientIds)];
+      if (!uniqueRecipientIds.length) {
+        return { success: false, recipients: 0, error: "No recipients matched the selected audience." };
+      }
+
+      const trimmedMessage = message.trim();
+      const notificationMessage = trimmedMessage || "Notification test from Admin Settings.";
+      const sentAt = new Date().toISOString();
+
+      const payloads = uniqueRecipientIds.map((userId) => ({
+        user_id: userId,
+        type: "system_announcement",
+        message: notificationMessage,
+        metadata: {
+          isTestNotification: true,
+          senderId,
+          audience,
+          sentAt,
+        },
+      }));
+
+      const { error } = await executeNotificationBulkWriteWithFallback(
+        (nextPayloads) => supabase.from("notifications").insert(nextPayloads),
+        payloads,
+      );
+
+      if (error) {
+        if (isRecoverableNotificationError(error)) {
+          return { success: false, recipients: 0, error: "Notifications table is unavailable." };
+        }
+
+        handleSupabaseError(error);
+        return { success: false, recipients: 0, error: error.message || "Failed to send test notification." };
+      }
+
+      return { success: true, recipients: uniqueRecipientIds.length };
+    } catch (error) {
+      console.error("Error sending test notification:", error);
+      return {
+        success: false,
+        recipients: 0,
+        error: error instanceof Error ? error.message : "Failed to send test notification.",
+      };
+    }
+  },
+
   /**
    * Mark notification as read
    */
-  markAsRead: async (notificationId: string): Promise<void> => {
-    if (!supabase) return;
+  markAsRead: async (notificationId: string): Promise<boolean> => {
+    if (!supabase) return false;
 
     try {
-      await supabase
+      const { error } = await supabase
         .from("notifications")
         .update({ read: true })
         .eq("id", notificationId);
+
+      if (error) {
+        if (isRecoverableNotificationError(error)) {
+          return false;
+        }
+
+        handleSupabaseError(error);
+        return false;
+      }
+
+      return true;
     } catch (error) {
       console.error("Error marking notification as read:", error);
+      return false;
     }
   },
 
   /**
    * Mark all notifications as read for a user
    */
-  markAllAsRead: async (userId: string): Promise<void> => {
-    if (!supabase) return;
+  markAllAsRead: async (userId: string): Promise<boolean> => {
+    if (!supabase) return false;
 
     try {
-      await supabase
+      const { error } = await supabase
         .from("notifications")
         .update({ read: true })
         .eq("user_id", userId)
         .eq("read", false);
+
+      if (error) {
+        if (isRecoverableNotificationError(error)) {
+          return false;
+        }
+
+        handleSupabaseError(error);
+        return false;
+      }
+
+      return true;
     } catch (error) {
       console.error("Error marking all notifications as read:", error);
+      return false;
     }
   },
 
   /**
    * Delete a notification
    */
-  deleteNotification: async (notificationId: string): Promise<void> => {
-    if (!supabase) return;
+  deleteNotification: async (notificationId: string): Promise<boolean> => {
+    if (!supabase) return false;
 
     try {
-      await supabase.from("notifications").delete().eq("id", notificationId);
+      const { error } = await supabase.from("notifications").delete().eq("id", notificationId);
+
+      if (error) {
+        if (isRecoverableNotificationError(error)) {
+          return false;
+        }
+
+        handleSupabaseError(error);
+        return false;
+      }
+
+      return true;
     } catch (error) {
       console.error("Error deleting notification:", error);
+      return false;
     }
   },
 
   /**
    * Delete all read notifications for a user
    */
-  deleteAllRead: async (userId: string): Promise<void> => {
-    if (!supabase) return;
+  deleteAllRead: async (userId: string): Promise<boolean> => {
+    if (!supabase) return false;
 
     try {
-      await supabase
+      const { error } = await supabase
         .from("notifications")
         .delete()
         .eq("user_id", userId)
         .eq("read", true);
+
+      if (error) {
+        if (isRecoverableNotificationError(error)) {
+          return false;
+        }
+
+        handleSupabaseError(error);
+        return false;
+      }
+
+      return true;
     } catch (error) {
       console.error("Error deleting read notifications:", error);
+      return false;
     }
   },
 
@@ -477,13 +641,14 @@ export const notificationHelpers = {
   notifyEnrollmentConfirmed: async (
     userId: string,
     courseTitle: string,
-    enrollmentId: string
+    enrollmentId: string,
+    courseId?: string,
   ): Promise<void> => {
     await notificationService.createNotification(
       userId,
       "enrollment_confirmed",
       `You have been enrolled in "${courseTitle}"`,
-      { enrollmentId, courseTitle }
+      { enrollmentId, courseTitle, courseId }
     );
   },
 
@@ -517,6 +682,35 @@ export const notificationHelpers = {
       "assessment_graded",
       `Your assessment for "${courseTitle}" has been graded. Score: ${score}% ${passed ? "✅ Passed" : "❌ Failed"}`,
       { courseTitle, score, passed }
+    );
+  },
+
+  notifyRecommendationsReady: async (
+    userId: string,
+    recommendations: Array<{ courseId: string; courseTitle: string }>,
+    trigger: "profile_update" | "onboarding_completion",
+  ): Promise<void> => {
+    const [topRecommendation] = recommendations;
+    if (!topRecommendation) {
+      return;
+    }
+
+    const recommendationCount = recommendations.length;
+    const message = trigger === "onboarding_completion"
+      ? `Your personalized course recommendations are ready. Start with "${topRecommendation.courseTitle}"${recommendationCount > 1 ? ` and ${recommendationCount - 1} more matches.` : "."}`
+      : `You have updated course recommendations. "${topRecommendation.courseTitle}" is a strong next match${recommendationCount > 1 ? `, plus ${recommendationCount - 1} more.` : "."}`;
+
+    await notificationService.createNotification(
+      userId,
+      "course_assigned",
+      message,
+      {
+        courseId: topRecommendation.courseId,
+        courseTitle: topRecommendation.courseTitle,
+        recommendedCourseIds: recommendations.map((recommendation) => recommendation.courseId),
+        recommendationCount,
+        trigger,
+      },
     );
   },
 };

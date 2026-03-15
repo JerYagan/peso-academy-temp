@@ -91,6 +91,8 @@ const loadTrainerVisibleAssessmentAttempts = async (courseIds: string[], enrollm
   return data || [];
 };
 
+const isEnrollmentCompleted = (status?: string | null) => status === "completed";
+
 /**
  * Reporting Service
  * Handles all reporting and analytics data aggregation
@@ -1010,7 +1012,7 @@ const buildLearnerLeaderboardFromCourses = async ({
         const certificate = certificatesByLearnerCourse.get(`${learnerId}:${enrollment.course_id}`);
         const progress = clampPercentage(Number(enrollment.progress || 0));
         progressSum += progress;
-        if (enrollment.status === "completed" || progress >= 100) {
+        if (isEnrollmentCompleted(enrollment.status)) {
           completedUnits += 1;
         }
 
@@ -1121,6 +1123,164 @@ export interface LearnerCourseRecommendation {
   };
   modelVersion?: string;
 }
+
+export interface LearnerCareerPathRecommendation {
+  title: string;
+  type: "industry" | "career_path";
+  description: string;
+  rationale: string;
+  supportingCourses: string[];
+}
+
+const finalizeRecommendationSentence = (parts: string[]) => {
+  const text = parts
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .filter((part, index, array) => array.indexOf(part) === index)
+    .slice(0, 2)
+    .join(". ");
+
+  if (!text) {
+    return "Built from your saved learner signals and recent course matches.";
+  }
+
+  return /[.!?]$/.test(text) ? text : `${text}.`;
+};
+
+export const buildLearnerCareerPathRecommendations = (
+  user: User | null,
+  courses: Course[],
+  enrollments: Enrollment[],
+  performanceSummary?: LearnerPerformanceSummary | null,
+  limit = 3,
+): LearnerCareerPathRecommendation[] => {
+  if (!user || user.role !== "trainee") {
+    return [];
+  }
+
+  const rankedCourses = buildLearnerCourseRecommendations(
+    user,
+    courses,
+    enrollments,
+    performanceSummary,
+    Math.max(limit * 4, 8),
+  );
+  const strongestTopic = performanceSummary?.strongestTopic?.topic || null;
+  const needsImprovementTopic = performanceSummary?.needsImprovementTopic?.topic || null;
+  const normalizedStrongestTopic = canonicalizeTopicTag(strongestTopic || "")?.toLowerCase() || null;
+  const normalizedNeedsImprovementTopic = canonicalizeTopicTag(needsImprovementTopic || "")?.toLowerCase() || null;
+  const preferredCategories = new Set(normalizeCourseCategories(user.preferredCategories).map((value) => value.toLowerCase()));
+  const learnerIndustryInterests = Array.from(normalizeSet(user.industryInterests));
+  const originalIndustryInterests = user.industryInterests || [];
+
+  type Candidate = LearnerCareerPathRecommendation & {
+    score: number;
+    rationaleParts: string[];
+  };
+
+  const candidates = new Map<string, Candidate>();
+
+  const registerCandidate = (
+    type: LearnerCareerPathRecommendation["type"],
+    title: string,
+    score: number,
+    rationaleParts: string[],
+    supportingCourseTitle?: string,
+  ) => {
+    const normalizedTitle = title.trim();
+    if (!normalizedTitle) {
+      return;
+    }
+
+    const key = `${type}:${normalizedTitle.toLowerCase()}`;
+    const existing = candidates.get(key);
+    const description = type === "industry"
+      ? `${normalizedTitle} keeps surfacing in the courses and skill signals that best match your learner profile.`
+      : `${normalizedTitle} fits the course themes and skill signals already appearing in your learner record.`;
+
+    if (existing) {
+      existing.score += score;
+      existing.rationaleParts.push(...rationaleParts);
+      if (supportingCourseTitle && !existing.supportingCourses.includes(supportingCourseTitle) && existing.supportingCourses.length < 2) {
+        existing.supportingCourses.push(supportingCourseTitle);
+      }
+      return;
+    }
+
+    candidates.set(key, {
+      title: normalizedTitle,
+      type,
+      description,
+      rationale: "",
+      supportingCourses: supportingCourseTitle ? [supportingCourseTitle] : [],
+      score,
+      rationaleParts: [...rationaleParts],
+    });
+  };
+
+  rankedCourses.forEach((recommendation, index) => {
+    const { course, reasons } = recommendation;
+    const weightedScore = Math.max(1, recommendation.score) + Math.max(0, 18 - (index * 2));
+    const normalizedCategory = normalizeCategoryKey(course.category);
+    const courseTopics = deriveTopicTags(course.category, course.skills, course.topicTags).map((topic) => topic.toLowerCase());
+    const courseIndustries = Array.from(new Set((course.industryTags || []).map((tag) => tag.trim()).filter(Boolean)));
+    const courseCareerPaths = Array.from(new Set((course.careerPaths || []).map((path) => path.trim()).filter(Boolean)));
+    const rationaleParts: string[] = [];
+    const matchingInterest = courseIndustries.find((tag) => learnerIndustryInterests.includes(tag.toLowerCase()));
+
+    if (matchingInterest) {
+      rationaleParts.push(`Matches your ${matchingInterest} interest`);
+    }
+
+    if (preferredCategories.has(normalizedCategory)) {
+      rationaleParts.push(`Connected to your preferred ${course.category} learning track`);
+    }
+
+    if (normalizedStrongestTopic && courseTopics.includes(normalizedStrongestTopic) && strongestTopic) {
+      rationaleParts.push(`Builds on your strong ${strongestTopic} assessment results`);
+    }
+
+    if (normalizedNeedsImprovementTopic && courseTopics.includes(normalizedNeedsImprovementTopic) && needsImprovementTopic) {
+      rationaleParts.push(`Gives you more guided practice in ${needsImprovementTopic}`);
+    }
+
+    if (rationaleParts.length === 0 && reasons[0]) {
+      rationaleParts.push(reasons[0]);
+    }
+
+    courseIndustries.forEach((industryTag) => {
+      registerCandidate("industry", industryTag, weightedScore, rationaleParts, course.title);
+    });
+
+    courseCareerPaths.forEach((careerPath) => {
+      registerCandidate("career_path", careerPath, weightedScore + 4, [...rationaleParts, `Supported by ${course.title}`], course.title);
+    });
+  });
+
+  originalIndustryInterests.forEach((interest, index) => {
+    if (candidates.size >= limit + 2) {
+      return;
+    }
+
+    registerCandidate(
+      "industry",
+      interest,
+      36 - (index * 2),
+      [
+        `Directly matches your saved ${interest} interest`,
+        strongestTopic ? `Can build on your ${strongestTopic} learning momentum` : "Useful for shaping your next training direction",
+      ],
+    );
+  });
+
+  return Array.from(candidates.values())
+    .sort((left, right) => right.score - left.score)
+    .slice(0, limit)
+    .map(({ score: _score, rationaleParts, ...candidate }) => ({
+      ...candidate,
+      rationale: finalizeRecommendationSentence(rationaleParts),
+    }));
+};
 
 export const deriveAssessmentOnlyRecommendationEvidence = (
   performanceSummary?: LearnerPerformanceSummary | null,
@@ -1370,10 +1530,10 @@ const buildCollaborativeReason = (signal: {
   }
 
   if (signal.similarLearnerCount > 0) {
-    return "Matches learning paths taken by similar trainees";
+    return "Matches learning paths taken by similar learners";
   }
 
-  return "Suggested from similar trainee enrollment patterns";
+  return "Suggested from similar learner enrollment patterns";
 };
 
 const buildCollaborativeRecommendationComputation = async (
@@ -1487,7 +1647,7 @@ const buildCollaborativeRecommendationComputation = async (
       };
 
       existing.overlapCount += 1;
-      if (row.status === "completed" || candidateProgress >= 100) {
+      if (isEnrollmentCompleted(row.status)) {
         existing.completedOverlapCount += 1;
       }
       existing.progressClosenessSum += progressCloseness;
@@ -1573,7 +1733,7 @@ const buildCollaborativeRecommendationComputation = async (
 
       const progress = Number(row.progress || 0);
       const interactionWeight =
-        row.status === "completed" || progress >= 100
+        isEnrollmentCompleted(row.status)
           ? 1.25
           : progress >= 60
             ? 1
@@ -1591,7 +1751,7 @@ const buildCollaborativeRecommendationComputation = async (
       existing.rawScore += neighborWeight * interactionWeight;
       existing.supportUserIds.add(row.user_id);
       existing.supportingLearnerIds.add(row.user_id);
-      if (row.status === "completed" || progress >= 100) {
+      if (isEnrollmentCompleted(row.status)) {
         existing.completedBySimilarLearners += 1;
       }
       candidateSignals.set(row.course_id, existing);
@@ -1881,7 +2041,7 @@ export const buildLearnerCourseRecommendations = (
       if (popularityScore > 0) {
         score += popularityScore;
         usedPopularityWeight = true;
-        reasons.push("Popular among PESO Academy trainees");
+        reasons.push("Popular among PESO Academy learners");
       }
 
       if (collaborativeSignal) {
@@ -1938,7 +2098,7 @@ export const buildLearnerCourseRecommendations = (
         if (!hasOnboardingSignals) {
           if (isStarterFriendlyCourse(course)) {
             score += 20;
-            reasons.push("Curated starter course for new trainees");
+            reasons.push("Curated starter course for new learners");
           }
 
           if (course.level === "Beginner") {
@@ -3029,11 +3189,11 @@ export const reportingService = {
         new Set(assessmentAttempts.map((attempt) => attempt.assessment_id).filter(Boolean))
       );
 
-      let assessments: Array<{ id: string; title: string; module_id: string; skill_tags?: string[]; topic_tags?: string[] }> = [];
+      let assessments: Array<{ id: string; title: string; module_id: string | null; course_id: string | null; skill_tags?: string[]; topic_tags?: string[] }> = [];
       if (assessmentIds.length > 0) {
         const { data: assessmentRows, error: assessmentsError } = await supabase
           .from("assessments")
-          .select("id, title, module_id, skill_tags, topic_tags")
+          .select("id, title, module_id, course_id, skill_tags, topic_tags")
           .in("id", assessmentIds);
 
         if (assessmentsError) {
@@ -3086,7 +3246,18 @@ export const reportingService = {
         const assessment = assessmentMap.get(assessmentId);
         if (!assessment) return [];
         const directTopics = deriveTopicTags(undefined, assessment.skill_tags || [], assessment.topic_tags || []);
-        return directTopics.length > 0 ? directTopics : getTopicsForModule(assessment.module_id);
+        if (directTopics.length > 0) {
+          return directTopics;
+        }
+
+        if (assessment.module_id) {
+          const moduleTopics = getTopicsForModule(assessment.module_id);
+          if (moduleTopics.length > 0) {
+            return moduleTopics;
+          }
+        }
+
+        return assessment.course_id ? getTopicsForCourse(assessment.course_id) : [];
       };
 
       const topicStats = new Map<string, {
@@ -3188,9 +3359,9 @@ export const reportingService = {
       const recentAssessments = assessmentAttempts
         .map((attempt) => {
           const assessment = assessmentMap.get(attempt.assessment_id);
-          const module = assessment ? moduleMap.get(assessment.module_id) : null;
+          const module = assessment?.module_id ? moduleMap.get(assessment.module_id) : null;
           const enrollment = enrollmentMap.get(attempt.enrollment_id);
-          const courseId = module?.course_id || enrollment?.course_id;
+          const courseId = module?.course_id || assessment?.course_id || enrollment?.course_id;
           const course = courseId ? courseMap.get(courseId) : null;
           const numericScore = attempt.score === null || attempt.score === undefined ? null : Number(attempt.score);
           const timeSpentMinutes = attempt.time_spent || 0;
@@ -4149,7 +4320,7 @@ export const reportingService = {
         stats.learnerIds.add(enrollment.user_id);
         stats.progressSum += progress;
 
-        if (enrollment.status === "completed" || progress >= 100) {
+        if (isEnrollmentCompleted(enrollment.status)) {
           stats.completed += 1;
           cohortSegments.completed += 1;
         } else if (progress <= 0 || enrollment.status === "enrolled") {
@@ -4187,7 +4358,7 @@ export const reportingService = {
         }
 
         const completedMonthKey = getMonthKey(enrollment.completed_at);
-        if ((enrollment.status === "completed" || progress >= 100) && completedMonthKey && trendMap.has(completedMonthKey)) {
+        if (isEnrollmentCompleted(enrollment.status) && completedMonthKey && trendMap.has(completedMonthKey)) {
           trendMap.get(completedMonthKey)!.completedEnrollments += 1;
         }
 
@@ -4418,7 +4589,7 @@ export const reportingService = {
 
       const totalEnrollments = enrollments.length;
       const completedEnrollments = enrollments.filter(
-        (enrollment) => enrollment.status === "completed" || Number(enrollment.progress || 0) >= 100,
+        (enrollment) => isEnrollmentCompleted(enrollment.status),
       ).length;
       const scoredAttempts = assessmentAttempts
         .map((attempt) => (attempt.score === null || attempt.score === undefined ? null : Number(attempt.score)))

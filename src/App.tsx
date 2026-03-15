@@ -11,6 +11,8 @@ import { ProtectedRoute } from "@/components/ProtectedRoute";
 import Index from "./pages/Index";
 import Login from "./pages/Login";
 import SignUp from "./pages/SignUp";
+import ForgotPassword from "./pages/ForgotPassword";
+import ResetPassword from "./pages/ResetPassword";
 import Dashboard from "./pages/Dashboard";
 import Courses from "./pages/Courses";
 import CourseDetail from "./pages/CourseDetail";
@@ -25,16 +27,21 @@ import AdminCourses from "./pages/admin/Courses";
 import AdminRoles from "./pages/admin/Roles";
 import AdminAuditLogs from "./pages/admin/AuditLogs";
 import AdminEnrollments from "./pages/admin/Enrollments";
+import AdminEnrollmentProgressPage from "./pages/admin/EnrollmentProgressPage";
 import AdminReports from "./pages/admin/Reports";
 import TrainerDashboardPlaceholder from "./pages/trainer/DashboardPlaceholder";
 import TrainerCourses from "./pages/trainer/Courses";
 import TrainerLearners from "./pages/trainer/Learners";
+import LearnerProgressPage from "./pages/trainer/LearnerProgressPage";
 import ManageModules from "@/pages/trainer/ManageModules";
+import CourseAssessmentEditorPage from "@/pages/trainer/CourseAssessmentEditorPage";
 import ModuleEditorPage from "@/pages/trainer/ModuleEditorPage";
 import TaxonomyManagement from "@/pages/TaxonomyManagement";
 import TraineeVerification from "@/pages/TraineeVerification";
 import ProgressDashboard from "./pages/ProgressDashboard";
+import AssessmentReviewPage from "./pages/AssessmentReviewPage";
 import NotFound from "./pages/NotFound";
+import StaffCertificatesPage from "./pages/StaffCertificatesPage";
 import { initializeMockData } from "@/services/mockData";
 import { initializeDashboardRoutes } from "@/lib/roles";
 
@@ -76,6 +83,8 @@ const App = () => (
             <Route path="/" element={<Index />} />
             <Route path="/login" element={<Login />} />
             <Route path="/signup" element={<SignUp />} />
+            <Route path="/forgot-password" element={<ForgotPassword />} />
+            <Route path="/reset-password" element={<ResetPassword />} />
             <Route path="/courses" element={<Courses />} />
             <Route path="/courses/preview/:id" element={<CourseDetail />} />
             <Route
@@ -133,7 +142,7 @@ const App = () => (
             <Route
               path="/verification"
               element={
-                <ProtectedRoute allowedRoles={["admin", "trainer"]} requiredPermissions={["users.view", "training.manage"]}>
+                <ProtectedRoute allowedRoles={["admin"]} requiredPermissions={["users.view", "training.manage"]}>
                   <TraineeVerification />
                 </ProtectedRoute>
               }
@@ -167,6 +176,14 @@ const App = () => (
               element={
                 <ProtectedRoute allowedRoles={["admin"]}>
                   <ManageModules />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/admin/courses/:courseId/assessments"
+              element={
+                <ProtectedRoute allowedRoles={["admin"]}>
+                  <CourseAssessmentEditorPage />
                 </ProtectedRoute>
               }
             />
@@ -219,6 +236,54 @@ const App = () => (
               }
             />
             <Route
+              path="/admin/learners"
+              element={
+                <ProtectedRoute allowedRoles={["admin"]}>
+                  <TrainerLearners />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/admin/learners/:learnerId"
+              element={
+                <ProtectedRoute allowedRoles={["admin"]}>
+                  <LearnerProgressPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/admin/certificates"
+              element={
+                <ProtectedRoute allowedRoles={["admin"]}>
+                  <StaffCertificatesPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/admin/enrollments/:enrollmentId"
+              element={
+                <ProtectedRoute allowedRoles={["admin"]}>
+                  <AdminEnrollmentProgressPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/admin/assessment-reviews"
+              element={
+                <ProtectedRoute allowedRoles={["admin"]}>
+                  <AssessmentReviewPage portal="admin" />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/admin/assessment-reviews/:attemptId"
+              element={
+                <ProtectedRoute allowedRoles={["admin"]}>
+                  <AssessmentReviewPage portal="admin" />
+                </ProtectedRoute>
+              }
+            />
+            <Route
               path="/admin/reports"
               element={
                 <ProtectedRoute allowedRoles={["admin"]}>
@@ -253,10 +318,50 @@ const App = () => (
               }
             />
             <Route
+              path="/trainer/certificates"
+              element={
+                <ProtectedRoute allowedRoles={["trainer", "admin"]}>
+                  <StaffCertificatesPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/trainer/learners/:learnerId"
+              element={
+                <ProtectedRoute allowedRoles={["trainer", "admin"]}>
+                  <LearnerProgressPage />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/trainer/assessment-reviews"
+              element={
+                <ProtectedRoute allowedRoles={["trainer", "admin"]}>
+                  <AssessmentReviewPage portal="trainer" />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/trainer/assessment-reviews/:attemptId"
+              element={
+                <ProtectedRoute allowedRoles={["trainer", "admin"]}>
+                  <AssessmentReviewPage portal="trainer" />
+                </ProtectedRoute>
+              }
+            />
+            <Route
               path="/trainer/courses/:courseId/modules"
               element={
                 <ProtectedRoute allowedRoles={["trainer", "admin"]}>
                   <ManageModules />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/trainer/courses/:courseId/assessments"
+              element={
+                <ProtectedRoute allowedRoles={["trainer", "admin"]}>
+                  <CourseAssessmentEditorPage />
                 </ProtectedRoute>
               }
             />

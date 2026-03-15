@@ -1,20 +1,24 @@
+/// <reference types="node" />
+
 import { mkdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import {
   getGradableQuizBlocks,
+  getQuizBlocks,
   parseModuleContentBlocks,
   validateQuizAssessmentBlocks,
   type ContentBlock,
 } from "../src/lib/contentBlocks";
-import { deriveSkillTags, deriveTopicTags } from "../src/lib/taxonomy";
 
 type AuditClassification =
   | "no_assessment_source"
-  | "quiz_blocks_only"
-  | "assessment_tables_only"
-  | "both_in_sync"
-  | "both_mismatched";
+  | "practice_quizzes_only"
+  | "standalone_graded_assessments_only"
+  | "both_present"
+  | "legacy_derived_assessments";
+
+type MigrationDecision = "none" | "convert_to_course_level" | "trainer_review";
 
 type AssessmentQuestionType = "multiple_choice" | "true_false" | "short_answer" | "essay";
 
@@ -22,9 +26,8 @@ type ModuleRow = {
   id: string;
   course_id: string;
   title: string;
+  order: number;
   content: string | null;
-  skill_tags?: string[] | null;
-  topic_tags?: string[] | null;
 };
 
 type CourseRow = {
@@ -35,16 +38,17 @@ type CourseRow = {
 
 type AssessmentRow = {
   id: string;
-  module_id: string;
+  course_id: string;
+  module_id: string | null;
   title: string;
   description: string | null;
   time_limit: number | null;
   passing_score: number;
   max_attempts: number;
   is_active: boolean;
-  skill_tags?: string[] | null;
-  topic_tags?: string[] | null;
+  prerequisite_module_ids?: string[] | null;
   derived_from_module_quiz?: boolean | null;
+  display_order?: number | null;
 };
 
 type AssessmentQuestionRow = {
@@ -75,6 +79,7 @@ type ComparableQuestion = {
 
 type AuditRecord = {
   moduleId: string;
+  moduleOrder: number;
   moduleTitle: string;
   courseId: string;
   courseTitle: string;
@@ -82,21 +87,22 @@ type AuditRecord = {
   classification: AuditClassification;
   quizBlockCount: number;
   gradableQuizBlockCount: number;
-  activeAssessmentQuestionCount: number;
-  assessmentId: string | null;
-  derivedAssessment: boolean;
+  standaloneAssessmentCount: number;
+  legacyDerivedAssessmentCount: number;
+  linkedAssessmentIds: string[];
   invalidQuizIssues: string[];
-  backfillEligible: boolean;
   mismatchReasons: string[];
+  migrationDecision: MigrationDecision;
+  decisionReasons: string[];
   actionTaken?: string;
 };
 
 type AuditSummary = {
   totalModules: number;
   counts: Record<AuditClassification, number>;
-  backfillEligibleCount: number;
-  backfilledCount: number;
-  mismatchedCount: number;
+  conversionCandidateCount: number;
+  trainerReviewCount: number;
+  convertedCount: number;
 };
 
 const DEFAULT_REPORT_PATH = path.join(process.cwd(), "temp_markdowns", "derived_assessment_audit_report.md");
@@ -116,6 +122,37 @@ const getSupabaseAdmin = () => {
     },
   });
 };
+
+const columnCache = new Map<string, boolean>();
+
+async function columnExists(supabase: SupabaseClient, table: string, column: string) {
+  const cacheKey = `${table}.${column}`;
+  if (columnCache.has(cacheKey)) {
+    return columnCache.get(cacheKey) as boolean;
+  }
+
+  const { error } = await supabase.from(table).select(column).limit(1);
+  const exists = !error;
+  columnCache.set(cacheKey, exists);
+  return exists;
+}
+
+async function withExistingColumns<T extends Record<string, unknown>>(
+  supabase: SupabaseClient,
+  table: string,
+  values: T,
+) {
+  const payload: Record<string, unknown> = {};
+
+  for (const [column, value] of Object.entries(values)) {
+    if (value === undefined) continue;
+    if (await columnExists(supabase, table, column)) {
+      payload[column] = value;
+    }
+  }
+
+  return payload;
+}
 
 const normalizeQuestionOptions = (options: AssessmentQuestionRow["options"]): string[] => {
   if (!options) {
@@ -157,9 +194,10 @@ const toDerivedQuestionPayload = (block: ContentBlock, index: number): Comparabl
   return {
     sourceQuestionKey: block.sourceQuestionKey || block.id,
     question: block.content.trim(),
-    questionType: block.questionType === "true_false" ? "true_false" : "multiple_choice",
+    questionType: block.questionType === "true_false" ? "true_false" : block.questionType === "essay" ? "essay" : "multiple_choice",
     options,
-    correctAnswer: block.correctAnswer !== undefined && options[block.correctAnswer] !== undefined ? options[block.correctAnswer] : null,
+    correctAnswer:
+      block.correctAnswer !== undefined && options[block.correctAnswer] !== undefined ? options[block.correctAnswer] : null,
     points: block.points || 1,
     order: index + 1,
     explanation: block.explanation?.trim() || null,
@@ -230,14 +268,14 @@ const compareQuestionSets = (
 
 const parseArgs = () => {
   const args = process.argv.slice(2);
-  const shouldApplyBackfill = args.includes("--apply-backfill");
-  const reportFlagIndex = args.findIndex((arg) => arg === "--report");
+  const shouldApplyConversion = args.includes("--apply-conversion") || args.includes("--apply-backfill");
+  const reportFlagIndex = args.findIndex((arg: string) => arg === "--report");
   const reportPath = reportFlagIndex >= 0 && args[reportFlagIndex + 1]
     ? path.resolve(process.cwd(), args[reportFlagIndex + 1])
     : DEFAULT_REPORT_PATH;
 
   return {
-    shouldApplyBackfill,
+    shouldApplyConversion,
     reportPath,
   };
 };
@@ -254,215 +292,192 @@ const fetchAllRows = async <T>(
   return (data || []) as T[];
 };
 
-const syncModuleAssessment = async (
-  supabase: SupabaseClient,
-  moduleRow: ModuleRow,
-  courseRow: CourseRow | undefined,
-  blocks: ContentBlock[],
-  existingAssessment: AssessmentRow | null,
-) => {
-  const gradableQuizBlocks = getGradableQuizBlocks(blocks);
-  if (gradableQuizBlocks.length === 0) {
-    return null;
-  }
-
-  const canonicalSkillTags = deriveSkillTags(courseRow?.category, moduleRow.skill_tags || existingAssessment?.skill_tags || []);
-  const canonicalTopicTags = deriveTopicTags(
-    courseRow?.category,
-    canonicalSkillTags,
-    moduleRow.topic_tags || existingAssessment?.topic_tags || [],
-  );
-
-  const assessmentPayload = {
-    title: existingAssessment?.title?.trim() || `${moduleRow.title.trim() || "Module"} Assessment`,
-    description: existingAssessment?.description || null,
-    time_limit: existingAssessment?.time_limit || null,
-    passing_score: existingAssessment?.passing_score ?? 70,
-    max_attempts: existingAssessment?.max_attempts ?? 3,
-    is_active: existingAssessment?.is_active ?? true,
-    derived_from_module_quiz: true,
-    skill_tags: canonicalSkillTags,
-    topic_tags: canonicalTopicTags,
-    updated_at: new Date().toISOString(),
-  };
-
-  let assessmentRow = existingAssessment;
-
-  if (!assessmentRow) {
-    const { data, error } = await supabase
-      .from("assessments")
-      .insert({
-        module_id: moduleRow.id,
-        created_at: new Date().toISOString(),
-        ...assessmentPayload,
-      })
-      .select("*")
-      .single();
-
-    if (error) {
-      throw error;
+const getLinkedAssessmentsForModule = (moduleId: string, assessments: AssessmentRow[]) => {
+  return assessments.filter((assessment) => {
+    if (!assessment.is_active) {
+      return false;
     }
 
-    assessmentRow = data as AssessmentRow;
-  } else {
-    const { data, error } = await supabase
-      .from("assessments")
-      .update(assessmentPayload)
-      .eq("id", assessmentRow.id)
-      .select("*")
-      .single();
-
-    if (error) {
-      throw error;
+    if (assessment.module_id === moduleId) {
+      return true;
     }
 
-    assessmentRow = data as AssessmentRow;
+    return (assessment.prerequisite_module_ids || []).includes(moduleId);
+  });
+};
+
+const decideLegacyMigration = (
+  legacyAssessments: AssessmentRow[],
+  standaloneAssessments: AssessmentRow[],
+  activeLegacyQuestions: AssessmentQuestionRow[],
+  invalidQuizIssues: string[],
+  mismatchReasons: string[],
+): { decision: MigrationDecision; reasons: string[] } => {
+  if (legacyAssessments.length === 0) {
+    return { decision: "none", reasons: [] };
   }
 
-  const { data: existingQuestions, error: questionLookupError } = await supabase
-    .from("assessment_questions")
-    .select("*")
-    .eq("assessment_id", assessmentRow.id)
-    .order("order", { ascending: true });
+  const reasons: string[] = [];
 
-  if (questionLookupError) {
-    throw questionLookupError;
+  if (legacyAssessments.length > 1) {
+    reasons.push("More than one legacy derived assessment is linked to this module.");
   }
 
-  const existingRows = (existingQuestions || []) as AssessmentQuestionRow[];
-  const fallbackRows = [...existingRows.filter((row) => !row.source_question_key && row.is_active !== false)];
-  const matchedIds = new Set<string>();
+  if (standaloneAssessments.length > 0) {
+    reasons.push("A standalone graded assessment is already linked to this module.");
+  }
 
-  for (const [index, block] of gradableQuizBlocks.entries()) {
-    const payload = toDerivedQuestionPayload(block, index);
-    let matchedRow = existingRows.find((row) => row.source_question_key === payload.sourceQuestionKey);
+  if (activeLegacyQuestions.length === 0) {
+    reasons.push("The legacy derived assessment has no active assessment questions.");
+  }
 
-    if (!matchedRow) {
-      matchedRow = fallbackRows.find((row) => row.order === payload.order) || fallbackRows.shift();
-    }
+  if (invalidQuizIssues.length > 0) {
+    reasons.push("The linked practice quiz blocks still have validation issues.");
+  }
 
-    const questionPayload = {
-      question: payload.question,
-      question_type: payload.questionType,
-      options: JSON.stringify(payload.options),
-      correct_answer: payload.correctAnswer,
-      points: payload.points,
-      order: payload.order,
-      explanation: payload.explanation,
-      source_question_key: payload.sourceQuestionKey,
-      derived_from_module_quiz: true,
-      is_active: true,
+  if (mismatchReasons.length > 0) {
+    reasons.push("The legacy derived assessment no longer matches the module quiz content.");
+  }
+
+  if (reasons.length > 0) {
+    return {
+      decision: "trainer_review",
+      reasons,
     };
-
-    if (matchedRow) {
-      matchedIds.add(matchedRow.id);
-      const { error } = await supabase
-        .from("assessment_questions")
-        .update(questionPayload)
-        .eq("id", matchedRow.id);
-
-      if (error) {
-        throw error;
-      }
-    } else {
-      const { error } = await supabase
-        .from("assessment_questions")
-        .insert({
-          assessment_id: assessmentRow.id,
-          created_at: new Date().toISOString(),
-          ...questionPayload,
-        });
-
-      if (error) {
-        throw error;
-      }
-    }
   }
 
-  const staleQuestionIds = existingRows
-    .filter((row) => row.is_active !== false && !matchedIds.has(row.id))
-    .map((row) => row.id);
+  return {
+    decision: "convert_to_course_level",
+    reasons: [
+      "The legacy derived assessment is internally consistent and can be promoted to a standalone course-level assessment.",
+      "The converted assessment should unlock after the source module is completed.",
+    ],
+  };
+};
 
-  if (staleQuestionIds.length > 0) {
-    const { error } = await supabase
+const convertLegacyAssessment = async (
+  supabase: SupabaseClient,
+  assessment: AssessmentRow,
+  moduleRow: ModuleRow,
+) => {
+  const now = new Date().toISOString();
+  const assessmentPayload = await withExistingColumns(supabase, "assessments", {
+    course_id: moduleRow.course_id,
+    module_id: null,
+    prerequisite_module_ids: [moduleRow.id],
+    derived_from_module_quiz: false,
+    display_order: assessment.display_order ?? moduleRow.order,
+    updated_at: now,
+  });
+
+  const { error: assessmentUpdateError } = await supabase
+    .from("assessments")
+    .update(assessmentPayload)
+    .eq("id", assessment.id);
+
+  if (assessmentUpdateError) {
+    throw assessmentUpdateError;
+  }
+
+  const questionPayload = await withExistingColumns(supabase, "assessment_questions", {
+    derived_from_module_quiz: false,
+  });
+
+  if (Object.keys(questionPayload).length > 0) {
+    const { error: questionUpdateError } = await supabase
       .from("assessment_questions")
-      .update({ is_active: false })
-      .in("id", staleQuestionIds);
+      .update(questionPayload)
+      .eq("assessment_id", assessment.id);
 
-    if (error) {
-      throw error;
+    if (questionUpdateError) {
+      throw questionUpdateError;
     }
   }
 
-  return assessmentRow.id;
+  return `Converted legacy derived assessment ${assessment.id} to a course-level graded assessment with prerequisite module ${moduleRow.id}.`;
 };
 
 const buildReport = (summary: AuditSummary, records: AuditRecord[]) => {
   const timestamp = new Date().toISOString();
-  const cleanupModules = records.filter(
-    (record) => record.classification === "assessment_tables_only" || record.classification === "both_mismatched",
-  );
-  const backfillModules = records.filter((record) => record.backfillEligible);
+  const conversionCandidates = records.filter((record) => record.migrationDecision === "convert_to_course_level");
+  const reviewQueue = records.filter((record) => record.migrationDecision === "trainer_review");
 
   return [
-    "# Derived Assessment Audit Report",
+    "# Legacy Assessment Migration Audit Report",
     "",
     `Generated: ${timestamp}`,
     "",
     "## Summary",
     "",
     `- Total modules scanned: ${summary.totalModules}`,
-    `- Quiz blocks only: ${summary.counts.quiz_blocks_only}`,
-    `- Assessment tables only: ${summary.counts.assessment_tables_only}`,
-    `- Both in sync: ${summary.counts.both_in_sync}`,
-    `- Both mismatched: ${summary.counts.both_mismatched}`,
+    `- Practice quizzes only: ${summary.counts.practice_quizzes_only}`,
+    `- Standalone graded assessments only: ${summary.counts.standalone_graded_assessments_only}`,
+    `- Both practice quizzes and standalone graded assessments present: ${summary.counts.both_present}`,
+    `- Legacy derived assessments: ${summary.counts.legacy_derived_assessments}`,
     `- No assessment source: ${summary.counts.no_assessment_source}`,
-    `- Backfill eligible: ${summary.backfillEligibleCount}`,
-    `- Backfilled in this run: ${summary.backfilledCount}`,
+    `- Legacy conversion candidates: ${summary.conversionCandidateCount}`,
+    `- Legacy trainer-review items: ${summary.trainerReviewCount}`,
+    `- Converted in this run: ${summary.convertedCount}`,
     "",
-    "## Backfill Candidates",
+    "## Legacy Conversion Candidates",
     "",
-    ...(backfillModules.length > 0
-      ? backfillModules.flatMap((record) => [
+    ...(conversionCandidates.length > 0
+      ? conversionCandidates.flatMap((record) => [
           `### ${record.courseTitle} / ${record.moduleTitle}`,
           `- Module ID: ${record.moduleId}`,
-          `- Quiz blocks: ${record.gradableQuizBlockCount}`,
-          `- Assessment ID: ${record.assessmentId || "none"}`,
+          `- Linked legacy assessment IDs: ${record.linkedAssessmentIds.join(", ")}`,
+          `- Quiz blocks: ${record.quizBlockCount}`,
+          `- Gradable quiz blocks: ${record.gradableQuizBlockCount}`,
+          `- Decision: convert to course-level graded assessment`,
+          `- Reasons: ${record.decisionReasons.join("; ")}`,
           `- Action: ${record.actionTaken || "Audit only"}`,
-          ...(record.invalidQuizIssues.length > 0 ? [`- Validation issues: ${record.invalidQuizIssues.join("; ")}`] : []),
           "",
         ])
-      : ["No safe quiz-block-only modules were found for automatic backfill.", ""]),
-    "## Cleanup Report",
+      : ["No legacy derived assessments qualified for automatic conversion.", ""]),
+    "## Trainer Review Queue",
     "",
-    ...(cleanupModules.length > 0
-      ? cleanupModules.flatMap((record) => [
+    ...(reviewQueue.length > 0
+      ? reviewQueue.flatMap((record) => [
           `### ${record.courseTitle} / ${record.moduleTitle}`,
-          `- Classification: ${record.classification}`,
           `- Module ID: ${record.moduleId}`,
-          `- Assessment ID: ${record.assessmentId || "none"}`,
-          `- Derived assessment: ${record.derivedAssessment ? "yes" : "no"}`,
-          `- Quiz blocks: ${record.gradableQuizBlockCount}`,
-          `- Assessment questions: ${record.activeAssessmentQuestionCount}`,
-          ...(record.mismatchReasons.length > 0 ? [`- Reasons: ${record.mismatchReasons.join("; ")}`] : []),
-          ...(record.invalidQuizIssues.length > 0 ? [`- Quiz validation issues: ${record.invalidQuizIssues.join("; ")}`] : []),
+          `- Linked legacy assessment IDs: ${record.linkedAssessmentIds.join(", ")}`,
+          `- Quiz blocks: ${record.quizBlockCount}`,
+          `- Standalone assessments: ${record.standaloneAssessmentCount}`,
+          ...(record.mismatchReasons.length > 0 ? [`- Mismatch reasons: ${record.mismatchReasons.join("; ")}`] : []),
+          ...(record.invalidQuizIssues.length > 0 ? [`- Practice quiz issues: ${record.invalidQuizIssues.join("; ")}`] : []),
+          `- Decision: trainer review`,
+          `- Reasons: ${record.decisionReasons.join("; ")}`,
+          `- Action: ${record.actionTaken || "Manual review required"}`,
           "",
         ])
-      : ["No mismatches or assessment-table-only modules were found.", ""]),
+      : ["No legacy derived assessments require trainer review.", ""]),
+    "## Module State Inventory",
+    "",
+    ...records.flatMap((record) => [
+      `### ${record.courseTitle} / ${record.moduleTitle}`,
+      `- Classification: ${record.classification}`,
+      `- Module ID: ${record.moduleId}`,
+      `- Quiz blocks: ${record.quizBlockCount}`,
+      `- Standalone assessments: ${record.standaloneAssessmentCount}`,
+      `- Legacy derived assessments: ${record.legacyDerivedAssessmentCount}`,
+      `- Linked assessment IDs: ${record.linkedAssessmentIds.length > 0 ? record.linkedAssessmentIds.join(", ") : "none"}`,
+      ...(record.decisionReasons.length > 0 ? [`- Migration decision: ${record.migrationDecision} (${record.decisionReasons.join("; ")})`] : []),
+      "",
+    ]),
   ].join("\n");
 };
 
 const main = async () => {
-  const { shouldApplyBackfill, reportPath } = parseArgs();
+  const { shouldApplyConversion, reportPath } = parseArgs();
   const supabase = getSupabaseAdmin();
 
   const [modules, courses, assessments, questions] = await Promise.all([
-    fetchAllRows<ModuleRow>(supabase, "modules", "id, course_id, title, content, skill_tags, topic_tags"),
+    fetchAllRows<ModuleRow>(supabase, "modules", "id, course_id, title, order, content"),
     fetchAllRows<CourseRow>(supabase, "courses", "id, title, category"),
     fetchAllRows<AssessmentRow>(
       supabase,
       "assessments",
-      "id, module_id, title, description, time_limit, passing_score, max_attempts, is_active, skill_tags, topic_tags, derived_from_module_quiz",
+      "id, course_id, module_id, title, description, time_limit, passing_score, max_attempts, is_active, prerequisite_module_ids, derived_from_module_quiz, display_order",
     ),
     fetchAllRows<AssessmentQuestionRow>(
       supabase,
@@ -472,7 +487,6 @@ const main = async () => {
   ]);
 
   const courseById = new Map(courses.map((course) => [course.id, course]));
-  const assessmentByModuleId = new Map(assessments.map((assessment) => [assessment.module_id, assessment]));
   const questionsByAssessmentId = new Map<string, AssessmentQuestionRow[]>();
 
   for (const question of questions) {
@@ -482,65 +496,72 @@ const main = async () => {
   }
 
   const records: AuditRecord[] = [];
-  let backfilledCount = 0;
+  let convertedCount = 0;
 
-  for (const moduleRow of modules) {
+  for (const moduleRow of modules.sort((left, right) => left.course_id.localeCompare(right.course_id) || left.order - right.order)) {
     const courseRow = courseById.get(moduleRow.course_id);
-    const assessmentRow = assessmentByModuleId.get(moduleRow.id) || null;
-    const assessmentQuestions = assessmentRow ? questionsByAssessmentId.get(assessmentRow.id) || [] : [];
-    const activeQuestions = assessmentQuestions
-      .filter((question) => question.is_active !== false)
-      .sort((left, right) => left.order - right.order);
-
     const blocks = parseModuleContentBlocks(moduleRow.content);
+    const quizBlocks = getQuizBlocks(blocks);
     const gradableQuizBlocks = getGradableQuizBlocks(blocks);
     const invalidQuizIssues = validateQuizAssessmentBlocks(blocks).map((issue) => `${issue.blockLabel}: ${issue.message}`);
+    const linkedAssessments = getLinkedAssessmentsForModule(moduleRow.id, assessments);
+    const legacyDerivedAssessments = linkedAssessments.filter((assessment) => assessment.derived_from_module_quiz === true);
+    const standaloneAssessments = linkedAssessments.filter((assessment) => assessment.derived_from_module_quiz !== true);
+    const primaryLegacyAssessment = legacyDerivedAssessments[0] || null;
+    const activeLegacyQuestions = primaryLegacyAssessment
+      ? ((questionsByAssessmentId.get(primaryLegacyAssessment.id) || []) as AssessmentQuestionRow[])
+          .filter((question) => question.is_active !== false)
+          .sort((left, right) => left.order - right.order)
+      : [];
     const derivedQuestions = gradableQuizBlocks.map(toDerivedQuestionPayload);
-    const storedQuestions = activeQuestions.map(toComparableQuestion);
+    const storedQuestions = activeLegacyQuestions.map(toComparableQuestion);
+    const mismatchReasons =
+      primaryLegacyAssessment && gradableQuizBlocks.length > 0
+        ? compareQuestionSets(derivedQuestions, storedQuestions).reasons
+        : [];
 
     let classification: AuditClassification = "no_assessment_source";
-    let mismatchReasons: string[] = [];
-
-    if (gradableQuizBlocks.length > 0 && activeQuestions.length === 0) {
-      classification = "quiz_blocks_only";
-      if (invalidQuizIssues.length > 0) {
-        mismatchReasons = ["Quiz blocks exist but are not yet valid for assessment sync."];
-      }
-    } else if (gradableQuizBlocks.length === 0 && activeQuestions.length > 0) {
-      classification = "assessment_tables_only";
-      mismatchReasons = ["Assessment questions exist without gradable quiz blocks in module content."];
-    } else if (gradableQuizBlocks.length > 0 && activeQuestions.length > 0) {
-      const comparison = compareQuestionSets(derivedQuestions, storedQuestions);
-      classification = comparison.inSync ? "both_in_sync" : "both_mismatched";
-      mismatchReasons = comparison.reasons;
+    if (legacyDerivedAssessments.length > 0) {
+      classification = "legacy_derived_assessments";
+    } else if (quizBlocks.length > 0 && standaloneAssessments.length > 0) {
+      classification = "both_present";
+    } else if (quizBlocks.length > 0) {
+      classification = "practice_quizzes_only";
+    } else if (standaloneAssessments.length > 0) {
+      classification = "standalone_graded_assessments_only";
     }
 
-    const backfillEligible = classification === "quiz_blocks_only" && invalidQuizIssues.length === 0;
-    let actionTaken: string | undefined;
+    const migration = decideLegacyMigration(
+      legacyDerivedAssessments,
+      standaloneAssessments,
+      activeLegacyQuestions,
+      invalidQuizIssues,
+      mismatchReasons,
+    );
 
-    if (shouldApplyBackfill && backfillEligible) {
-      const assessmentId = await syncModuleAssessment(supabase, moduleRow, courseRow, blocks, assessmentRow);
-      actionTaken = assessmentId ? `Backfilled derived assessment ${assessmentId}` : "Skipped";
-      if (assessmentId) {
-        backfilledCount += 1;
-      }
+    let actionTaken: string | undefined;
+    if (shouldApplyConversion && migration.decision === "convert_to_course_level" && primaryLegacyAssessment) {
+      actionTaken = await convertLegacyAssessment(supabase, primaryLegacyAssessment, moduleRow);
+      convertedCount += 1;
     }
 
     records.push({
       moduleId: moduleRow.id,
+      moduleOrder: moduleRow.order,
       moduleTitle: moduleRow.title,
       courseId: moduleRow.course_id,
       courseTitle: courseRow?.title || "Unknown Course",
       courseCategory: courseRow?.category || null,
       classification,
-      quizBlockCount: blocks.filter((block) => block.type === "quiz").length,
+      quizBlockCount: quizBlocks.length,
       gradableQuizBlockCount: gradableQuizBlocks.length,
-      activeAssessmentQuestionCount: activeQuestions.length,
-      assessmentId: assessmentRow?.id || null,
-      derivedAssessment: Boolean(assessmentRow?.derived_from_module_quiz),
+      standaloneAssessmentCount: standaloneAssessments.length,
+      legacyDerivedAssessmentCount: legacyDerivedAssessments.length,
+      linkedAssessmentIds: linkedAssessments.map((assessment) => assessment.id),
       invalidQuizIssues,
-      backfillEligible,
       mismatchReasons,
+      migrationDecision: migration.decision,
+      decisionReasons: migration.reasons,
       actionTaken,
     });
   }
@@ -549,25 +570,25 @@ const main = async () => {
     totalModules: records.length,
     counts: {
       no_assessment_source: records.filter((record) => record.classification === "no_assessment_source").length,
-      quiz_blocks_only: records.filter((record) => record.classification === "quiz_blocks_only").length,
-      assessment_tables_only: records.filter((record) => record.classification === "assessment_tables_only").length,
-      both_in_sync: records.filter((record) => record.classification === "both_in_sync").length,
-      both_mismatched: records.filter((record) => record.classification === "both_mismatched").length,
+      practice_quizzes_only: records.filter((record) => record.classification === "practice_quizzes_only").length,
+      standalone_graded_assessments_only: records.filter((record) => record.classification === "standalone_graded_assessments_only").length,
+      both_present: records.filter((record) => record.classification === "both_present").length,
+      legacy_derived_assessments: records.filter((record) => record.classification === "legacy_derived_assessments").length,
     },
-    backfillEligibleCount: records.filter((record) => record.backfillEligible).length,
-    backfilledCount,
-    mismatchedCount: records.filter((record) => record.classification === "both_mismatched").length,
+    conversionCandidateCount: records.filter((record) => record.migrationDecision === "convert_to_course_level").length,
+    trainerReviewCount: records.filter((record) => record.migrationDecision === "trainer_review").length,
+    convertedCount,
   };
 
   const report = buildReport(summary, records);
   mkdirSync(path.dirname(reportPath), { recursive: true });
   writeFileSync(reportPath, report, "utf8");
 
-  console.log(`Derived assessment audit complete. Report written to ${reportPath}`);
+  console.log(`Legacy assessment migration audit complete. Report written to ${reportPath}`);
   console.log(JSON.stringify(summary, null, 2));
 };
 
 void main().catch((error) => {
-  console.error("Derived assessment audit failed:", error);
+  console.error("Legacy assessment migration audit failed:", error);
   process.exitCode = 1;
 });

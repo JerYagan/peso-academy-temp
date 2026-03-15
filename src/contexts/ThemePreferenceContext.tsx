@@ -53,7 +53,9 @@ export function ThemePreferenceProvider({ children }: { children: ReactNode }) {
       lastResolvedUserIdRef.current = nextUserId;
       pendingThemePreferenceRef.current = null;
 
-      const nextThemePreference = nextUserTheme || getStoredThemePreference() || (isSupportedThemePreference(theme) ? theme : "system");
+      const nextThemePreference = nextUserId
+        ? nextUserTheme || "system"
+        : nextUserTheme || getStoredThemePreference() || (isSupportedThemePreference(theme) ? theme : "system");
       setThemePreferenceState(nextThemePreference);
       return;
     }

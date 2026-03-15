@@ -33,9 +33,18 @@ const TERM_META: Record<TaxonomyTermType, { label: string; helper: string }> = {
     label: "Topic Tags",
     helper: "These tags describe the topics covered and power topic-level reporting and recommendation explanations.",
   },
+  industry_tag: {
+    label: "Industry Tags",
+    helper: "These tags support learner recommendations and help map courses to broader industry directions without overloading the course editor.",
+  },
+  career_path: {
+    label: "Career Paths",
+    helper: "These tags describe role or progression outcomes that recommendations can surface alongside learner strengths and interests.",
+  },
 };
 
 const TaxonomyManagement = () => {
+  const taxonomyTermTypes = Object.keys(TERM_META) as TaxonomyTermType[];
   const [activeTab, setActiveTab] = useState<TaxonomyTermType>("course_category");
   const [terms, setTerms] = useState<TaxonomyTerm[]>([]);
   const [loading, setLoading] = useState(true);
@@ -156,13 +165,15 @@ const TaxonomyManagement = () => {
         </div>
 
         <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as TaxonomyTermType)}>
-          <TabsList className="grid w-full grid-cols-3">
+          <TabsList className="grid w-full" style={{ gridTemplateColumns: `repeat(${taxonomyTermTypes.length}, minmax(0, 1fr))` }}>
             <TabsTrigger value="course_category">Course Categories</TabsTrigger>
             <TabsTrigger value="skill_tag">Skill Tags</TabsTrigger>
             <TabsTrigger value="topic_tag">Topic Tags</TabsTrigger>
+            <TabsTrigger value="industry_tag">Industry Tags</TabsTrigger>
+            <TabsTrigger value="career_path">Career Paths</TabsTrigger>
           </TabsList>
 
-          {(Object.keys(TERM_META) as TaxonomyTermType[]).map((termType) => (
+          {taxonomyTermTypes.map((termType) => (
             <TabsContent key={termType} value={termType} className="mt-6 space-y-6">
               <Card>
                 <CardHeader>

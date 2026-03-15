@@ -1,0 +1,231 @@
+Project peso_academy_stakeholder_erd {
+  database_type: 'PostgreSQL'
+  Note: 'Stakeholder-friendly ERD subset derived from the live schema. This view focuses on the core learning journey: users, programs, courses, modules, enrollments, graded assessments, attempts, and certificates. Analytics, audit, permissions, notifications, validation workflow, and other infrastructure tables are intentionally omitted.'
+}
+
+Enum user_role {
+  admin
+  trainer
+  trainee
+}
+
+Enum course_level {
+  Beginner
+  Intermediate
+  Advanced
+}
+
+Enum enrollment_status {
+  enrolled
+  in-progress
+  completed
+  dropped
+}
+
+Enum certificate_type {
+  completion
+  participation
+}
+
+Enum question_type {
+  multiple_choice
+  true_false
+  short_answer
+  essay
+}
+
+Table users {
+  id uuid [pk]
+  name text [not null]
+  email text [not null, unique]
+  role user_role [not null]
+  trainee_type text
+  verification_status text [not null]
+  language_preference text [not null]
+  theme_preference text [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+
+  Note: 'Represents learners, trainers, and admins in the training platform.'
+}
+
+Table programs {
+  id uuid [pk]
+  title text [not null, unique]
+  description text [not null]
+  category text
+  created_by uuid
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+
+  Note: 'A program groups related courses.'
+}
+
+Table courses {
+  id uuid [pk]
+  program_id uuid
+  instructor_id uuid [not null]
+  title text [not null]
+  description text [not null]
+  category text [not null]
+  level course_level [not null]
+  duration integer [not null]
+  published boolean [not null]
+  certificate_type certificate_type [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+
+  Note: 'A course contains modules and can also contain course-scoped graded assessments.'
+}
+
+Table modules {
+  id uuid [pk]
+  course_id uuid [not null]
+  title text [not null]
+  description text [not null]
+  order integer [not null]
+  status text [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+
+  Note: 'Learners progress through ordered modules inside a course.'
+}
+
+Table assessments {
+  id uuid [pk]
+  course_id uuid [not null]
+  module_id uuid
+  title text [not null]
+  description text
+  time_limit integer
+  passing_score integer
+  max_attempts integer
+  allow_retry_after_passing boolean [not null]
+  is_active boolean [not null]
+  prerequisite_module_ids uuid[] [not null]
+  display_order integer [not null]
+  created_at timestamptz [not null]
+  updated_at timestamptz [not null]
+
+  Note: 'Represents graded assessments. In the live schema these can be course-scoped, and may unlock after selected prerequisite modules are completed.'
+}
+
+Table assessment_questions {
+  id uuid [pk]
+  assessment_id uuid [not null]
+  question text [not null]
+  question_type question_type [not null]
+  correct_answer text
+  points integer [not null]
+  order integer [not null]
+  explanation text
+  created_at timestamptz [not null]
+
+  Note: 'Stores scored questions for each graded assessment.'
+}
+
+Table enrollments {
+  id uuid [pk]
+  user_id uuid [not null]
+  course_id uuid [not null]
+  progress integer [not null]
+  status enrollment_status [not null]
+  enrolled_at timestamptz [not null]
+  completed_at timestamptz
+  completion_approval_status text [not null]
+  completion_requested_at timestamptz
+  completion_reviewed_at timestamptz
+  completion_reviewed_by uuid
+  certificate_id uuid
+  credited_duration_hours integer
+  actual_learning_minutes integer
+  updated_at timestamptz [not null]
+
+  Indexes {
+    (user_id, course_id) [unique]
+  }
+
+  Note: 'Tracks a learner\'s participation and completion workflow for a course.'
+}
+
+Table module_completions {
+  id uuid [pk]
+  enrollment_id uuid [not null]
+  module_id uuid [not null]
+  completed_at timestamptz
+  time_spent integer
+
+  Indexes {
+    (enrollment_id, module_id) [unique]
+  }
+
+  Note: 'Marks which modules a learner has completed within an enrollment.'
+}
+
+Table assessment_attempts {
+  id uuid [pk]
+  assessment_id uuid [not null]
+  enrollment_id uuid [not null]
+  user_id uuid [not null]
+  started_at timestamptz [not null]
+  submitted_at timestamptz
+  score integer
+  passed boolean
+  review_status text
+  requires_manual_review boolean [not null]
+  reviewed_at timestamptz
+  reviewed_by uuid
+  review_feedback text
+
+  Note: 'Each learner attempt at a graded assessment, including auto-graded and manually reviewed outcomes.'
+}
+
+Table assessment_answers {
+  id uuid [pk]
+  attempt_id uuid [not null]
+  question_id uuid [not null]
+  answer text [not null]
+  is_correct boolean
+  points_earned integer
+  review_status text
+  reviewed_at timestamptz
+  reviewed_by uuid
+
+  Note: 'Stores per-question learner answers inside an assessment attempt.'
+}
+
+Table certificates {
+  id uuid [pk]
+  user_id uuid [not null]
+  course_id uuid [not null]
+  issued_by uuid
+  certificate_number text [not null, unique]
+  certificate_type certificate_type [not null]
+  verification_code text [not null, unique]
+  issued_at timestamptz [not null]
+
+  Note: 'Issued after course completion approval.'
+}
+
+Ref: programs.created_by > users.id
+Ref: courses.program_id > programs.id
+Ref: courses.instructor_id > users.id
+Ref: modules.course_id > courses.id
+Ref: assessments.course_id > courses.id
+Ref: assessments.module_id > modules.id
+Ref: assessment_questions.assessment_id > assessments.id
+Ref: enrollments.user_id > users.id
+Ref: enrollments.course_id > courses.id
+Ref: enrollments.completion_reviewed_by > users.id
+Ref: module_completions.enrollment_id > enrollments.id
+Ref: module_completions.module_id > modules.id
+Ref: assessment_attempts.assessment_id > assessments.id
+Ref: assessment_attempts.enrollment_id > enrollments.id
+Ref: assessment_attempts.user_id > users.id
+Ref: assessment_attempts.reviewed_by > users.id
+Ref: assessment_answers.attempt_id > assessment_attempts.id
+Ref: assessment_answers.question_id > assessment_questions.id
+Ref: assessment_answers.reviewed_by > users.id
+Ref: certificates.user_id > users.id
+Ref: certificates.course_id > courses.id
+Ref: certificates.issued_by > users.id

@@ -1,5 +1,5 @@
 /**
- * Seed demo courses, modules, content blocks, and assessments.
+ * Seed demo courses, module practice content, and standalone graded assessments.
  *
  * Usage:
  * 1. Set SUPABASE_URL (or VITE_SUPABASE_URL) and SUPABASE_SERVICE_ROLE_KEY
@@ -60,7 +60,7 @@ type ModuleSeed = {
   topicTags?: string[];
   prerequisiteOrders?: number[];
   contentBlocks: ContentBlockSeed[];
-  assessment?: AssessmentSeed;
+  gradedAssessment?: AssessmentSeed;
 };
 
 type CourseSeed = {
@@ -155,7 +155,7 @@ const COURSE_SEEDS: CourseSeed[] = [
             explanation: "Employers need a reliable way to contact you. Outdated contact information creates immediate friction.",
           },
         ],
-        assessment: {
+        gradedAssessment: {
           title: "Profile Setup Assessment",
           description: "Check whether the learner can identify the essentials of a professional job search profile.",
           timeLimit: 10,
@@ -247,7 +247,7 @@ const COURSE_SEEDS: CourseSeed[] = [
             explanation: "A clear subject line helps employers sort and review applications quickly.",
           },
         ],
-        assessment: {
+        gradedAssessment: {
           title: "Resume and Email Assessment",
           description: "Validate learner understanding of resume basics and professional email habits.",
           timeLimit: 12,
@@ -325,7 +325,7 @@ const COURSE_SEEDS: CourseSeed[] = [
             explanation: "Reviewing the role helps the learner answer with relevant examples.",
           },
         ],
-        assessment: {
+        gradedAssessment: {
           title: "Interview Preparation Assessment",
           description: "Measure whether learners know how to prepare and present themselves well in interviews.",
           timeLimit: 15,
@@ -416,7 +416,7 @@ const COURSE_SEEDS: CourseSeed[] = [
             explanation: "Logging out protects both user and office data.",
           },
         ],
-        assessment: {
+        gradedAssessment: {
           title: "Shared Device Safety Assessment",
           passingScore: 70,
           maxAttempts: 3,
@@ -485,7 +485,7 @@ const COURSE_SEEDS: CourseSeed[] = [
             explanation: "Ownership and timing keep requests moving.",
           },
         ],
-        assessment: {
+        gradedAssessment: {
           title: "Records and Scheduling Assessment",
           passingScore: 75,
           maxAttempts: 3,
@@ -554,7 +554,7 @@ const COURSE_SEEDS: CourseSeed[] = [
             explanation: "Useful updates reduce confusion and repeat inquiries.",
           },
         ],
-        assessment: {
+        gradedAssessment: {
           title: "Customer Messaging Assessment",
           passingScore: 70,
           maxAttempts: 3,
@@ -635,7 +635,7 @@ const COURSE_SEEDS: CourseSeed[] = [
             explanation: "Useful offers start from a real buyer need.",
           },
         ],
-        assessment: {
+        gradedAssessment: {
           title: "Offer and Audience Assessment",
           passingScore: 70,
           maxAttempts: 3,
@@ -703,7 +703,7 @@ const COURSE_SEEDS: CourseSeed[] = [
             explanation: "A clear next step helps buyers act.",
           },
         ],
-        assessment: {
+        gradedAssessment: {
           title: "Converting Post Assessment",
           passingScore: 75,
           maxAttempts: 3,
@@ -772,7 +772,7 @@ const COURSE_SEEDS: CourseSeed[] = [
             explanation: "Order logs keep follow-up accurate and timely.",
           },
         ],
-        assessment: {
+        gradedAssessment: {
           title: "Order Handling Assessment",
           passingScore: 70,
           maxAttempts: 3,
@@ -1043,34 +1043,53 @@ async function updateModulePrerequisites(moduleId: string, prerequisiteIds: stri
   }
 }
 
-async function upsertAssessment(moduleId: string, assessment: AssessmentSeed) {
+async function upsertAssessment(courseId: string, moduleId: string, moduleOrder: number, assessment: AssessmentSeed) {
   const now = new Date().toISOString();
-  const { data: existingAssessment, error: existingAssessmentError } = await supabase
+  const { data: existingCourseLevelAssessment, error: existingCourseLevelAssessmentError } = await supabase
+    .from("assessments")
+    .select("id")
+    .eq("course_id", courseId)
+    .eq("title", assessment.title)
+    .limit(1);
+
+  if (existingCourseLevelAssessmentError) {
+    throw existingCourseLevelAssessmentError;
+  }
+
+  const { data: existingModuleLinkedAssessment, error: existingModuleLinkedAssessmentError } = await supabase
     .from("assessments")
     .select("id")
     .eq("module_id", moduleId)
     .limit(1);
 
-  if (existingAssessmentError) {
-    throw existingAssessmentError;
+  if (existingModuleLinkedAssessmentError) {
+    throw existingModuleLinkedAssessmentError;
   }
 
   const basePayload = {
-    module_id: moduleId,
+    course_id: courseId,
+    module_id: null,
     title: assessment.title,
     description: assessment.description || null,
     time_limit: assessment.timeLimit || null,
     passing_score: assessment.passingScore,
     max_attempts: assessment.maxAttempts,
     is_active: true,
+    prerequisite_module_ids: [moduleId],
+    derived_from_module_quiz: false,
+    display_order: moduleOrder,
     updated_at: now,
   };
 
+  const payload = await withExistingColumns("assessments", basePayload);
+
   let assessmentId: string;
 
-  if (existingAssessment && existingAssessment.length > 0) {
-    assessmentId = existingAssessment[0].id;
-    const { error: updateError } = await supabase.from("assessments").update(basePayload).eq("id", assessmentId);
+  const existingAssessmentRow = existingCourseLevelAssessment?.[0] || existingModuleLinkedAssessment?.[0];
+
+  if (existingAssessmentRow) {
+    assessmentId = existingAssessmentRow.id;
+    const { error: updateError } = await supabase.from("assessments").update(payload).eq("id", assessmentId);
     if (updateError) {
       throw updateError;
     }
@@ -1078,7 +1097,7 @@ async function upsertAssessment(moduleId: string, assessment: AssessmentSeed) {
     const { data: insertedAssessment, error: insertError } = await supabase
       .from("assessments")
       .insert({
-        ...basePayload,
+        ...payload,
         created_at: now,
       })
       .select("id")
@@ -1150,10 +1169,10 @@ async function main() {
 
       await updateModulePrerequisites(moduleId, prerequisiteIds);
 
-      if (module.assessment) {
-        await upsertAssessment(moduleId, module.assessment);
+      if (module.gradedAssessment) {
+        await upsertAssessment(courseId, moduleId, module.order, module.gradedAssessment);
         assessmentCount += 1;
-        questionCount += module.assessment.questions.length;
+        questionCount += module.gradedAssessment.questions.length;
       }
     }
   }

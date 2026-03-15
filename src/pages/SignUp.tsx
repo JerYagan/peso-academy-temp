@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
-import { AlertCircle, Eye, EyeOff, Mail, UserRound } from "lucide-react";
+import { AlertCircle, CheckCircle2, Eye, EyeOff, Mail, UserRound } from "lucide-react";
 import AuthPageShell from "@/components/auth/AuthPageShell";
-import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -11,6 +11,8 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useAuth } from "@/contexts/AuthContext";
 import { formatAllowedEmployeeDomains, isAllowedEmployeeRegistrationEmail } from "@/lib/employeeRegistration";
 import { TRAINEE_ONBOARDING_MODAL_PENDING_KEY } from "@/lib/onboarding";
+import { cn } from "@/lib/utils";
+import { getPasswordRequirementChecks, getPasswordStrengthLevel, isPasswordPolicySatisfied } from "@/lib/passwordPolicy";
 import {
   PROFILE_FIELD_LIMITS,
   sanitizeDigitsOnlyInput,
@@ -60,11 +62,36 @@ const SignUp = () => {
   const [error, setError] = useState("");
   const [physicalIdFile, setPhysicalIdFile] = useState<File | null>(null);
   const [physicalIdPreviewUrl, setPhysicalIdPreviewUrl] = useState<string | null>(null);
+  const [verificationEmailSentTo, setVerificationEmailSentTo] = useState("");
+  const [verificationPendingTraineeType, setVerificationPendingTraineeType] = useState<User["traineeType"] | "">("");
 
   const allowedDomainLabel = useMemo(
     () => formatAllowedEmployeeDomains(allowedEmployeeDomains),
     [allowedEmployeeDomains],
   );
+  const passwordRequirementChecks = useMemo(() => getPasswordRequirementChecks(formData.password), [formData.password]);
+  const passwordStrengthLevel = useMemo(() => getPasswordStrengthLevel(formData.password), [formData.password]);
+  const passwordStrengthSegments = {
+    empty: 0,
+    weak: 1,
+    fair: 2,
+    good: 3,
+    strong: 4,
+  }[passwordStrengthLevel];
+  const passwordStrengthTone = {
+    empty: "bg-muted",
+    weak: "bg-red-500",
+    fair: "bg-amber-500",
+    good: "bg-sky-500",
+    strong: "bg-emerald-500",
+  }[passwordStrengthLevel];
+  const passwordRequirementLabels = {
+    length: t("signup.passwordRequirements.length"),
+    uppercase: t("signup.passwordRequirements.uppercase"),
+    lowercase: t("signup.passwordRequirements.lowercase"),
+    number: t("signup.passwordRequirements.number"),
+    special: t("signup.passwordRequirements.special"),
+  };
 
   useEffect(() => {
     let active = true;
@@ -141,7 +168,7 @@ const SignUp = () => {
       return t("signup.validation.emailInvalid");
     }
 
-    if (formData.password.length < 6) {
+    if (!isPasswordPolicySatisfied(formData.password)) {
       return t("signup.validation.passwordShort");
     }
 
@@ -217,8 +244,21 @@ const SignUp = () => {
         physicalId: isEmployeeTrainee(formData) ? formData.physicalId : undefined,
       });
 
-      if (result.error || !result.user) {
+      if (result.error) {
         setError(typeof result.error === "string" ? result.error : t("signup.validation.signupFailed"));
+        return;
+      }
+
+      if (result.requiresEmailVerification) {
+        setVerificationEmailSentTo(formData.email.trim());
+        setVerificationPendingTraineeType(formData.traineeType || "peso_client");
+        setPhysicalIdFile(null);
+        setFormData(createInitialFormData());
+        return;
+      }
+
+      if (!result.user) {
+        setError(t("signup.validation.signupFailed"));
         return;
       }
 
@@ -257,6 +297,33 @@ const SignUp = () => {
         </>
       }
     >
+      {verificationEmailSentTo ? (
+        <div className="space-y-6 rounded-2xl border border-emerald-200 bg-emerald-50/80 p-6 dark:border-emerald-900/40 dark:bg-emerald-950/20">
+          <Alert>
+            <CheckCircle2 className="h-4 w-4" />
+            <AlertTitle>{t("signup.emailVerificationTitle")}</AlertTitle>
+            <AlertDescription>{t("signup.emailVerificationDescription", { email: verificationEmailSentTo })}</AlertDescription>
+          </Alert>
+
+          <div className="space-y-3 text-sm leading-6 text-muted-foreground dark:text-slate-300">
+            <p>
+              {verificationPendingTraineeType === "peso_employee"
+                ? t("signup.emailVerificationEmployeeNextStep")
+                : t("signup.emailVerificationClientNextStep")}
+            </p>
+            <p>{t("signup.emailVerificationReminder")}</p>
+          </div>
+
+          <div className="flex flex-wrap gap-3">
+            <Button asChild>
+              <Link to="/login">{t("signup.switchLink")}</Link>
+            </Button>
+            <Button type="button" variant="outline" onClick={() => setVerificationEmailSentTo("") }>
+              {t("signup.createAnotherAccount")}
+            </Button>
+          </div>
+        </div>
+      ) : (
       <form onSubmit={handleSubmit} className="space-y-8">
         <section className="space-y-5 rounded-2xl border border-border/70 bg-background p-5 sm:p-6">
           <div className="flex flex-wrap items-center gap-2">
@@ -360,7 +427,7 @@ const SignUp = () => {
                     value={formData.password}
                     onChange={(event) => setField("password", event.target.value)}
                     className="h-12 rounded-xl border-border/80 bg-background px-4 pr-10"
-                    minLength={6}
+                    minLength={8}
                     required
                   />
                   <button
@@ -372,6 +439,37 @@ const SignUp = () => {
                   >
                     {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </button>
+                </div>
+                <div className="space-y-3 rounded-2xl border border-border/70 bg-muted/20 p-4">
+                  <div className="flex items-center justify-between gap-3 text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
+                    <span>{t("signup.passwordStrengthLabel")}</span>
+                    <span>{t(`signup.passwordStrengthLevels.${passwordStrengthLevel === "empty" ? "weak" : passwordStrengthLevel}`)}</span>
+                  </div>
+                  <div className="grid grid-cols-4 gap-2">
+                    {Array.from({ length: 4 }).map((_, index) => (
+                      <div
+                        key={`password-strength-${index}`}
+                        className={cn(
+                          "h-2 rounded-full transition-colors",
+                          index < passwordStrengthSegments ? passwordStrengthTone : "bg-muted",
+                        )}
+                      />
+                    ))}
+                  </div>
+                  <div className="grid gap-2 text-xs text-muted-foreground sm:grid-cols-2">
+                    {passwordRequirementChecks.map((requirement) => (
+                      <div
+                        key={requirement.id}
+                        className={cn(
+                          "flex items-center gap-2 rounded-lg px-2 py-1 transition-colors",
+                          requirement.met ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" : "bg-muted/40",
+                        )}
+                      >
+                        <span className={cn("h-2 w-2 rounded-full", requirement.met ? "bg-emerald-500" : "bg-muted-foreground/50")} />
+                        <span>{passwordRequirementLabels[requirement.id]}</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </div>
 
@@ -436,6 +534,7 @@ const SignUp = () => {
           </Button>
         </div>
       </form>
+      )}
     </AuthPageShell>
   );
 };

@@ -9,18 +9,18 @@ interface DerivedAssessmentSummaryProps {
 
 export const DerivedAssessmentSummary = ({
   contentBlocks,
-  emptyMessage = "Add at least one valid quiz block in the Content tab to generate an assessment.",
+  emptyMessage = "No legacy derived quiz state was detected for this module.",
 }: DerivedAssessmentSummaryProps) => {
   const summary = getQuizAssessmentSummary(contentBlocks);
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="text-lg">Derived Quiz Summary</CardTitle>
+        <CardTitle className="text-lg">Legacy Quiz Review Summary</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
         <p className="text-sm text-muted-foreground">
-          Assessment questions are derived from the module&apos;s quiz blocks. Edit the graded questions in the Content tab instead of managing a second question list here.
+          This archived helper only summarizes quiz-block data for legacy cleanup. Practice quiz blocks are no longer the graded assessment source of truth.
         </p>
 
         <div className="flex flex-wrap gap-2">
@@ -36,7 +36,7 @@ export const DerivedAssessmentSummary = ({
           <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">{emptyMessage}</div>
         ) : summary.invalidIssues.length > 0 ? (
           <div className="space-y-3 rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
-            <p className="font-medium">Assessment quiz blocks need attention before they can be used as the graded assessment source.</p>
+            <p className="font-medium">Legacy quiz blocks need attention before they can be reviewed for migration or cleanup.</p>
             <div className="space-y-2">
               {summary.invalidIssues.map((issue, index) => (
                 <div key={`${issue.blockId}-${index}`}>
@@ -47,7 +47,7 @@ export const DerivedAssessmentSummary = ({
           </div>
         ) : (
           <div className="rounded-lg border border-emerald-300 bg-emerald-50 p-4 text-sm text-emerald-900">
-            Quiz blocks are valid and ready to be used as the module assessment source.
+            Legacy quiz blocks are internally valid and ready for migration review.
           </div>
         )}
       </CardContent>

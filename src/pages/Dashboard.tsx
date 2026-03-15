@@ -4,6 +4,7 @@ import DashboardLayout from "@/components/DashboardLayout";
 import TraineeOnboardingModal from "@/components/trainee/TraineeOnboardingModal";
 import TraineeVerificationBadge from "@/components/trainee/TraineeVerificationBadge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -26,8 +27,10 @@ import { toast } from "sonner";
 import { User } from "@/types/auth";
 import { formatDistanceToNow, startOfMonth, endOfMonth, isWithinInterval } from "date-fns";
 import {
+  buildLearnerCareerPathRecommendations,
   buildLearnerCourseRecommendations,
   reportingService,
+  type LearnerCareerPathRecommendation,
   type CollaborativeRecommendationSignal,
   type LearnerCourseRecommendation,
   type LearnerPerformanceSummary,
@@ -35,6 +38,7 @@ import {
 } from "@/services/reportingService";
 import { moduleSessionService, type EnrichedModuleSession, type ModuleSessionAggregate } from "@/services/moduleSessionService";
 import { getDashboardRoute } from "@/lib/roles";
+import { filterCoursesForUser } from "@/lib/courseAudience";
 import { getOfficialHoursCreditLabel } from "@/lib/courseDuration";
 import { TRAINEE_ONBOARDING_MODAL_PENDING_KEY, type TraineeOnboardingSummary } from "@/lib/onboarding";
 
@@ -47,7 +51,7 @@ interface TraineeDashboardProps {
   };
 }
 
-type DashboardTab = "continue" | "discover" | "review";
+type DashboardTab = "continue" | "review";
 
 const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
   const { language } = useLocale();
@@ -94,7 +98,7 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
         postLoginBody: "Mas maikli na ngayon ang registration. Tapusin ang dashboard onboarding para ma-unlock ang personalized course picks sa iyong dashboard at mas relevant na guidance.",
         onboardingCompletedTitle: "Tapos na ang onboarding",
         onboardingCompletedBody: (count: number) => `Mayroon ka nang ${count} starter recommendation${count === 1 ? "" : "s"} sa iyong dashboard batay sa onboarding profile mo.`,
-        workspaceBadge: "Trainee workspace",
+        workspaceBadge: "Learner workspace",
         welcome: (name: string) => `Maligayang pagbabalik, ${name}!`,
         welcomeBody: "Magpatuloy sa iisang malinaw na susunod na hakbang: ipagpatuloy ang pag-aaral, patibayin ang iyong profile signals, o suriin nang detalyado ang iyong progreso.",
         enrolled: "Enrolled",
@@ -131,7 +135,11 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
         progressReview: "Pagsusuri ng progreso",
         myCourses: "Aking Mga Kurso",
         myCoursesBody: "Ipagpatuloy muna ang mga aktibong kurso bago lumipat sa detalyadong analytics o review ng natapos na history.",
-        waitingApproval: "Naghihintay ng trainer approval bago markahang complete ang kurso.",
+        waitingApproval: "Pino-finalize na ang course completion.",
+        finalizing: "Pino-finalize",
+        completedLabel: "Completed",
+        inProgressLabel: "In Progress",
+        viewCertificate: "Tingnan ang Certificate",
         noRecentModule: "Wala pang active module. Magsimula sa course catalog.",
         recommendationGateTitle: "Tapusin ang onboarding para ma-unlock ang recommendations.",
         recommendationGateBody: "Ang dashboard recommendations mo ay naghihintay muna ng iyong post-login onboarding answers para magamit ang kasalukuyang interests, category choices, readiness, at skill signals.",
@@ -142,7 +150,7 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
         drivenByProfile: "Batay sa iyong onboarding profile",
         beginnerDefaults: "Gumagamit ng beginner-friendly defaults",
         learnersEnrolled: (count: number) => `${count || 0} learner ang naka-enroll`,
-        assignedTrainer: (name: string) => `Assigned trainer: ${name}`,
+        assignedTrainer: (name: string) => `Nakatalagang trainer: ${name}`,
         assessmentNeedEvidenceTitle: "Kailangan ng assessment-only recommendations ng scored assessment evidence.",
         assessmentNeedEvidenceBody: "Tapusin ang graded assessment at magsa-suggest ang advisory mode na ito ng mga kurso gamit lang ang score bands, strongest topics, weakest topics, at failed competencies.",
         assessmentOnlyAdvisory: "Assessment-Only Advisory",
@@ -152,6 +160,17 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
         notEnoughEvidence: "Hindi pa sapat ang ebidensya",
         noClearFocus: "Wala pang malinaw na focus area",
         noFailedClusters: "Walang failed competency clusters",
+        learningPerformanceSummary: "Buod ng Learning Performance",
+        learningPerformanceSummaryBody: "Assessment scores, module completion activity, tracked learning time, at topic-level results mula sa iyong mga enrolled na kurso.",
+        liveLearningAnalytics: "Live na learning analytics sa dashboard",
+        learningSummaryEmptyTitle: "Lalabas dito ang buod ng iyong pag-aaral habang umuusad ka.",
+        learningSummaryEmptyBody: "Tapusin ang mga module at magsumite ng assessments para ma-unlock ang score trends, topic insights, at time-spent analytics.",
+        noGradedResultYet: "Wala pang graded na resulta",
+        continueLearningButton: "Ipagpatuloy ang Pag-aaral",
+        noActiveCoursesTitle: "Wala kang aktibong kursong kasalukuyang ginagawa.",
+        noActiveCoursesBody: "Suriin ang mga na-release na certificate o mag-enroll sa ibang kurso kung gusto mo ng bagong susunod na hakbang sa dashboard.",
+        noEnrollmentsTitle: "Hindi ka pa naka-enroll sa anumang kurso.",
+        noEnrollmentsBody: "Magsimula sa course catalog, pagkatapos ay bumalik dito para ipagpatuloy ang mga module at suriin ang progreso.",
       }
     : {
         defaultTrainer: "PESO Training Team",
@@ -180,7 +199,7 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
         postLoginBody: "Registration is intentionally shorter now. Finish your dashboard onboarding to unlock personalized course picks on your dashboard and more relevant guidance.",
         onboardingCompletedTitle: "Onboarding completed",
         onboardingCompletedBody: (count: number) => `Your dashboard now has ${count} starter recommendation${count === 1 ? "" : "s"} based on your onboarding profile.`,
-        workspaceBadge: "Trainee workspace",
+        workspaceBadge: "Learner workspace",
         welcome: (name: string) => `Welcome back, ${name}!`,
         welcomeBody: "Keep moving with one clear next step: resume learning, sharpen your profile signals, or review your progress in detail.",
         enrolled: "Enrolled",
@@ -217,7 +236,11 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
         progressReview: "Progress review",
         myCourses: "My Courses",
         myCoursesBody: "Continue active courses first before shifting into detailed analytics or completed-history review.",
-        waitingApproval: "Waiting for trainer approval before the course is marked complete.",
+        waitingApproval: "Course completion is being finalized.",
+        finalizing: "Finalizing",
+        completedLabel: "Completed",
+        inProgressLabel: "In Progress",
+        viewCertificate: "View Certificate",
         noRecentModule: "No active module yet. Start with the course catalog.",
         recommendationGateTitle: "Complete onboarding to unlock recommendations.",
         recommendationGateBody: "Your dashboard recommendations now wait for your post-login onboarding answers so cold-start suggestions use current interests, category choices, readiness, and skill signals.",
@@ -238,6 +261,17 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
         notEnoughEvidence: "Not enough evidence yet",
         noClearFocus: "No clear focus area yet",
         noFailedClusters: "No failed competency clusters",
+        learningPerformanceSummary: "Learning Performance Summary",
+        learningPerformanceSummaryBody: "Assessment scores, module completion activity, tracked learning time, and topic-level results from your enrolled courses.",
+        liveLearningAnalytics: "Live dashboard learning analytics",
+        learningSummaryEmptyTitle: "Your learning summary will appear here as you progress.",
+        learningSummaryEmptyBody: "Complete modules and submit assessments to unlock score trends, topic insights, and time-spent analytics.",
+        noGradedResultYet: "No graded result yet",
+        continueLearningButton: "Continue Learning",
+        noActiveCoursesTitle: "You have no active in-progress courses right now.",
+        noActiveCoursesBody: "Review released certificates or enroll in another course if you want a new next step on the dashboard.",
+        noEnrollmentsTitle: "You have not enrolled in any courses yet.",
+        noEnrollmentsBody: "Start with the course catalog, then come back here to resume modules and review progress.",
       };
 
   useEffect(() => {
@@ -288,10 +322,11 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
           enrollmentService.getEnrollments(user.id),
           courseService.getCourses(),
         ]);
+        const visibleCourses = filterCoursesForUser(allCourses, user);
 
         const coursesWithEnrollments = enrollments
           .map((enrollment) => {
-            const course = allCourses.find((candidate) => candidate.id === enrollment.courseId);
+            const course = visibleCourses.find((candidate) => candidate.id === enrollment.courseId);
             return course ? { ...course, enrollment } : null;
           })
           .filter((course): course is Course & { enrollment: Enrollment } => course !== null);
@@ -299,7 +334,7 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
         const completed = coursesWithEnrollments.filter((course) => course.enrollment.status === "completed");
         const inProgress = coursesWithEnrollments.filter((course) => course.enrollment.status !== "completed").slice(0, 3);
 
-        setAllCourses(allCourses);
+        setAllCourses(visibleCourses);
         setAllEnrollments(enrollments);
         setCompletedCourses(completed);
         setMyCourses(inProgress);
@@ -420,6 +455,10 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
     );
   }, [allCourses, allEnrollments, collaborativeSignals, performanceSummary, sessionAggregates, user]);
 
+  const learnerPathRecommendations = useMemo<LearnerCareerPathRecommendation[]>(() => {
+    return buildLearnerCareerPathRecommendations(user, allCourses, allEnrollments, performanceSummary, 3);
+  }, [allCourses, allEnrollments, performanceSummary, user]);
+
   const hasRecommendationContext = hasOnboardingSignals || hasLearningHistory;
 
   const recommendationHeadline = (() => {
@@ -526,7 +565,7 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
   const primaryAction = verificationBlocked
     ? {
         title: user.verificationStatus === "rejected" ? "Verification was rejected" : "Verification is in progress",
-        description: verificationFeedback?.description || "Your trainee account must be verified before course enrollment opens.",
+        description: verificationFeedback?.description || "Your learner account must be verified before course enrollment opens.",
         href: "/courses",
         label: copy.browseCourses,
         state: undefined,
@@ -753,14 +792,14 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
           <div>
             <h2 className="text-xl font-semibold flex items-center gap-2">
               <Brain className="h-5 w-5 text-primary" />
-              Learning Performance Summary
+              {copy.learningPerformanceSummary}
             </h2>
             <p className="text-sm text-muted-foreground mt-1 max-w-3xl">
-              Assessment scores, module completion activity, tracked learning time, and topic-level results from your enrolled courses.
+              {copy.learningPerformanceSummaryBody}
             </p>
           </div>
           <Badge variant="secondary" className="w-fit">
-            Live dashboard learning analytics
+            {copy.liveLearningAnalytics}
           </Badge>
         </div>
 
@@ -769,13 +808,13 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
             <CardContent className="py-8 text-center space-y-3">
               <BarChart3 className="h-10 w-10 text-muted-foreground mx-auto" />
               <div>
-                <p className="font-medium">Your learning summary will appear here as you progress.</p>
+                <p className="font-medium">{copy.learningSummaryEmptyTitle}</p>
                 <p className="text-sm text-muted-foreground">
-                  Complete modules and submit assessments to unlock score trends, topic insights, and time-spent analytics.
+                  {copy.learningSummaryEmptyBody}
                 </p>
               </div>
               <Button asChild>
-                <Link to="/courses">Continue Learning</Link>
+                <Link to="/courses">{copy.continueLearningButton}</Link>
               </Button>
             </CardContent>
           </Card>
@@ -815,12 +854,12 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
 
               <Card>
                 <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                  <CardTitle className="text-sm font-medium">Total Learning Time</CardTitle>
+                  <CardTitle className="text-sm font-medium">{copy.totalLearningTime}</CardTitle>
                   <Clock3 className="h-4 w-4 text-muted-foreground" />
                 </CardHeader>
                 <CardContent>
                   <div className="text-2xl font-bold">{formatLearningTime(performanceSummary.totalLearningMinutes)}</div>
-                  <p className="text-xs text-muted-foreground">Combined module and assessment time tracked</p>
+                  <p className="text-xs text-muted-foreground">{language === "tl" ? "Pinagsamang tracked time ng module at assessment" : "Combined module and assessment time tracked"}</p>
                 </CardContent>
               </Card>
 
@@ -923,18 +962,18 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
 
                             <div className="grid gap-3 sm:grid-cols-3 text-sm">
                               <div>
-                                <p className="text-muted-foreground">Assessment result</p>
+                                <p className="text-muted-foreground">{language === "tl" ? "Resulta ng assessment" : "Assessment result"}</p>
                                 <p className="font-medium">
-                                  {topic.averageScore !== null ? `${topic.averageScore}% average` : "No graded result yet"}
+                                  {topic.averageScore !== null ? `${topic.averageScore}% average` : copy.noGradedResultYet}
                                 </p>
                               </div>
                               <div>
-                                <p className="text-muted-foreground">Learning time</p>
+                                <p className="text-muted-foreground">{language === "tl" ? "Oras ng pag-aaral" : "Learning time"}</p>
                                 <p className="font-medium">{formatLearningTime(topic.totalTimeSpentMinutes)}</p>
                               </div>
                               <div>
-                                <p className="text-muted-foreground">Completion record</p>
-                                <p className="font-medium">{topic.modulesCompleted} modules completed</p>
+                                <p className="text-muted-foreground">{language === "tl" ? "Record ng completion" : "Completion record"}</p>
+                                <p className="font-medium">{language === "tl" ? `${topic.modulesCompleted} modules ang natapos` : `${topic.modulesCompleted} modules completed`}</p>
                               </div>
                             </div>
                           </div>
@@ -980,8 +1019,8 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
 
               <Card>
                 <CardHeader>
-                  <CardTitle>Module Completion Records</CardTitle>
-                  <CardDescription>Your most recent completed learning modules.</CardDescription>
+                  <CardTitle>{language === "tl" ? "Mga Record ng Natapos na Module" : "Module Completion Records"}</CardTitle>
+                  <CardDescription>{language === "tl" ? "Ang pinakabago mong natapos na learning modules." : "Your most recent completed learning modules."}</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-3">
                   {performanceSummary.recentModules.length > 0 ? (
@@ -998,7 +1037,7 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
                       </div>
                     ))
                   ) : (
-                    <p className="text-sm text-muted-foreground">Complete modules to see your latest completion records.</p>
+                    <p className="text-sm text-muted-foreground">{language === "tl" ? "Tapusin ang mga module para makita ang pinakabago mong completion records." : "Complete modules to see your latest completion records."}</p>
                   )}
                 </CardContent>
               </Card>
@@ -1092,12 +1131,9 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
 
         <Tabs value={dashboardTab} onValueChange={(value) => setDashboardTab(value as DashboardTab)} className="space-y-6">
           <div className="rounded-3xl border border-border/70 bg-card p-2">
-            <TabsList className="grid h-auto w-full grid-cols-1 gap-2 bg-transparent p-0 sm:grid-cols-3">
+            <TabsList className="grid h-auto w-full grid-cols-1 gap-2 bg-transparent p-0 sm:grid-cols-2">
               <TabsTrigger value="continue" className="rounded-2xl px-4 py-3 text-sm font-semibold data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
                 {copy.tabs.continue}
-              </TabsTrigger>
-              <TabsTrigger value="discover" className="rounded-2xl px-4 py-3 text-sm font-semibold data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
-                {copy.tabs.discover}
               </TabsTrigger>
               <TabsTrigger value="review" className="rounded-2xl px-4 py-3 text-sm font-semibold data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
                 {copy.tabs.review}
@@ -1219,53 +1255,103 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
                   {myCourses.length > 0 ? (
                     myCourses.map((course) => {
                       const isCompleted = course.enrollment.status === "completed";
-                      const isAwaitingApproval = course.enrollment.progress >= 100 && course.enrollment.completionApprovalStatus !== "approved";
+                      const isAwaitingApproval = course.enrollment.completionApprovalStatus === "pending" && !isCompleted;
                       return (
-                        <Card key={course.id} className={isCompleted ? "border-green-200 dark:border-green-900/30" : ""}>
-                          <CardHeader>
-                            <div className="flex items-start justify-between gap-2">
-                              <div className="min-w-0 flex-1">
-                                <CardTitle className="line-clamp-2">{course.title}</CardTitle>
-                                <CardDescription>
-                                  {course.category} • {course.level} • {course.assignedTrainer?.displayName || course.instructor || "PESO Training Team"}
-                                </CardDescription>
+                        <Card
+                          key={course.id}
+                          className={`flex h-full flex-col overflow-hidden border-border/80 bg-background/95 shadow-[0_18px_40px_-30px_rgba(15,23,42,0.4)] ${
+                            isCompleted ? "border-green-200 dark:border-green-900/30" : ""
+                          }`}
+                        >
+                          <div className="aspect-[16/9] overflow-hidden border-b bg-muted/40">
+                            {course.thumbnail ? (
+                              <img src={course.thumbnail} alt={course.title} className="h-full w-full object-cover" />
+                            ) : (
+                              <div className="flex h-full w-full items-center justify-center bg-[linear-gradient(135deg,rgba(15,118,110,0.12)_0%,rgba(29,78,216,0.12)_100%)] text-muted-foreground">
+                                <div className="flex flex-col items-center gap-2">
+                                  <BookOpen className="h-8 w-8" />
+                                  <span className="text-xs font-semibold uppercase tracking-[0.18em]">{course.category}</span>
+                                </div>
                               </div>
-                              {isCompleted && (
-                                <Badge variant="outline" className="shrink-0 text-green-600 border-green-300">
-                                  <CheckCircle2 className="w-3 h-3 mr-1" />
-                                  Completed
+                            )}
+                          </div>
+                          <CardHeader className="space-y-3">
+                            <div className="flex items-center justify-between gap-2">
+                              <Badge className="rounded-full bg-primary px-3 py-1 text-[11px] font-semibold text-primary-foreground hover:bg-primary">
+                                {course.level}
+                              </Badge>
+                              {isCompleted ? (
+                                <Badge variant="outline" className="shrink-0 rounded-full border-green-300 px-3 py-1 text-[11px] font-semibold text-green-600">
+                                  <CheckCircle2 className="mr-1 h-3 w-3" />
+                                  {copy.completedLabel}
+                                </Badge>
+                              ) : isAwaitingApproval ? (
+                                <Badge variant="secondary" className="shrink-0 rounded-full px-3 py-1 text-[11px] font-semibold">
+                                  {copy.finalizing}
+                                </Badge>
+                              ) : (
+                                <Badge variant="outline" className="shrink-0 rounded-full px-3 py-1 text-[11px] font-semibold">
+                                  {copy.inProgressLabel}
                                 </Badge>
                               )}
                             </div>
+                            <div>
+                              <CardTitle className="line-clamp-2 text-xl">{course.title}</CardTitle>
+                              <CardDescription className="mt-2 line-clamp-3">
+                                {course.description || `${course.category} • ${getOfficialHoursCreditLabel(course.duration)}`}
+                              </CardDescription>
+                            </div>
                           </CardHeader>
-                          <CardContent>
+                          <CardContent className="flex flex-1 flex-col space-y-4">
+                            <div className="space-y-2 text-sm text-muted-foreground">
+                              <div className="flex items-center gap-2">
+                                <Clock3 className="h-4 w-4" />
+                                <span>{getOfficialHoursCreditLabel(course.duration)}</span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <BookOpen className="h-4 w-4" />
+                                <span>{course.category}</span>
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <TrendingUp className="h-4 w-4" />
+                                <span>{course.enrollment.progress}% complete</span>
+                              </div>
+                            </div>
+
                             <div className="space-y-2">
                               <div className="flex justify-between text-sm">
                                 <span className="text-muted-foreground">Progress</span>
                                 <span className="font-medium">{course.enrollment.progress}%</span>
                               </div>
-                              <div className="h-2 bg-muted rounded-full overflow-hidden">
+                              <div className="h-2 overflow-hidden rounded-full bg-muted">
                                 <div
                                   className={`h-full rounded-full transition-all ${isCompleted ? "bg-green-600" : "bg-primary"}`}
                                   style={{ width: `${course.enrollment.progress}%` }}
                                 />
                               </div>
-                              {isAwaitingApproval ? (
-                                <p className="text-xs text-muted-foreground">
-                                  {copy.waitingApproval}
-                                </p>
-                              ) : null}
+                            </div>
+
+                            {isAwaitingApproval ? (
+                              <p className="rounded-full bg-muted px-3 py-2 text-xs font-medium text-muted-foreground">
+                                {copy.waitingApproval}
+                              </p>
+                            ) : null}
+
+                            <div className="mt-auto flex gap-3 pt-2">
                               {isCompleted ? (
-                                <Button asChild className="w-full mt-4" variant="secondary">
-                                  <Link to="/certificates">View Certificate</Link>
+                                <Button className="flex-1" asChild variant="secondary">
+                                  <Link to="/certificates">{copy.viewCertificate}</Link>
                                 </Button>
                               ) : (
-                                <Button asChild className="w-full mt-4">
+                                <Button className="flex-1" asChild>
                                   <Link to={`/courses/${course.id}`} state={{ entrySource: "dashboard_continue_learning" }}>
-                                    Continue Learning
+                                    {copy.continueLearningButton}
                                   </Link>
                                 </Button>
                               )}
+                              <Button variant="outline" asChild>
+                                <Link to="/progress">{copy.viewProgress}</Link>
+                              </Button>
                             </div>
                           </CardContent>
                         </Card>
@@ -1277,27 +1363,27 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
                         <BookOpen className="w-12 h-12 text-muted-foreground mb-4" />
                         {completedCourses.length > 0 || stats.enrolledCourses > 0 ? (
                           <>
-                            <p className="text-muted-foreground mb-2">You have no active in-progress courses right now.</p>
+                            <p className="text-muted-foreground mb-2">{copy.noActiveCoursesTitle}</p>
                             <p className="text-sm text-muted-foreground mb-4 max-w-xl">
-                              Review released certificates or enroll in another course if you want a new next step on the dashboard.
+                              {copy.noActiveCoursesBody}
                             </p>
                             <div className="flex flex-wrap items-center justify-center gap-2">
                               <Button asChild variant="outline">
                                 <Link to="/certificates">View Certificates</Link>
                               </Button>
                               <Button asChild>
-                                <Link to="/courses">Browse Courses</Link>
+                                <Link to="/courses">{copy.browseCourses}</Link>
                               </Button>
                             </div>
                           </>
                         ) : (
                           <>
-                            <p className="text-muted-foreground mb-2">You have not enrolled in any courses yet.</p>
+                            <p className="text-muted-foreground mb-2">{copy.noEnrollmentsTitle}</p>
                             <p className="text-sm text-muted-foreground mb-4 max-w-xl">
-                              Start with the course catalog, then come back here to resume modules and review progress.
+                              {copy.noEnrollmentsBody}
                             </p>
                             <Button asChild>
-                              <Link to="/courses">Browse Courses</Link>
+                              <Link to="/courses">{copy.browseCourses}</Link>
                             </Button>
                           </>
                         )}
@@ -1307,10 +1393,6 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
                 </div>
               )}
             </div>
-          </TabsContent>
-
-          <TabsContent value="discover" className="space-y-6">
-            {renderRecommendedCourses()}
           </TabsContent>
 
           <TabsContent value="review" className="space-y-6">
@@ -1355,7 +1437,161 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
               </Card>
             </div>
 
-            {renderPerformanceSummary()}
+            <Card>
+              <CardHeader>
+                <CardTitle>Learning Snapshot</CardTitle>
+                <CardDescription>Keep the top-level review lightweight, then open the deeper detail only when you need it.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-5">
+                <div className="grid gap-3 md:grid-cols-3">
+                  {progressIndicators.slice(0, 3).map((indicator) => {
+                    const Icon = indicator.icon;
+
+                    return (
+                      <div key={indicator.label} className="rounded-2xl border border-border/70 bg-background/60 p-4">
+                        <div className="flex items-center justify-between gap-3">
+                          <p className="text-sm text-muted-foreground">{indicator.label}</p>
+                          <Icon className="h-4 w-4 text-primary" />
+                        </div>
+                        <p className="mt-3 text-2xl font-semibold">{indicator.value}</p>
+                        <p className="mt-2 text-xs leading-5 text-muted-foreground">{indicator.helper}</p>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <Accordion type="single" collapsible className="rounded-2xl border border-border/70 px-4">
+                  <AccordionItem value="detail" className="border-none">
+                    <AccordionTrigger className="py-4 text-left text-base font-semibold hover:no-underline">
+                      {language === "tl" ? "Buksan ang Detalyadong Learning Insights" : "Open Detailed Learning Insights"}
+                    </AccordionTrigger>
+                    <AccordionContent className="space-y-4 pb-5">
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
+                          <p className="text-sm text-muted-foreground">Recent activity</p>
+                          <p className="mt-3 text-2xl font-semibold">{progressIndicators[3]?.value || (language === "tl" ? "Wala pang kamakailang activity" : "No recent activity")}</p>
+                          <p className="mt-2 text-xs leading-5 text-muted-foreground">{progressIndicators[3]?.helper || (language === "tl" ? "Tapusin ang learning activities para mabuo ang history mo." : "Complete learning activities to build your history.")}</p>
+                        </div>
+                        <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
+                          <p className="text-sm text-muted-foreground">{language === "tl" ? "Topic signals" : "Topic signals"}</p>
+                          <p className="mt-3 text-lg font-semibold">{performanceSummary?.strongestTopic?.topic || (language === "tl" ? "Magdagdag pa ng history" : "Build more history")}</p>
+                          <p className="mt-2 text-xs leading-5 text-muted-foreground">
+                            {performanceSummary?.needsImprovementTopic?.topic
+                              ? (language === "tl" ? `Kasalukuyang focus area: ${performanceSummary.needsImprovementTopic.topic}` : `Current focus area: ${performanceSummary.needsImprovementTopic.topic}`)
+                              : (language === "tl" ? "Tapusin pa ang learning activity para lumitaw ang isang maaasahang focus area." : "Finish more learning activity to surface a reliable focus area.")}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="grid gap-3 md:grid-cols-2">
+                        <div className="rounded-2xl border border-emerald-200/70 bg-emerald-50/70 p-4 dark:border-emerald-900/40 dark:bg-emerald-950/20">
+                          <p className="text-sm text-emerald-700 dark:text-emerald-300">
+                            {language === "tl" ? "Mga lakas" : "Strengths"}
+                          </p>
+                          <p className="mt-3 text-lg font-semibold text-emerald-950 dark:text-emerald-100">
+                            {performanceSummary?.strongestTopic?.topic || (language === "tl" ? "Wala pang malinaw na lakas" : "No clear strength yet")}
+                          </p>
+                          <p className="mt-2 text-xs leading-5 text-emerald-800/80 dark:text-emerald-200/80">
+                            {performanceSummary?.strongestTopic?.averageScore !== null && performanceSummary?.strongestTopic
+                              ? (language === "tl"
+                                ? `${performanceSummary.strongestTopic.averageScore}% ang average score mo rito, kaya magandang pundasyon ito para sa susunod mong kurso.`
+                                : `Your ${performanceSummary.strongestTopic.averageScore}% average score here makes this a solid foundation for your next course.`)
+                              : (language === "tl"
+                                ? "Tapusin ang mas marami pang scored assessments para lumitaw ang pinaka-malakas mong skill area."
+                                : "Complete more scored assessments to surface your strongest skill area.")}
+                          </p>
+                        </div>
+
+                        <div className="rounded-2xl border border-amber-200/70 bg-amber-50/70 p-4 dark:border-amber-900/40 dark:bg-amber-950/20">
+                          <p className="text-sm text-amber-700 dark:text-amber-300">
+                            {language === "tl" ? "Mga kailangang pagbutihin" : "Areas to improve"}
+                          </p>
+                          <p className="mt-3 text-lg font-semibold text-amber-950 dark:text-amber-100">
+                            {performanceSummary?.needsImprovementTopic?.topic || (language === "tl" ? "Wala pang focus area" : "No focus area yet")}
+                          </p>
+                          <p className="mt-2 text-xs leading-5 text-amber-800/80 dark:text-amber-200/80">
+                            {performanceSummary?.needsImprovementTopic?.averageScore !== null && performanceSummary?.needsImprovementTopic
+                              ? (language === "tl"
+                                ? `${performanceSummary.needsImprovementTopic.averageScore}% ang average score mo rito. Magandang unahin ito sa susunod mong practice at assessment review.`
+                                : `Your ${performanceSummary.needsImprovementTopic.averageScore}% average score here makes this the best area to prioritize in your next practice and assessment review.`)
+                              : (language === "tl"
+                                ? "Kapag may sapat nang scored topics, dito lalabas ang skill area na dapat mong tutukan."
+                                : "Once you have enough scored topics, this is where your highest-priority support area will appear.")}
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="space-y-3">
+                        <div>
+                          <p className="text-sm font-semibold">
+                            {language === "tl" ? "Mga rekomendadong industry at career path" : "Recommended industries and career paths"}
+                          </p>
+                          <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                            {language === "tl"
+                              ? "Nakabatay ang mga direksyong ito sa iyong interests, topic performance, at mga kursong pinakamalapit sa kasalukuyan mong learner profile."
+                              : "These directions are based on your interests, topic performance, and the courses that currently match your learner profile most closely."}
+                          </p>
+                        </div>
+
+                        <div className="grid gap-3 lg:grid-cols-3">
+                          {learnerPathRecommendations.map((recommendation) => (
+                            <div key={`${recommendation.type}-${recommendation.title}`} className="rounded-2xl border border-border/60 bg-background/60 p-4">
+                              <Badge variant="outline" className="rounded-full px-3 py-1 text-[11px] font-semibold">
+                                {recommendation.type === "industry"
+                                  ? (language === "tl" ? "Industry" : "Industry")
+                                  : (language === "tl" ? "Career path" : "Career path")}
+                              </Badge>
+                              <p className="mt-3 font-semibold">{recommendation.title}</p>
+                              <p className="mt-2 text-sm leading-6 text-muted-foreground">{recommendation.description}</p>
+                              <p className="mt-3 text-xs leading-5 text-muted-foreground">{recommendation.rationale}</p>
+                              {recommendation.supportingCourses.length > 0 ? (
+                                <div className="mt-3 flex flex-wrap gap-2">
+                                  {recommendation.supportingCourses.map((courseTitle) => (
+                                    <Badge key={courseTitle} variant="secondary" className="rounded-full px-3 py-1 text-[11px]">
+                                      {courseTitle}
+                                    </Badge>
+                                  ))}
+                                </div>
+                              ) : null}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="space-y-3">
+                        {(performanceSummary?.topicPerformance || []).slice(0, 4).map((topic) => (
+                          <div key={topic.topic} className="rounded-xl border border-border/60 p-4">
+                            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                              <div>
+                                <p className="font-semibold">{topic.topic}</p>
+                                <p className="text-sm text-muted-foreground">
+                                  {language === "tl"
+                                    ? `${topic.assessmentsTaken} assessment${topic.assessmentsTaken === 1 ? "" : "s"} at ${topic.modulesCompleted} natapos na module${topic.modulesCompleted === 1 ? "" : "s"}`
+                                    : `${topic.assessmentsTaken} assessment${topic.assessmentsTaken === 1 ? "" : "s"} and ${topic.modulesCompleted} module completion${topic.modulesCompleted === 1 ? "" : "s"}`}
+                                </p>
+                              </div>
+                              <Badge variant="outline">
+                                {topic.averageScore !== null
+                                  ? (language === "tl" ? `${topic.averageScore}% average` : `${topic.averageScore}% average`)
+                                  : copy.noGradedResultYet}
+                              </Badge>
+                            </div>
+                          </div>
+                        ))}
+
+                        {!performanceSummary?.topicPerformance?.length ? (
+                          <p className="text-sm text-muted-foreground">
+                            {language === "tl"
+                              ? "Lalabas ang topic-level insights pagkatapos mong makumpleto ang mas marami pang learning activity."
+                              : "Topic-level insights will appear after you complete more learning activity."}
+                          </p>
+                        ) : null}
+                      </div>
+                    </AccordionContent>
+                  </AccordionItem>
+                </Accordion>
+              </CardContent>
+            </Card>
 
             {completedCourses.length > 0 && (
               <div className="space-y-4">

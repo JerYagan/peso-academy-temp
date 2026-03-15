@@ -2,8 +2,6 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Separator } from "@/components/ui/separator";
 import { CheckCircle2, Play, FileText, Upload, FileQuestion, Clock, Code, Video, ImageIcon, Link2 } from "lucide-react";
 import { Module, Enrollment } from "@/types";
 import { supabase } from "@/lib/supabase";
@@ -13,9 +11,7 @@ import VideoPlayer from "./VideoPlayer";
 import DocumentViewer from "./DocumentViewer";
 import CourseMaterialImage from "./CourseMaterialImage";
 import AssignmentSubmission from "./AssignmentSubmission";
-import AssessmentInterface from "./AssessmentInterface";
 import { ContentBlock } from "./ContentBlock";
-import { assessmentService, type Assessment } from "@/services/assessmentService";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -28,6 +24,7 @@ interface ModuleContentViewerProps {
   isPreviewMode?: boolean;
   entrySource?: string;
   onComplete: (timeSpentMinutes?: number, options?: { silent?: boolean }) => void | Promise<void>;
+  onPracticeQuizStateChange?: (state: { canRetry: boolean; retry: (() => void) | null }) => void;
 }
 
 const ModuleContentViewer = ({
@@ -37,23 +34,20 @@ const ModuleContentViewer = ({
   isPreviewMode = false,
   entrySource = "course_module_viewer",
   onComplete,
+  onPracticeQuizStateChange,
 }: ModuleContentViewerProps) => {
   const { user } = useAuth();
-  const [activeTab, setActiveTab] = useState("content");
   const [timeSpent, setTimeSpent] = useState<number | null>(null);
   const [currentTimeSpent, setCurrentTimeSpent] = useState(0);
   const [quizAnswers, setQuizAnswers] = useState<Record<string, string>>({});
   const [quizResults, setQuizResults] = useState<Record<string, boolean>>({});
-  const [moduleAssessment, setModuleAssessment] = useState<Assessment | null>(null);
-  const [assessmentLoaded, setAssessmentLoaded] = useState(isPreviewMode);
-  const [autoCompletingModule, setAutoCompletingModule] = useState(false);
+  const [completingModule, setCompletingModule] = useState(false);
   const sessionIdRef = useRef<string | null>(null);
   const sessionStartedAtRef = useRef<number | null>(null);
   const heartbeatIntervalRef = useRef<number | null>(null);
   const displayIntervalRef = useRef<number | null>(null);
   const endingSessionRef = useRef(false);
   const latestResumePositionRef = useRef<number | undefined>(undefined);
-  const autoCompletionRequestedRef = useRef(false);
 
   const loadTimeSpent = useCallback(async () => {
     if (!supabase || isPreviewMode) return;
@@ -250,83 +244,39 @@ const ModuleContentViewer = ({
     return parseModuleContentBlocks(module.content);
   }, [module.content]);
 
-  useEffect(() => {
-    if (isPreviewMode) {
-      setModuleAssessment(null);
-      setAssessmentLoaded(true);
+  const handleMarkModuleComplete = async () => {
+    if (isCompleted || completingModule) {
       return;
     }
 
-    let cancelled = false;
+    setCompletingModule(true);
 
-    const loadModuleAssessment = async () => {
-      setAssessmentLoaded(false);
-      try {
-        const assessment = await assessmentService.getAssessmentByModule(module.id);
-        if (!cancelled) {
-          setModuleAssessment(assessment);
-        }
-      } catch (error) {
-        if (!cancelled) {
-          setModuleAssessment(null);
-        }
-      } finally {
-        if (!cancelled) {
-          setAssessmentLoaded(true);
-        }
-      }
-    };
+    try {
+      const totalMinutes = timeSpent !== null
+        ? Math.max(timeSpent, timeSpent + Math.ceil(currentTimeSpent / 60))
+        : Math.ceil(currentTimeSpent / 60);
 
-    void loadModuleAssessment();
+      await onComplete(totalMinutes > 0 ? totalMinutes : undefined);
+    } finally {
+      setCompletingModule(false);
+    }
+  };
+
+  const handleRetryAllPracticeQuizzes = useCallback(() => {
+    setQuizAnswers({});
+    setQuizResults({});
+  }, []);
+
+  useEffect(() => {
+    onPracticeQuizStateChange?.({
+      canRetry: Object.keys(quizAnswers).length > 0,
+      retry: Object.keys(quizAnswers).length > 0 ? handleRetryAllPracticeQuizzes : null,
+    });
 
     return () => {
-      cancelled = true;
+      onPracticeQuizStateChange?.({ canRetry: false, retry: null });
     };
-  }, [isPreviewMode, module.id]);
-
-  const firstDerivedAssessmentBlockId = useMemo(() => {
-    const firstDerivedBlock = contentBlocks.find((block) => block.type === "quiz" && block.isGradable !== false);
-    return firstDerivedBlock?.id || null;
-  }, [contentBlocks]);
-
-  const requiresAssessmentReview = useMemo(
-    () => contentBlocks.some((block) => block.type === "quiz" && block.isGradable !== false),
-    [contentBlocks],
-  );
-
-  useEffect(() => {
-    autoCompletionRequestedRef.current = false;
-  }, [module.id]);
-
-  useEffect(() => {
-    if (isPreviewMode || isCompleted || autoCompletingModule || !assessmentLoaded || moduleAssessment) {
-      return;
-    }
-
-    if (autoCompletionRequestedRef.current) {
-      return;
-    }
-
-    if (currentTimeSpent < 60) {
-      return;
-    }
-
-    const totalMinutes = timeSpent !== null
-      ? timeSpent + Math.ceil(currentTimeSpent / 60)
-      : Math.ceil(currentTimeSpent / 60);
-
-    autoCompletionRequestedRef.current = true;
-    setAutoCompletingModule(true);
-
-    void onComplete(totalMinutes, { silent: true })
-      .catch((error) => {
-        console.error("Error auto-completing content-only module:", error);
-        autoCompletionRequestedRef.current = false;
-      })
-      .finally(() => {
-        setAutoCompletingModule(false);
-      });
-  }, [assessmentLoaded, autoCompletingModule, currentTimeSpent, isCompleted, isPreviewMode, moduleAssessment, onComplete, timeSpent]);
+  }, [handleRetryAllPracticeQuizzes, onPracticeQuizStateChange, quizAnswers]);
 
   // Get first heading (h1/h2/h3) text from HTML for use as section title
   const getFirstHeadingFromHtml = (html: string): string | null => {
@@ -476,52 +426,11 @@ const ModuleContentViewer = ({
 
       case "quiz":
         const blockId = block.id || `quiz-${index}`;
-        const isDerivedAssessmentQuestion = !isPreviewMode && Boolean(moduleAssessment) && block.isGradable !== false;
         const userAnswer = quizAnswers[blockId];
         const hasAnswered = userAnswer !== undefined;
         const isEssayQuestion = block.questionType === "essay";
         const isCorrect = !isEssayQuestion && hasAnswered && quizResults[blockId];
         const correctAnswerIndex = block.correctAnswer?.toString();
-
-        if (isDerivedAssessmentQuestion) {
-          if (blockId !== firstDerivedAssessmentBlockId) {
-            return null;
-          }
-
-          return (
-            <div key={blockId} className="space-y-4">
-              <div className="flex items-center justify-between gap-3 rounded-lg border bg-muted/30 px-4 py-3">
-                <div>
-                  <p className="font-medium">Module Assessment</p>
-                  <p className="text-sm text-muted-foreground">
-                    Answer the graded quiz questions here in the content flow. Your score and pass/fail result will be recorded from this submission.
-                  </p>
-                </div>
-                <Badge variant="secondary">
-                  {contentBlocks
-                    .filter((candidate) => candidate.type === "quiz" && candidate.isGradable !== false)
-                    .reduce((total, candidate) => total + (candidate.points || 0), 0)} point
-                  {contentBlocks
-                    .filter((candidate) => candidate.type === "quiz" && candidate.isGradable !== false)
-                    .reduce((total, candidate) => total + (candidate.points || 0), 0) === 1 ? "" : "s"}
-                </Badge>
-              </div>
-              {assessmentLoaded ? (
-                <AssessmentInterface
-                  enrollmentId={enrollment.id}
-                  moduleId={module.id}
-                  courseId={enrollment.courseId}
-                />
-              ) : (
-                <Card>
-                  <CardContent className="flex items-center justify-center py-10 text-sm text-muted-foreground">
-                    Loading assessment...
-                  </CardContent>
-                </Card>
-              )}
-            </div>
-          );
-        }
         
         return (
           <Card key={blockId} className="border-2">
@@ -546,19 +455,16 @@ const ModuleContentViewer = ({
                     rows={6}
                   />
                   <p className="text-sm text-muted-foreground">
-                    Essay responses entered here are for content preview only. Graded essay submissions happen through the module assessment above.
+                    Essay responses entered here are for content preview only. Graded essay submissions happen through the graded assessment activity in the course sidebar.
                   </p>
                 </div>
               ) : block.options && block.options.length > 0 && (
                 <RadioGroup 
-                  disabled={hasAnswered}
                   value={userAnswer || ""}
                   onValueChange={(value) => {
-                    if (!hasAnswered) {
-                      setQuizAnswers(prev => ({ ...prev, [blockId]: value }));
-                      const correct = value === correctAnswerIndex;
-                      setQuizResults(prev => ({ ...prev, [blockId]: correct }));
-                    }
+                    setQuizAnswers(prev => ({ ...prev, [blockId]: value }));
+                    const correct = value === correctAnswerIndex;
+                    setQuizResults(prev => ({ ...prev, [blockId]: correct }));
                   }}
                 >
                   {block.options.map((option, optIdx) => {
@@ -672,163 +578,150 @@ const ModuleContentViewer = ({
         </CardHeader>
       </Card>
 
-      {/* Module Content Tabs */}
-      <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="flex w-full flex-wrap">
-          <TabsTrigger value="content">Content</TabsTrigger>
-          {videoMaterials.length > 0 && <TabsTrigger value="videos">Videos</TabsTrigger>}
-          {documentMaterials.length > 0 && <TabsTrigger value="documents">Documents</TabsTrigger>}
-        </TabsList>
+      <div className="space-y-4">
+        {module.module_document && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <FileText className="w-5 h-5" />
+                Module Document
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <DocumentViewer url={module.module_document} title={module.title} />
+            </CardContent>
+          </Card>
+        )}
 
-        {/* Content Tab */}
-        <TabsContent value="content" className="space-y-4">
-          {/* Module Document (uploaded PDF/PPTX) - primary content */}
-          {module.module_document && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <FileText className="w-5 h-5" />
-                  Module Document
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <DocumentViewer url={module.module_document} title={module.title} />
-              </CardContent>
-            </Card>
-          )}
+        {contentBlocks.length > 0 ? (
+          <div className="space-y-4">
+            {contentBlocks.map((block, idx) => {
+              const blockType = (block.type?.toLowerCase?.() ?? block.type) as ContentBlock["type"];
+              const renderedBlock = renderContentBlock(block, idx);
 
-          {/* Content blocks or rich text content */}
-          {contentBlocks.length > 0 ? (
-            <div className="space-y-4">
-              {contentBlocks.map((block, idx) => {
-                const blockType = (block.type?.toLowerCase?.() ?? block.type) as ContentBlock["type"];
-                const renderedBlock = renderContentBlock(block, idx);
+              if (!renderedBlock) return null;
 
-                if (!renderedBlock) return null;
+              if (blockType === "text" || blockType === "quiz" || blockType === "learning_material") {
+                return <div key={block.id || idx}>{renderedBlock}</div>;
+              }
 
-                if (blockType === "text" || blockType === "quiz" || blockType === "learning_material") {
-                  return <div key={block.id || idx}>{renderedBlock}</div>;
-                }
+              return (
+                <div key={block.id || idx} className="rounded-xl border p-4">
+                  {renderedBlock}
+                </div>
+              );
+            })}
+          </div>
+        ) : module.content ? (
+          <Card>
+            <CardHeader>
+              <CardTitle>Module Content</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div
+                className="prose prose-sm max-w-none dark:prose-invert"
+                dangerouslySetInnerHTML={{ __html: module.content }}
+              />
+            </CardContent>
+          </Card>
+        ) : !module.module_document ? (
+          <Card>
+            <CardContent className="pt-6">
+              <p className="text-muted-foreground text-center py-8">
+                No content available for this module.
+              </p>
+            </CardContent>
+          </Card>
+        ) : null}
+
+        {videoMaterials.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Play className="w-5 h-5" />
+                Videos
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {videoMaterials.map((material, index) => {
+                const url = typeof material === "string" ? material : String(material);
+                const title = `Video ${index + 1}`;
 
                 return (
-                  <div key={block.id || idx} className="rounded-xl border p-4">
-                    {renderedBlock}
-                  </div>
-                );
-              })}
-            </div>
-          ) : module.content ? (
-            <Card>
-              <CardHeader>
-                <CardTitle>Module Content</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div
-                  className="prose prose-sm max-w-none dark:prose-invert"
-                  dangerouslySetInnerHTML={{ __html: module.content }}
-                />
-              </CardContent>
-            </Card>
-          ) : !module.module_document ? (
-            <Card>
-              <CardContent className="pt-6">
-                <p className="text-muted-foreground text-center py-8">
-                  No content available for this module.
-                </p>
-              </CardContent>
-            </Card>
-          ) : null}
-
-          {hasAssignments && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Upload className="w-5 h-5" />
-                  Assignment Submission
-                </CardTitle>
-                <CardDescription>
-                  Submit your assignment for this module.
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <AssignmentSubmission
-                  enrollmentId={enrollment.id}
-                  moduleId={module.id}
-                  courseId={enrollment.courseId}
-                />
-              </CardContent>
-            </Card>
-          )}
-        </TabsContent>
-
-        {/* Videos Tab */}
-        {videoMaterials.length > 0 && (
-          <TabsContent value="videos" className="space-y-4">
-            {videoMaterials.map((material, index) => {
-              const url = typeof material === "string" ? material : String(material);
-              const title = `Video ${index + 1}`;
-              
-              return (
-                <Card key={index}>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <Play className="w-5 h-5" />
-                      {title}
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <VideoPlayer 
-                      url={url} 
+                  <div key={index} className="space-y-3 rounded-xl border p-4">
+                    <p className="text-sm font-medium">{title}</p>
+                    <VideoPlayer
+                      url={url}
                       enrollmentId={isPreviewMode ? undefined : enrollment.id}
                       moduleId={isPreviewMode ? undefined : module.id}
                       onPlaybackPositionChange={(seconds) => {
                         latestResumePositionRef.current = seconds;
                       }}
                     />
-                  </CardContent>
-                </Card>
-              );
-            })}
-          </TabsContent>
+                  </div>
+                );
+              })}
+            </CardContent>
+          </Card>
         )}
 
-        {/* Documents Tab */}
         {documentMaterials.length > 0 && (
-          <TabsContent value="documents" className="space-y-4">
-            {documentMaterials.map((material, index) => {
-              const url = typeof material === "string" ? material : String(material);
-              const title = `Document ${index + 1}`;
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <FileText className="w-5 h-5" />
+                Supporting Documents
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {documentMaterials.map((material, index) => {
+                const url = typeof material === "string" ? material : String(material);
+                const title = `Document ${index + 1}`;
 
-              return (
-                <Card key={index}>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <FileText className="w-5 h-5" />
-                      {title}
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
+                return (
+                  <div key={index} className="space-y-3 rounded-xl border p-4">
+                    <p className="text-sm font-medium">{title}</p>
                     <DocumentViewer url={url} title={title} />
-                  </CardContent>
-                </Card>
-              );
-            })}
-          </TabsContent>
+                  </div>
+                );
+              })}
+            </CardContent>
+          </Card>
         )}
-      </Tabs>
+
+        {hasAssignments && (
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Upload className="w-5 h-5" />
+                Assignment Submission
+              </CardTitle>
+              <CardDescription>
+                Submit your assignment for this module.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <AssignmentSubmission
+                enrollmentId={enrollment.id}
+                moduleId={module.id}
+                courseId={enrollment.courseId}
+              />
+            </CardContent>
+          </Card>
+        )}
+      </div>
 
       {!isCompleted && (
         <Card>
-          <CardContent className="pt-6">
+          <CardContent className="flex flex-col gap-4 pt-6 sm:flex-row sm:items-center sm:justify-between">
             <p className="text-sm text-muted-foreground">
               {isPreviewMode
                 ? "Preview mode keeps completion changes local to this tab."
-                : requiresAssessmentReview
-                ? "Module progress updates after you submit and pass the assessment. Essay-based assessments stay pending until a trainer reviews them."
-                : autoCompletingModule
-                ? "Recording module progress from your current learning session..."
-                : "Content-only modules record progress automatically after you spend time reviewing the material."}
+                : "Practice quizzes stay inline for immediate feedback. Mark the module complete when you are ready to move forward."}
             </p>
+            <Button type="button" onClick={() => void handleMarkModuleComplete()} disabled={completingModule}>
+              {completingModule ? "Saving..." : "Mark Module Complete"}
+            </Button>
           </CardContent>
         </Card>
       )}

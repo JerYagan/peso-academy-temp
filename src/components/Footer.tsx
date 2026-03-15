@@ -1,8 +1,11 @@
 import { Link } from "react-router-dom";
 import { useLocale } from "@/contexts/LocaleContext";
+import { useThemePreference } from "@/contexts/ThemePreferenceContext";
 
 const Footer = () => {
   const { t } = useLocale();
+  const { resolvedTheme } = useThemePreference();
+  const logoSrc = resolvedTheme === "dark" ? "/images/logo_dark.png" : "/images/logo.png";
 
   return (
     <footer className="bg-primary py-10 text-primary-foreground sm:py-14">
@@ -11,9 +14,9 @@ const Footer = () => {
           <div className="space-y-4">
             <Link to="/" className="inline-flex items-center">
               <img
-                src="/images/logo.png"
+                src={logoSrc}
                 alt="PESO Academy"
-                className="h-8 w-auto object-contain brightness-0 invert sm:h-12"
+                className="h-8 w-auto object-contain sm:h-12"
               />
             </Link>
             <p className="max-w-xs text-xs leading-6 text-primary-foreground/75 sm:text-sm sm:leading-7">

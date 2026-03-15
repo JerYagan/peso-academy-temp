@@ -20,9 +20,12 @@ export const deriveAssessmentAttemptAccess = (
   questions: AssessmentQuestion[],
   attempts: AssessmentAttempt[],
 ): AssessmentAttemptAccess => {
+  const hasFinalApproval = (candidate: AssessmentAttempt | null | undefined) =>
+    candidate?.reviewStatus === "approved" && Boolean(candidate.reviewedAt || candidate.reviewedBy);
+
   const activeAttempt = attempts.find((candidate) => !candidate.submittedAt) || null;
   const completedAttempts = attempts.filter((candidate) => candidate.submittedAt);
-  const passedAttempt = completedAttempts.find((candidate) => candidate.passed) || null;
+  const passedAttempt = completedAttempts.find((candidate) => hasFinalApproval(candidate) && candidate.passed) || null;
   const latestCompletedAttempt = completedAttempts
     .slice()
     .sort((left, right) => {
@@ -48,7 +51,11 @@ export const deriveAssessmentAttemptAccess = (
     };
   }
 
-  if (latestCompletedAttempt?.reviewStatus === "submitted" || latestCompletedAttempt?.reviewStatus === "under_review") {
+  if (
+    latestCompletedAttempt &&
+    !hasFinalApproval(latestCompletedAttempt) &&
+    latestCompletedAttempt.reviewStatus !== "needs_revision"
+  ) {
     return {
       activeAttempt: null,
       latestCompletedAttempt,

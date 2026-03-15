@@ -25,7 +25,7 @@ import { User } from "@/types/auth";
 import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
 import { moduleSessionService, type ModuleSession, type TrainerLearnerSessionSummary } from "@/services/moduleSessionService";
-import { useSearchParams } from "react-router-dom";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 
 interface LearnerData extends User {
   enrollments: Enrollment[];
@@ -69,6 +69,11 @@ interface RecentLearnerSessionCard {
 
 const SHORT_SESSION_SECONDS = 5 * 60;
 const SHORT_SESSION_REPEAT_THRESHOLD = 3;
+
+const hasCompletionReviewState = (enrollment: Pick<Enrollment, "status" | "completionApprovalStatus">) => {
+  const status = enrollment.completionApprovalStatus;
+  return status === "pending" || status === "approved" || status === "needs_revision" || enrollment.status === "completed";
+};
 
 const formatRelativeActivity = (value: string | null) => {
   if (!value) return "No recent activity";
@@ -188,6 +193,8 @@ const loadManagerCertificates = async (courseIds: string[], learnerId: string) =
 
 const TrainerLearners = () => {
   const { user } = useAuth();
+  const location = useLocation();
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [learners, setLearners] = useState<LearnerData[]>([]);
   const [visibleCourses, setVisibleCourses] = useState<Course[]>([]);
@@ -216,6 +223,9 @@ const TrainerLearners = () => {
   const focusedCourseId = searchParams.get("courseId");
   const attentionOnly = searchParams.get("attention") === "1";
   const focusedCourse = focusedCourseId ? visibleCourses.find((course) => course.id === focusedCourseId) || null : null;
+  const portal = location.pathname.startsWith("/admin") ? "admin" : "trainer";
+  const learnerRouteBase = portal === "admin" ? "/admin/learners" : "/trainer/learners";
+  const assessmentReviewRouteBase = portal === "admin" ? "/admin/assessment-reviews" : "/trainer/assessment-reviews";
 
   const filteredLearners = useMemo(() => {
     let nextLearners = learners;
@@ -503,7 +513,7 @@ const TrainerLearners = () => {
       setReviewFeedback(detail.reviewFeedback || "");
       setReviewScore(detail.reviewablePoints > 0 && detail.score !== undefined && detail.totalPoints > 0
         ? String(Math.max(0, Math.min(detail.reviewablePoints, Math.round((detail.score / 100) * detail.totalPoints) - detail.autoEarnedPoints)))
-        : "");
+        : "0");
       setReviewDecision(detail.reviewStatus === "needs_revision" ? "needs_revision" : "approved");
     } catch (error) {
       console.error("Error opening assessment review:", error);
@@ -524,8 +534,8 @@ const TrainerLearners = () => {
       return;
     }
 
-    const parsedScore = Number(reviewScore);
-    const maxScore = selectedReview.reviewablePoints || 100;
+    const parsedScore = selectedReview.reviewablePoints > 0 ? Number(reviewScore) : 0;
+    const maxScore = selectedReview.reviewablePoints;
     if (!Number.isFinite(parsedScore) || parsedScore < 0 || parsedScore > maxScore) {
       toast.error(`Enter a score from 0 to ${maxScore} before submitting this review.`);
       return;
@@ -635,7 +645,11 @@ const TrainerLearners = () => {
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-3xl font-bold">Learners</h1>
-            <p className="text-muted-foreground mt-2">View and manage learners across all courses</p>
+            <p className="mt-2 text-muted-foreground">
+              {portal === "admin"
+                ? "Review learner activity separately from enrollment approvals and move into learner review when deeper intervention is needed."
+                : "View and manage learners across all courses."}
+            </p>
           </div>
           <Button onClick={loadLearners} variant="outline" disabled={loading}>
             <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
@@ -728,7 +742,9 @@ const TrainerLearners = () => {
                           Repeated short sessions
                         </Badge>
                       ) : null}
-                      <Button variant="outline" onClick={() => void handleViewProgress(learner)}>View Progress</Button>
+                      <Button variant="outline" onClick={() => navigate(`${learnerRouteBase}/${learner.id}`)}>
+                        Open Learner Review
+                      </Button>
                     </div>
                   </div>
                 ))}
@@ -982,7 +998,7 @@ const TrainerLearners = () => {
                             <div className="space-y-3">
                               <div className="flex items-center gap-2">
                                 <Award className="h-4 w-4 text-muted-foreground" />
-                                <p className="font-medium">Essay Reviews</p>
+                                <p className="font-medium">Assessment Reviews</p>
                               </div>
                               <div className="space-y-2">
                                 {item.pendingReviews.map((reviewItem) => (
@@ -998,8 +1014,11 @@ const TrainerLearners = () => {
                                     </div>
                                     <div className="flex flex-wrap items-center gap-2">
                                       <Badge variant="outline">{reviewItem.reviewStatus.replace(/_/g, " ")}</Badge>
-                                      <Button variant="outline" onClick={() => void handleOpenReview(reviewItem)}>
-                                        Review Essay
+                                      <Button
+                                        variant="outline"
+                                          onClick={() => navigate(`${assessmentReviewRouteBase}/${reviewItem.attemptId}?learnerId=${learner?.id || reviewItem.learnerId}&enrollmentId=${item.enrollment.id}`)}
+                                      >
+                                        Review Assessment
                                       </Button>
                                     </div>
                                   </div>
@@ -1008,7 +1027,7 @@ const TrainerLearners = () => {
                             </div>
                           ) : null}
 
-                          {item.enrollment.progress >= 100 ? (
+                          {hasCompletionReviewState(item.enrollment) ? (
                             <div className="flex flex-wrap gap-2">
                               {item.enrollment.completionApprovalStatus !== "approved" ? (
                                 <>
@@ -1205,8 +1224,12 @@ const TrainerLearners = () => {
                                                             : "Submitted"}
                                                         </Badge>
                                                         {linkedReview ? (
-                                                          <Button variant="outline" size="sm" onClick={() => void handleOpenReview(linkedReview)}>
-                                                            Review Essay
+                                                          <Button
+                                                            variant="outline"
+                                                            size="sm"
+                                                            onClick={() => navigate(`${assessmentReviewRouteBase}/${linkedReview.attemptId}?learnerId=${learner?.id || linkedReview.learnerId}&enrollmentId=${item.enrollment.id}`)}
+                                                          >
+                                                            Review Assessment
                                                           </Button>
                                                         ) : null}
                                                       </div>
@@ -1327,18 +1350,23 @@ const TrainerLearners = () => {
                 </div>
 
                 <div className="space-y-2">
-                  <p className="text-sm font-medium">Essay score</p>
+                  <p className="text-sm font-medium">{selectedReview.reviewablePoints > 0 ? "Essay score" : "Auto-scored result"}</p>
                   <Input
                     type="number"
                     min="0"
-                    max={selectedReview?.reviewablePoints || 100}
+                    max={selectedReview?.reviewablePoints || 0}
                     step="1"
                     value={reviewScore}
                     onChange={(event) => setReviewScore(event.target.value)}
-                    placeholder={selectedReview ? `Enter 0-${selectedReview.reviewablePoints}` : "Enter score"}
+                    placeholder={selectedReview?.reviewablePoints ? `Enter 0-${selectedReview.reviewablePoints}` : "No manual score required"}
+                    disabled={selectedReview.reviewablePoints === 0}
                   />
                   {selectedReview ? (
-                    <p className="text-xs text-muted-foreground">Essay portion: {selectedReview.reviewablePoints} points. Assessment total: {selectedReview.totalPoints} points. Passing score: {selectedReview.passingScore}%.</p>
+                    <p className="text-xs text-muted-foreground">
+                      {selectedReview.reviewablePoints > 0
+                        ? `Essay portion: ${selectedReview.reviewablePoints} points. Assessment total: ${selectedReview.totalPoints} points. Passing score: ${selectedReview.passingScore}%.`
+                        : `This assessment has no manual-score portion. The auto-scored total of ${selectedReview.autoEarnedPoints} out of ${selectedReview.totalPoints} will be finalized when you approve it.`}
+                    </p>
                   ) : null}
                 </div>
 

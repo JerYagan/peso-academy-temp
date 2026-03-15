@@ -69,7 +69,7 @@ const Header = () => {
             <img
               src={logoSrc}
               alt="PESO Academy"
-              className="h-7 w-auto max-w-[110px] object-contain sm:h-11 sm:max-w-none"
+              className="h-10 w-auto max-w-[156px] object-contain sm:h-12 sm:max-w-none lg:h-14"
             />
           </Link>
 

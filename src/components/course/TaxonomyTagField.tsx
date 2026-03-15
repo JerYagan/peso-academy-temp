@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge";
 import {
   Command,
   CommandEmpty,
+  CommandGroup,
   CommandInput,
   CommandItem,
   CommandList,
@@ -13,6 +14,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { Check, ChevronsUpDown, Loader2, Plus, X } from "lucide-react";
 import { taxonomyService, type TaxonomyTermType } from "@/services/taxonomyService";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 
 interface TaxonomyTagFieldProps {
   label: string;
@@ -22,6 +24,9 @@ interface TaxonomyTagFieldProps {
   placeholder: string;
   description?: string;
   termType?: TaxonomyTermType;
+  allowCreate?: boolean;
+  restrictToOptions?: boolean;
+  maxVisibleOptions?: number;
 }
 
 export const TaxonomyTagField = ({
@@ -32,26 +37,47 @@ export const TaxonomyTagField = ({
   placeholder,
   description,
   termType,
+  allowCreate = true,
+  restrictToOptions = false,
+  maxVisibleOptions,
 }: TaxonomyTagFieldProps) => {
   const [open, setOpen] = useState(false);
   const [searchValue, setSearchValue] = useState("");
   const [availableOptions, setAvailableOptions] = useState<string[]>([...options]);
   const [loadingOptions, setLoadingOptions] = useState(false);
   const [creatingOption, setCreatingOption] = useState(false);
+  const normalizedSearch = searchValue.trim().replace(/\s+/g, " ");
 
   const remainingOptions = useMemo(
     () => availableOptions.filter((option) => !values.includes(option)),
     [availableOptions, values],
   );
+  const filteredOptions = useMemo(() => {
+    const normalized = normalizedSearch.toLowerCase();
+    const matches = !normalized
+      ? remainingOptions
+      : remainingOptions.filter((option) => option.toLowerCase().includes(normalized));
 
-  const normalizedSearch = searchValue.trim().replace(/\s+/g, " ");
+    if (typeof maxVisibleOptions === "number") {
+      return matches.slice(0, maxVisibleOptions);
+    }
+
+    return matches;
+  }, [maxVisibleOptions, normalizedSearch, remainingOptions]);
   const hasExactMatch = remainingOptions.some((option) => option.toLowerCase() === normalizedSearch.toLowerCase());
 
   useEffect(() => {
     let active = true;
 
     const loadOptions = async () => {
+      setAvailableOptions([...options]);
+
       if (!termType) {
+        setAvailableOptions([...options]);
+        return;
+      }
+
+      if (restrictToOptions) {
         setAvailableOptions([...options]);
         return;
       }
@@ -63,13 +89,22 @@ export const TaxonomyTagField = ({
           return;
         }
 
-        if (termType === "skill_tag") {
-          setAvailableOptions(taxonomyOptions.skillTags);
-        } else if (termType === "topic_tag") {
-          setAvailableOptions(taxonomyOptions.topicTags);
-        } else {
-          setAvailableOptions(taxonomyOptions.courseCategories);
-        }
+        const fetchedOptions = termType === "skill_tag"
+          ? taxonomyOptions.skillTags
+          : termType === "topic_tag"
+            ? taxonomyOptions.topicTags
+            : termType === "industry_tag"
+              ? taxonomyOptions.industryTags
+              : termType === "career_path"
+                ? taxonomyOptions.careerPaths
+                : taxonomyOptions.courseCategories;
+
+        const prioritizedOptions = [
+          ...options,
+          ...fetchedOptions.filter((option) => !options.includes(option)),
+        ];
+
+        setAvailableOptions(prioritizedOptions);
       } catch (error) {
         console.warn("Failed to load taxonomy options for field:", error);
         if (active) {
@@ -87,7 +122,7 @@ export const TaxonomyTagField = ({
     return () => {
       active = false;
     };
-  }, [options, termType]);
+  }, [options, restrictToOptions, termType]);
 
   const addValue = (value: string) => {
     if (!value || values.includes(value)) return;
@@ -98,6 +133,10 @@ export const TaxonomyTagField = ({
 
   const handleCreateValue = async () => {
     if (!normalizedSearch || hasExactMatch) {
+      return;
+    }
+
+    if (!allowCreate) {
       return;
     }
 
@@ -118,8 +157,10 @@ export const TaxonomyTagField = ({
         return [...current, created.name].sort((left, right) => left.localeCompare(right));
       });
       addValue(created.name);
+      toast.success(`${created.name} was added to taxonomy.`);
     } catch (error) {
       console.error("Failed to create taxonomy option:", error);
+      toast.error(error instanceof Error ? error.message : "Failed to create taxonomy option.");
     } finally {
       setCreatingOption(false);
     }
@@ -141,19 +182,25 @@ export const TaxonomyTagField = ({
           </Button>
         </PopoverTrigger>
         <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
-          <Command>
+          <Command shouldFilter={false}>
             <CommandInput placeholder={`Search ${label.toLowerCase()}...`} value={searchValue} onValueChange={setSearchValue} />
             <CommandList>
-              <CommandEmpty>
-                {creatingOption ? "Creating option..." : "No matching options found."}
-              </CommandEmpty>
-              {remainingOptions.map((option) => (
-                <CommandItem key={option} value={option} onSelect={() => addValue(option)}>
-                  <Check className={cn("mr-2 h-4 w-4", values.includes(option) ? "opacity-100" : "opacity-0")} />
-                  {option}
-                </CommandItem>
-              ))}
-              {normalizedSearch && !hasExactMatch ? (
+              {filteredOptions.length === 0 && !loadingOptions && !(allowCreate && normalizedSearch && !hasExactMatch) ? (
+                <CommandEmpty>
+                  {creatingOption ? "Creating option..." : "No matching options found."}
+                </CommandEmpty>
+              ) : null}
+              {filteredOptions.length > 0 ? (
+                <CommandGroup>
+                  {filteredOptions.map((option) => (
+                    <CommandItem key={option} value={option} onSelect={() => addValue(option)}>
+                      <Check className={cn("mr-2 h-4 w-4", values.includes(option) ? "opacity-100" : "opacity-0")} />
+                      {option}
+                    </CommandItem>
+                  ))}
+                </CommandGroup>
+              ) : null}
+              {allowCreate && normalizedSearch && !hasExactMatch ? (
                 <CommandItem onSelect={() => void handleCreateValue()} disabled={creatingOption}>
                   {creatingOption ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
                   Create "{normalizedSearch}"

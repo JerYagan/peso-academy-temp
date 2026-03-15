@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useNavigate, Link, useSearchParams, useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLocale } from "@/contexts/LocaleContext";
@@ -40,11 +40,12 @@ import {
   Play,
   FileText,
   Upload,
-  FileQuestion,
   LogOut,
   AlertCircle,
+  Lock,
 } from "lucide-react";
 import TraineeVerificationBadge from "@/components/trainee/TraineeVerificationBadge";
+import { canUserViewCourse } from "@/lib/courseAudience";
 import { getOfficialHoursCreditLabel } from "@/lib/courseDuration";
 import { canAccessModuleEntry, getBlockingModules, getRequiredModuleIds } from "@/lib/moduleProgress";
 import {
@@ -56,13 +57,28 @@ import {
   moduleService,
   moduleCompletionService,
 } from "@/services/supabaseDatabaseService";
-import { Course, Module, Enrollment } from "@/types";
+import AssessmentInterface from "@/components/course/AssessmentInterface";
+import { Course, Module, Enrollment, EnrollmentAssessmentProgress, EnrollmentProgressDetail } from "@/types";
 import { toast } from "sonner";
 import ModuleContentViewer from "@/components/course/ModuleContentViewer";
 import DocumentViewer from "@/components/course/DocumentViewer";
 import CourseMaterialImage from "@/components/course/CourseMaterialImage";
 
 const COURSE_PREVIEW_STORAGE_PREFIX = "peso-course-preview:";
+
+const buildSidebarFallbackLabel = (title: string, fallback: string) => {
+  const words = title
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2);
+
+  if (words.length === 0) {
+    return fallback;
+  }
+
+  return words.map((word) => word[0]?.toUpperCase() || "").join("") || fallback;
+};
 
 const CourseDetail = () => {
   const { id } = useParams<{ id: string }>();
@@ -74,6 +90,7 @@ const CourseDetail = () => {
   const [course, setCourse] = useState<Course | null>(null);
   const [modules, setModules] = useState<Module[]>([]);
   const [enrollment, setEnrollment] = useState<Enrollment | null>(null);
+  const [progressDetail, setProgressDetail] = useState<EnrollmentProgressDetail | null>(null);
   const [selectedModule, setSelectedModule] = useState<Module | null>(null);
   const [loadingSelectedModuleId, setLoadingSelectedModuleId] = useState<string | null>(null);
   const [completedModuleIds, setCompletedModuleIds] = useState<string[]>([]);
@@ -82,12 +99,15 @@ const CourseDetail = () => {
   const [showCompletionDialog, setShowCompletionDialog] = useState(false);
   const [showUnenrollConfirm, setShowUnenrollConfirm] = useState(false);
   const [unenrolling, setUnenrolling] = useState(false);
+  const [practiceQuizState, setPracticeQuizState] = useState<{ canRetry: boolean; retry: (() => void) | null }>({ canRetry: false, retry: null });
+  const [activeAssessmentId, setActiveAssessmentId] = useState<string | null>(null);
   const [enrollmentRecovery, setEnrollmentRecovery] = useState<ReturnType<typeof getEnrollmentErrorFeedback> | null>(null);
   const previewKey = searchParams.get("previewKey");
   const isPreviewMode = Boolean(searchParams.get("preview") && previewKey);
   const previewEnrollmentId = `preview-enrollment-${id || "course"}`;
   const locationState = location.state as { entrySource?: string; moduleId?: string } | null;
   const moduleRequestSequenceRef = useRef(0);
+  const modulesListRef = useRef<HTMLDivElement | null>(null);
 
   const moduleEntrySource = (() => {
     if (typeof locationState?.entrySource === "string" && locationState.entrySource.trim()) {
@@ -134,6 +154,26 @@ const CourseDetail = () => {
         modulesCompleted: (done: number, total: number) => `${done} sa ${total} module ang tapos na`,
         learningTimeNote: "Hiwalay na tina-track ang iyong aktuwal na oras ng pag-aaral mula sa opisyal na course hours na kino-credit matapos ang trainer approval.",
         approvalNote: "Tapos na ang course requirements. Kailangan pa ring aprubahan ng iyong trainer ang completion bago mailabas ang anumang certificate.",
+        assessmentActivitiesTitle: "Mga Graded Assessment",
+        gradedAssessmentLabel: "Graded Assessment",
+        assessmentSidebarTitle: "Assessment Activities",
+        assessmentActivitiesDescription: "Hiwalay ang graded assessments sa module content. Kumpletuhin ang mga prerequisite modules para ma-unlock ang bawat activity.",
+        noAssessmentActivities: "Wala pang graded assessment para sa kursong ito.",
+        assessmentReady: "Handa na",
+        assessmentLocked: "Naka-lock",
+        assessmentSubmitted: "Naipasa na",
+        assessmentNeedsReview: "Hinihintay ang review",
+        assessmentNeedsRevision: "May follow-up",
+        assessmentApproved: "Aprubado",
+        courseAssessment: "Course assessment",
+        moduleAssessment: (title: string) => `Assessment para sa ${title}`,
+        lockedAssessmentMessage: (names: string) => `Tapusin muna ang mga module na ito para ma-unlock ang assessment: ${names}`,
+        assessmentPanelTitle: "Assessment Activity",
+        assessmentPanelDescription: "Kumpletuhin ang graded assessment na ito nang hiwalay sa practice quizzes sa module content.",
+        nextModule: "Susunod na Module",
+        backToModules: "Bumalik sa Mga Module",
+        nextModuleHint: (title: string) => `Magpatuloy sa ${title} kapag handa ka na.`,
+        noNextModuleHint: "Wala nang accessible na susunod na module ngayon. Bumalik sa module list o tapusin ang naka-lock na prerequisites.",
         modulesCardTitle: "Mga Module",
         modulesCardDescription: (count: number) => `${count} modules sa kursong ito`,
         moduleLabel: (index: number) => `Module ${index + 1}`,
@@ -178,6 +218,26 @@ const CourseDetail = () => {
         modulesCompleted: (done: number, total: number) => `${done} of ${total} modules completed`,
         learningTimeNote: "Your actual study time is tracked separately from the official course hours credited after trainer approval.",
         approvalNote: "Course requirements are complete. Your trainer still needs to approve completion before any certificate can be released.",
+        assessmentActivitiesTitle: "Graded Assessments",
+        gradedAssessmentLabel: "Graded Assessment",
+        assessmentSidebarTitle: "Assessment Activities",
+        assessmentActivitiesDescription: "Graded assessments live outside module content. Complete the required prerequisite modules to unlock each activity.",
+        noAssessmentActivities: "No graded assessment activities are configured for this course yet.",
+        assessmentReady: "Ready",
+        assessmentLocked: "Locked",
+        assessmentSubmitted: "Submitted",
+        assessmentNeedsReview: "Awaiting review",
+        assessmentNeedsRevision: "Needs follow-up",
+        assessmentApproved: "Approved",
+        courseAssessment: "Course assessment",
+        moduleAssessment: (title: string) => `${title} assessment`,
+        lockedAssessmentMessage: (names: string) => `Complete these modules to unlock this assessment: ${names}`,
+        assessmentPanelTitle: "Assessment Activity",
+        assessmentPanelDescription: "Complete this graded assessment separately from the practice quizzes inside module content.",
+        nextModule: "Next Module",
+        backToModules: "Back to Modules",
+        nextModuleHint: (title: string) => `Continue into ${title} when you are ready.`,
+        noNextModuleHint: "There is no next accessible module right now. Return to the module list or complete the locked prerequisites first.",
         modulesCardTitle: "Modules",
         modulesCardDescription: (count: number) => `${count} modules in this course`,
         moduleLabel: (index: number) => `Module ${index + 1}`,
@@ -220,6 +280,34 @@ const CourseDetail = () => {
 
     return moduleList.find((module) => canAccessModuleEntry(module, moduleList, completedIds)) || moduleList[0] || null;
   }
+
+  const refreshEnrollmentState = async (
+    enrollmentId: string,
+    options?: { openCompletionDialog?: boolean },
+  ) => {
+    if (!user) {
+      return null;
+    }
+
+    const [enrollments, completed, detail] = await Promise.all([
+      enrollmentService.getEnrollments(user.id),
+      moduleCompletionService.getCompletedModules(enrollmentId),
+      enrollmentService.getEnrollmentProgressDetail(enrollmentId).catch(() => null),
+    ]);
+
+    const updatedEnrollment = enrollments.find((candidate) => candidate.id === enrollmentId) || null;
+    setCompletedModuleIds(completed);
+    setProgressDetail(detail);
+
+    if (updatedEnrollment) {
+      setEnrollment(updatedEnrollment);
+      if (options?.openCompletionDialog && updatedEnrollment.completionApprovalStatus === "pending") {
+        setShowCompletionDialog(true);
+      }
+    }
+
+    return updatedEnrollment;
+  };
 
   useEffect(() => {
     if (id) {
@@ -300,6 +388,13 @@ const CourseDetail = () => {
         navigate("/courses");
         return;
       }
+
+      if (!isPreviewMode && !canUserViewCourse(courseData, user)) {
+        toast.error("Course not found");
+        navigate("/courses");
+        return;
+      }
+
       setCourse(courseData);
 
       const [modulesData, enrollments] = await Promise.all([
@@ -322,6 +417,7 @@ const CourseDetail = () => {
           status: "enrolled",
           enrolledAt: new Date().toISOString(),
         });
+        setProgressDetail(null);
         setSelectedModule(previewTargetModule);
         setCompletedModuleIds([]);
 
@@ -337,6 +433,7 @@ const CourseDetail = () => {
 
       if (!user) {
         setEnrollment(null);
+        setProgressDetail(null);
         setSelectedModule(initialModule);
         setLoading(false);
         return;
@@ -346,6 +443,7 @@ const CourseDetail = () => {
       
       if (!userEnrollment) {
         setEnrollment(null);
+        setProgressDetail(null);
         setSelectedModule(initialModule);
         setLoading(false);
         return;
@@ -353,9 +451,13 @@ const CourseDetail = () => {
 
       setEnrollment(userEnrollment);
 
-      const completed = await moduleCompletionService.getCompletedModules(userEnrollment.id);
+      const [completed, detail] = await Promise.all([
+        moduleCompletionService.getCompletedModules(userEnrollment.id),
+        enrollmentService.getEnrollmentProgressDetail(userEnrollment.id).catch(() => null),
+      ]);
       const preferredModule = getPreferredModule(modulesData, completed, requestedModuleId);
       setCompletedModuleIds(completed);
+      setProgressDetail(detail);
       setSelectedModule(preferredModule);
 
       if (preferredModule) {
@@ -438,20 +540,10 @@ const CourseDetail = () => {
       );
       const newCompleted = [...completedModuleIds, moduleId];
       setCompletedModuleIds(newCompleted);
-
-      // Reload enrollment to get updated progress
-      const enrollments = await enrollmentService.getEnrollments(user.id);
-      const updatedEnrollment = enrollments.find((e) => e.courseId === id);
-      if (updatedEnrollment) {
-        setEnrollment(updatedEnrollment);
-      }
+      const updatedEnrollment = await refreshEnrollmentState(enrollment.id, { openCompletionDialog: true });
 
       if (!options?.silent) {
         toast.success("Module progress updated.");
-      }
-      // If all modules are now completed, show congratulations dialog
-      if (modules.length > 0 && newCompleted.length >= modules.length) {
-        setShowCompletionDialog(true);
       }
     } catch (error) {
       console.error("Error completing module:", error);
@@ -481,6 +573,129 @@ const CourseDetail = () => {
 
   const canAccessModule = (module: Module) => {
     return canAccessModuleEntry(module, modules, completedModuleIds);
+  };
+
+  const moduleLookup = useMemo(
+    () => new Map(modules.map((module) => [module.id, module])),
+    [modules],
+  );
+
+  const assessmentActivities = useMemo(
+    () => [...(progressDetail?.assessments || [])].sort((left, right) => {
+      const leftOrder = left.moduleId ? (moduleLookup.get(left.moduleId)?.order || Number.MAX_SAFE_INTEGER) : Number.MAX_SAFE_INTEGER - 1;
+      const rightOrder = right.moduleId ? (moduleLookup.get(right.moduleId)?.order || Number.MAX_SAFE_INTEGER) : Number.MAX_SAFE_INTEGER - 1;
+      return leftOrder - rightOrder || left.assessmentTitle.localeCompare(right.assessmentTitle);
+    }),
+    [moduleLookup, progressDetail?.assessments],
+  );
+
+  const isAssessmentUnlocked = (assessment: EnrollmentAssessmentProgress) =>
+    (assessment.prerequisiteModuleIds || []).every((requiredId) => completedModuleIds.includes(requiredId));
+
+  const activeAssessment = assessmentActivities.find((assessment) => assessment.assessmentId === activeAssessmentId) || null;
+
+  useEffect(() => {
+    if (assessmentActivities.length === 0) {
+      setActiveAssessmentId(null);
+      return;
+    }
+
+    setActiveAssessmentId((current) => {
+      if (current && assessmentActivities.some((assessment) => assessment.assessmentId === current)) {
+        return current;
+      }
+
+      const preferredAssessment = assessmentActivities.find((assessment) => isAssessmentUnlocked(assessment) && !assessment.submittedAt)
+        || assessmentActivities.find((assessment) => isAssessmentUnlocked(assessment))
+        || assessmentActivities[0];
+
+      return preferredAssessment.assessmentId;
+    });
+  }, [assessmentActivities, completedModuleIds]);
+
+  const sortedModules = useMemo(
+    () => [...modules].sort((left, right) => left.order - right.order),
+    [modules],
+  );
+
+  const nextAccessibleModule = useMemo(() => {
+    if (!selectedModule) {
+      return null;
+    }
+
+    const currentIndex = sortedModules.findIndex((module) => module.id === selectedModule.id);
+    if (currentIndex < 0) {
+      return null;
+    }
+
+    for (let index = currentIndex + 1; index < sortedModules.length; index += 1) {
+      if (canAccessModuleEntry(sortedModules[index], sortedModules, completedModuleIds)) {
+        return sortedModules[index];
+      }
+    }
+
+    return null;
+  }, [completedModuleIds, selectedModule, sortedModules]);
+
+  const handleAssessmentRefresh = async () => {
+    if (!enrollment) {
+      return;
+    }
+
+    try {
+      await refreshEnrollmentState(enrollment.id, { openCompletionDialog: true });
+    } catch (error) {
+      console.error("Error refreshing enrollment after assessment submission:", error);
+    }
+  };
+
+  const handleBackToModules = () => {
+    modulesListRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
+  const handleAssessmentSelect = (assessment: EnrollmentAssessmentProgress) => {
+    if (!isAssessmentUnlocked(assessment)) {
+      return;
+    }
+
+    setActiveAssessmentId(assessment.assessmentId);
+    setSelectedModule(null);
+  };
+
+  const getAssessmentStatusBadge = (assessment: EnrollmentAssessmentProgress) => {
+    const hasFinalApproval = assessment.reviewStatus === "approved" && Boolean(assessment.reviewedAt || assessment.reviewedBy);
+
+    if (!isAssessmentUnlocked(assessment)) {
+      return <Badge variant="outline">{copy.assessmentLocked}</Badge>;
+    }
+
+    if (hasFinalApproval) {
+      return <Badge>{copy.assessmentApproved}</Badge>;
+    }
+
+    if (assessment.reviewStatus === "needs_revision") {
+      return <Badge variant="outline">{copy.assessmentNeedsRevision}</Badge>;
+    }
+
+    if (assessment.submittedAt) {
+      return <Badge variant="secondary">{copy.assessmentSubmitted}</Badge>;
+    }
+
+    return <Badge>{copy.assessmentReady}</Badge>;
+  };
+
+  const getAssessmentSidebarIcon = (assessment: EnrollmentAssessmentProgress, isSelected: boolean) => {
+    const hasFinalApproval = assessment.reviewStatus === "approved" && Boolean(assessment.reviewedAt || assessment.reviewedBy);
+
+    if (!isAssessmentUnlocked(assessment)) {
+      return <Lock className={`h-5 w-5 ${isSelected ? "text-primary-foreground" : "text-muted-foreground"}`} />;
+    }
+
+    if (hasFinalApproval) {
+      return <CheckCircle2 className="h-5 w-5 text-green-500" />;
+    }
+
+    return <Circle className={`h-5 w-5 ${isSelected ? "text-primary-foreground" : "text-muted-foreground"}`} />;
   };
 
   const handleEnrollInCourse = async () => {
@@ -764,7 +979,7 @@ const CourseDetail = () => {
               <p className="mt-2 text-sm text-muted-foreground">
                 {copy.learningTimeNote}
               </p>
-              {enrollment.progress >= 100 && enrollment.completionApprovalStatus !== "approved" ? (
+              {enrollment.completionApprovalStatus === "pending" ? (
                 <p className="mt-2 text-sm text-muted-foreground">
                   {copy.approvalNote}
                 </p>
@@ -775,8 +990,8 @@ const CourseDetail = () => {
 
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
           {/* Modules Sidebar */}
-          <div className="lg:col-span-1 lg:self-start">
-            <Card className="lg:sticky lg:top-24">
+          <div ref={modulesListRef} className="lg:col-span-1 lg:self-start lg:sticky lg:top-24">
+            <Card>
               <CardHeader>
                 <CardTitle className="text-lg">{copy.modulesCardTitle}</CardTitle>
                 <CardDescription>{copy.modulesCardDescription(modules.length)}</CardDescription>
@@ -808,11 +1023,20 @@ const CourseDetail = () => {
                           }`}
                         >
                           <div className="flex items-start gap-3">
-                            <div className="mt-1">
+                            <div className="mt-1 shrink-0">
                               {completed ? (
                                 <CheckCircle2 className="w-5 h-5 text-green-500" />
                               ) : (
                                 <Circle className="w-5 h-5" />
+                              )}
+                            </div>
+                            <div className="shrink-0 overflow-hidden rounded-md border bg-muted/60">
+                              {module.module_thumbnail ? (
+                                <img src={module.module_thumbnail} alt={module.title} className="h-12 w-16 object-cover" />
+                              ) : (
+                                <div className="flex h-12 w-16 items-center justify-center bg-muted text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                                  {buildSidebarFallbackLabel(module.title, "M")}
+                                </div>
                               )}
                             </div>
                             <div className="flex-1 min-w-0">
@@ -839,6 +1063,82 @@ const CourseDetail = () => {
                         </button>
                       );
                     })}
+
+                    {assessmentActivities.length > 0 ? (
+                      <>
+                        <Separator className="my-4" />
+                        <div className="px-1 pb-2 pt-1">
+                          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                            {copy.assessmentSidebarTitle}
+                          </p>
+                        </div>
+                        {assessmentActivities.map((assessment) => {
+                          const unlocked = isAssessmentUnlocked(assessment);
+                          const isSelected = !selectedModule && activeAssessmentId === assessment.assessmentId;
+                          const prerequisiteModules = (assessment.prerequisiteModuleIds || [])
+                            .map((moduleId) => moduleLookup.get(moduleId) || null)
+                            .filter((candidate): candidate is Module => Boolean(candidate));
+
+                          return (
+                            <button
+                              key={assessment.assessmentId}
+                              type="button"
+                              onClick={() => handleAssessmentSelect(assessment)}
+                              disabled={!unlocked}
+                              className={`w-full rounded-lg p-3 text-left transition-colors ${
+                                isSelected
+                                  ? "bg-primary text-primary-foreground"
+                                  : unlocked
+                                    ? "hover:bg-accent"
+                                    : "cursor-not-allowed opacity-50"
+                              }`}
+                            >
+                              <div className="flex items-start gap-3">
+                                <div className="mt-1 shrink-0">
+                                  {getAssessmentSidebarIcon(assessment, isSelected)}
+                                </div>
+                                <div className="shrink-0 overflow-hidden rounded-md border bg-muted/60">
+                                  {assessment.assessmentThumbnail ? (
+                                    <img src={assessment.assessmentThumbnail} alt={assessment.assessmentTitle} className="h-12 w-16 object-cover" />
+                                  ) : (
+                                    <div className="flex h-12 w-16 items-center justify-center bg-muted text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                                      {buildSidebarFallbackLabel(assessment.assessmentTitle, "GA")}
+                                    </div>
+                                  )}
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <div className="mb-1 flex flex-wrap items-center gap-2">
+                                    <span className="text-xs font-medium opacity-70">{copy.gradedAssessmentLabel}</span>
+                                    {!unlocked ? (
+                                      <Badge variant="outline" className="text-xs">
+                                        {copy.assessmentLocked}
+                                      </Badge>
+                                    ) : null}
+                                  </div>
+                                  <p className={`text-sm font-medium ${isSelected ? "text-primary-foreground" : ""}`}>
+                                    {assessment.assessmentTitle}
+                                  </p>
+                                  {!unlocked ? (
+                                    <p className={`mt-1 text-xs ${isSelected ? "text-primary-foreground/80" : "text-muted-foreground"}`}>
+                                      {copy.lockedAssessmentMessage(prerequisiteModules.map((module) => module.title).join(", "))}
+                                    </p>
+                                  ) : assessment.submittedAt ? (
+                                    <p className={`mt-1 text-xs ${isSelected ? "text-primary-foreground/80" : "text-muted-foreground"}`}>
+                                      {assessment.reviewStatus === "approved"
+                                        && Boolean(assessment.reviewedAt || assessment.reviewedBy)
+                                        ? copy.assessmentApproved
+                                        : assessment.reviewStatus === "needs_revision"
+                                          ? copy.assessmentNeedsRevision
+                                          : copy.assessmentSubmitted}
+                                    </p>
+                                  ) : null}
+                                </div>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </>
+                    ) : null}
                   </div>
                 </ScrollArea>
               </CardContent>
@@ -865,6 +1165,7 @@ const CourseDetail = () => {
                   isPreviewMode={isPreviewMode}
                   entrySource={moduleEntrySource}
                   onComplete={(timeSpentMinutes, options) => handleModuleComplete(selectedModule.id, timeSpentMinutes, options)}
+                  onPracticeQuizStateChange={setPracticeQuizState}
                 />
 
                 {course.courseDocument ? (
@@ -883,7 +1184,80 @@ const CourseDetail = () => {
                     </CardContent>
                   </Card>
                 ) : null}
+
+                <Card>
+                  <CardContent className="flex flex-col gap-3 pt-6 md:flex-row md:items-center md:justify-between">
+                    <div>
+                      <p className="font-medium text-foreground">
+                        {nextAccessibleModule
+                          ? copy.nextModuleHint(nextAccessibleModule.title)
+                          : copy.noNextModuleHint}
+                      </p>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        {isModuleCompleted(selectedModule.id)
+                          ? "This path follows the next module that is currently accessible from your completed prerequisites."
+                          : "Finish this module or return to the module list to continue along the currently accessible learning path."}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {practiceQuizState.canRetry && practiceQuizState.retry ? (
+                        <Button variant="outline" onClick={() => practiceQuizState.retry?.()}>
+                          Retry Quiz
+                        </Button>
+                      ) : null}
+                      {nextAccessibleModule ? (
+                        <Button onClick={() => void handleModuleSelect(nextAccessibleModule)}>
+                          {copy.nextModule}
+                          <ChevronRight className="ml-2 h-4 w-4" />
+                        </Button>
+                      ) : null}
+                      <Button variant={nextAccessibleModule ? "outline" : "default"} onClick={handleBackToModules}>
+                        {copy.backToModules}
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
               </div>
+            ) : activeAssessment ? (
+              <Card>
+                <CardHeader>
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <CardTitle className="text-lg">{activeAssessment.assessmentTitle}</CardTitle>
+                      <CardDescription>{copy.assessmentActivitiesDescription}</CardDescription>
+                    </div>
+                    {getAssessmentStatusBadge(activeAssessment)}
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">{copy.gradedAssessmentLabel}</p>
+                    <p className="mt-2 text-sm text-muted-foreground">{copy.assessmentPanelDescription}</p>
+                  </div>
+                  {isAssessmentUnlocked(activeAssessment) ? (
+                    <AssessmentInterface
+                      enrollmentId={enrollment.id}
+                      courseId={enrollment.courseId}
+                      assessmentId={activeAssessment.assessmentId}
+                      emptyStateMessage={copy.noAssessmentActivities}
+                      onSubmitted={handleAssessmentRefresh}
+                    />
+                  ) : (
+                    <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+                      <div className="flex items-start gap-2">
+                        <Lock className="mt-0.5 h-4 w-4" />
+                        <p>
+                          {copy.lockedAssessmentMessage(
+                            (activeAssessment.prerequisiteModuleIds || [])
+                              .map((moduleId) => moduleLookup.get(moduleId)?.title || moduleId)
+                              .join(", "),
+                          )}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
             ) : (
               course.courseDocument ? (
                 <Card>

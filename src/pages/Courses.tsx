@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLocale } from "@/contexts/LocaleContext";
+import { filterCoursesForUser } from "@/lib/courseAudience";
 import { canonicalizeCourseCategory } from "@/lib/taxonomy";
 import DashboardLayout from "@/components/DashboardLayout";
 import Header from "@/components/Header";
@@ -40,6 +41,13 @@ import {
 import TraineeVerificationBadge from "@/components/trainee/TraineeVerificationBadge";
 import { getFlexibleCourseDurationLabel, getOfficialHoursCreditLabel } from "@/lib/courseDuration";
 import {
+  buildLearnerCourseRecommendations,
+  reportingService,
+  type CollaborativeRecommendationSignal,
+  type LearnerCourseRecommendation,
+  type LearnerPerformanceSummary,
+} from "@/services/reportingService";
+import {
   courseService,
   enrollmentService,
   getEnrollmentErrorFeedback,
@@ -47,6 +55,7 @@ import {
   isTraineeEnrollmentBlocked,
   moduleService,
 } from "@/services/supabaseDatabaseService";
+import { moduleSessionService, type ModuleSessionAggregate } from "@/services/moduleSessionService";
 import { Course, Enrollment } from "@/types";
 import { toast } from "sonner";
 
@@ -118,6 +127,10 @@ const Courses = () => {
   const [enrollmentFilter, setEnrollmentFilter] = useState<EnrollmentFilter>("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [enrollments, setEnrollments] = useState<Enrollment[]>([]);
+  const [performanceSummary, setPerformanceSummary] = useState<LearnerPerformanceSummary | null>(null);
+  const [sessionAggregates, setSessionAggregates] = useState<ModuleSessionAggregate[]>([]);
+  const [collaborativeSignals, setCollaborativeSignals] = useState<Record<string, CollaborativeRecommendationSignal>>({});
+  const [loadingRecommendations, setLoadingRecommendations] = useState(false);
   const [loading, setLoading] = useState(true);
   const [enrolling, setEnrolling] = useState<string | null>(null);
   const [previewCourse, setPreviewCourse] = useState<Course | null>(null);
@@ -187,6 +200,10 @@ const Courses = () => {
           },
           certificatesTitle: "Subaybayan ang natapos mong kurso at certificates",
           certificatesBody: "Kapag na-release na ang certificate mo, makikita mo ito sa certifications page kasama ng completion records mo para hindi mo na kailangang bumalik sa bawat course card.",
+          recommendationsTitle: "Inirerekomenda para sa iyo",
+          recommendationsBody: "Nakabatay ang mga pagpiling ito sa iyong onboarding profile at kamakailang learning activity, at ipinapakita na ngayon dito habang nagba-browse ka ng mga kurso.",
+          recommendationsLockedTitle: "Tapusin ang onboarding para ma-unlock ang recommendations.",
+          recommendationsLockedBody: "Idagdag muna ang iyong interests, categories, at skill signals para mas ma-rank ng browse page ang mas angkop na mga kurso para sa iyo.",
         },
         states: {
           noCourses: "Wala pang kurso sa category na ito.",
@@ -253,6 +270,10 @@ const Courses = () => {
           },
           certificatesTitle: "Track your completed courses and certificates",
           certificatesBody: "Once your certificate is released, you can find it on the certifications page together with your completion records instead of going back through each course card.",
+          recommendationsTitle: "Recommended for you",
+          recommendationsBody: "These picks are based on your onboarding profile and recent learning activity, now surfaced here where you browse courses.",
+          recommendationsLockedTitle: "Complete onboarding to unlock recommendations.",
+          recommendationsLockedBody: "Add your interests, categories, and skill signals first so the browse page can rank better-fit courses for you.",
         },
         states: {
           noCourses: "No courses found for this category yet.",
@@ -271,6 +292,53 @@ const Courses = () => {
   useEffect(() => {
     loadCourses();
     loadEnrollments();
+  }, [user]);
+
+  useEffect(() => {
+    if (!user || user.role !== "trainee") {
+      setPerformanceSummary(null);
+      setSessionAggregates([]);
+      setCollaborativeSignals({});
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadRecommendationInputs = async () => {
+      setLoadingRecommendations(true);
+      try {
+        const [summary, collaborative, aggregates] = await Promise.all([
+          reportingService.getLearnerPerformanceSummary(user.id),
+          reportingService.getCollaborativeRecommendationSignals(user.id),
+          moduleSessionService.getSessionAggregatesByModule(user.id),
+        ]);
+
+        if (cancelled) {
+          return;
+        }
+
+        setPerformanceSummary(summary);
+        setCollaborativeSignals(collaborative);
+        setSessionAggregates(aggregates);
+      } catch (error) {
+        if (!cancelled) {
+          console.error("Error loading browse-page recommendation inputs:", error);
+          setPerformanceSummary(null);
+          setCollaborativeSignals({});
+          setSessionAggregates([]);
+        }
+      } finally {
+        if (!cancelled) {
+          setLoadingRecommendations(false);
+        }
+      }
+    };
+
+    void loadRecommendationInputs();
+
+    return () => {
+      cancelled = true;
+    };
   }, [user]);
 
   useEffect(() => {
@@ -300,7 +368,7 @@ const Courses = () => {
     setLoading(true);
     try {
       const allCourses = await courseService.getCourses();
-      setCourses(allCourses.filter((course) => course.published !== false));
+      setCourses(filterCoursesForUser(allCourses, user));
     } catch (error) {
       console.error("Error loading courses:", error);
       toast.error(copy.toasts.loadFailed);
@@ -381,6 +449,27 @@ const Courses = () => {
     return map;
   }, [enrollments]);
 
+  const recommendedCourses = useMemo<LearnerCourseRecommendation[]>(() => {
+    if (!user || user.role !== "trainee") {
+      return [];
+    }
+
+    return buildLearnerCourseRecommendations(
+      user,
+      courses,
+      enrollments,
+      performanceSummary,
+      3,
+      sessionAggregates,
+      collaborativeSignals,
+    );
+  }, [collaborativeSignals, courses, enrollments, performanceSummary, sessionAggregates, user]);
+
+  const browseRecommendations = useMemo(
+    () => recommendedCourses.filter(({ course }) => !enrollmentByCourseId[course.id]).slice(0, 3),
+    [enrollmentByCourseId, recommendedCourses],
+  );
+
   const displayedCourses = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
 
@@ -450,7 +539,6 @@ const Courses = () => {
           type="button"
           onClick={() => {
             setPreviewCourse(course);
-            setPreviewRecommendation(null);
           }}
           className="block w-full text-left"
         >
@@ -683,6 +771,117 @@ const Courses = () => {
     return <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">{displayedCourses.map(renderCourseCard)}</div>;
   };
 
+  const renderRecommendationSection = () => {
+    if (!user || user.role !== "trainee") {
+      return null;
+    }
+
+    if (!user.onboardingCompletedAt) {
+      return (
+        <Card className="border-primary/20 bg-primary/5">
+          <CardContent className="flex flex-col gap-4 p-6 sm:flex-row sm:items-center sm:justify-between">
+            <div className="space-y-2">
+              <p className="text-lg font-semibold text-foreground">{copy.dashboardPage.recommendationsLockedTitle}</p>
+              <p className="max-w-2xl text-sm leading-7 text-muted-foreground">{copy.dashboardPage.recommendationsLockedBody}</p>
+            </div>
+            <Button asChild className="h-12 rounded-xl px-6 text-base font-semibold">
+              <Link to="/dashboard">Open dashboard onboarding</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      );
+    }
+
+    if (loadingRecommendations) {
+      return (
+        <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
+          {Array.from({ length: 3 }).map((_, index) => (
+            <div key={index} className="overflow-hidden rounded-[1.6rem] border border-border bg-card">
+              <Skeleton className="aspect-[16/10] w-full rounded-none" />
+              <div className="space-y-4 p-5 sm:p-6">
+                <Skeleton className="h-8 w-3/4" />
+                <Skeleton className="h-4 w-full" />
+                <Skeleton className="h-4 w-5/6" />
+                <Skeleton className="h-12 w-full rounded-xl" />
+              </div>
+            </div>
+          ))}
+        </div>
+      );
+    }
+
+    if (browseRecommendations.length === 0) {
+      return null;
+    }
+
+    return (
+      <section className="space-y-4 rounded-[1.5rem] border border-border bg-[linear-gradient(135deg,rgba(15,118,110,0.06)_0%,rgba(29,78,216,0.06)_100%)] p-5 sm:p-6">
+        <div>
+          <div className="flex items-center gap-2 text-primary">
+            <Ribbon className="h-5 w-5" />
+            <span className="text-sm font-semibold uppercase tracking-[0.18em]">{copy.dashboardPage.recommendationsTitle}</span>
+          </div>
+          <p className="mt-3 max-w-3xl text-sm leading-7 text-muted-foreground">{copy.dashboardPage.recommendationsBody}</p>
+        </div>
+
+        <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
+          {browseRecommendations.map(({ course, reasons }) => (
+            <article
+              key={course.id}
+              className="flex h-full flex-col overflow-hidden rounded-[1.6rem] border border-border bg-background/95 shadow-[0_18px_50px_-30px_rgba(30,41,59,0.35)]"
+            >
+              <button
+                type="button"
+                onClick={() => setPreviewCourse(course)}
+                className="block w-full text-left"
+              >
+                <div className="relative aspect-[16/10] overflow-hidden border-b border-border bg-muted">
+                  {course.thumbnail ? (
+                    <img src={course.thumbnail} alt={course.title} className="h-full w-full object-cover" />
+                  ) : (
+                    <div className="flex h-full w-full items-center justify-center bg-muted text-muted-foreground">
+                      <BookOpen className="h-10 w-10" />
+                    </div>
+                  )}
+                  <div className="absolute left-4 top-4 flex items-center gap-2">
+                    <Badge className="rounded-full bg-primary px-3 py-1 text-[11px] font-semibold text-primary-foreground hover:bg-primary">
+                      Recommended
+                    </Badge>
+                  </div>
+                </div>
+              </button>
+
+              <div className="flex flex-1 flex-col p-5 sm:p-6">
+                <div className="space-y-3">
+                  <h3 className="line-clamp-2 text-[1.5rem] font-semibold leading-tight tracking-[-0.03em] text-foreground">{course.title}</h3>
+                  <p className="line-clamp-3 text-sm leading-7 text-muted-foreground">{course.description}</p>
+                </div>
+
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {reasons.slice(0, 3).map((reason) => (
+                    <Badge key={reason} variant="secondary" className="rounded-full px-3 py-1 text-xs font-medium">
+                      {reason}
+                    </Badge>
+                  ))}
+                </div>
+
+                <div className="mt-auto pt-5">
+                  <Button
+                    onClick={() => handleEnrollClick(course, "browse_recommendations")}
+                    className="h-12 w-full rounded-xl text-base font-semibold"
+                    disabled={enrolling === course.id || verificationBlocked}
+                  >
+                    {verificationBlocked ? blockedEnrollLabel : enrolling === course.id ? copy.actions.enrolling : copy.actions.enrollNow}
+                  </Button>
+                </div>
+              </div>
+            </article>
+          ))}
+        </div>
+      </section>
+    );
+  };
+
   const publicPage = (
     <div className="min-h-screen bg-background">
       <Header />
@@ -790,6 +989,8 @@ const Courses = () => {
             </AlertDescription>
           </Alert>
         ) : null}
+
+        {renderRecommendationSection()}
 
         <div className="flex flex-col gap-4 rounded-[1.6rem] border border-border bg-card p-5 sm:p-6">
           <div className="space-y-3">

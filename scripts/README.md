@@ -63,7 +63,7 @@ npm run seed:analytics
 
 ### `seed-course-content.ts`
 
-Creates reusable demo courses with modules, content blocks, inline quiz blocks, and module assessments.
+Creates reusable demo courses with modules, inline practice quiz blocks, and standalone graded assessments.
 
 **Usage:**
 
@@ -76,7 +76,7 @@ npm run seed:courses
 - Creates or updates demo courses by title
 - Creates or updates modules by course and title
 - Stores rich module content in `modules.content` as JSON content blocks
-- Seeds inline quiz blocks inside module content and module-level assessments in the assessment tables
+- Seeds inline practice quiz blocks inside module content and standalone course-level graded assessments unlocked by module prerequisites
 - Rewrites assessment questions for the seeded modules so reruns stay deterministic
 
 **Environment Variables Required:**
@@ -85,7 +85,7 @@ npm run seed:courses
 
 ### `audit-derived-assessments.ts`
 
-Audits module quiz blocks against `assessments` and `assessment_questions`, then optionally backfills safe `quiz_blocks_only` modules.
+Audits modules for practice-only quiz blocks, standalone graded assessments, mixed states, and legacy derived assessments, then optionally converts safe legacy rows to course-level assessments.
 
 **Usage:**
 
@@ -93,18 +93,18 @@ Audits module quiz blocks against `assessments` and `assessment_questions`, then
 # Audit only and write a markdown report under temp_markdowns/
 npm run audit:derived-assessments
 
-# Audit and backfill modules that only have valid gradable quiz blocks
-npm run backfill:derived-assessments
+# Audit and convert safe legacy derived assessments to course-level graded assessments
+npm run convert:derived-assessments
 
 # Optional custom report path
 npx tsx scripts/audit-derived-assessments.ts --report temp_markdowns/custom-derived-audit.md
 ```
 
 **What it does:**
-- Classifies modules into `quiz_blocks_only`, `assessment_tables_only`, `both_in_sync`, `both_mismatched`, or `no_assessment_source`
-- Writes a cleanup-oriented markdown report for legacy and mismatched modules
-- Backfills derived assessment rows/questions only for safe `quiz_blocks_only` modules when `--apply-backfill` is used
-- Leaves `assessment_tables_only` and mismatched modules untouched so staff can review them before cleanup
+- Classifies modules into `practice_quizzes_only`, `standalone_graded_assessments_only`, `both_present`, `legacy_derived_assessments`, or `no_assessment_source`
+- Writes a cleanup-oriented markdown report with automatic conversion candidates and trainer-review items
+- Converts safe legacy derived assessments into course-level graded assessments with `prerequisite_module_ids` metadata when `--apply-conversion` is used
+- Leaves ambiguous or mismatched legacy modules untouched so staff can review them before cleanup
 
 **Environment Variables Required:**
 - `SUPABASE_URL` or `VITE_SUPABASE_URL`
@@ -112,7 +112,7 @@ npx tsx scripts/audit-derived-assessments.ts --report temp_markdowns/custom-deri
 
 ### `check-assessment-reporting-regressions.ts`
 
-Runs a repository-level regression check for assessment analytics and reporting invariants.
+Runs a repository-level regression check for assessment analytics, course-audience recommendation filtering, and reporting invariants.
 
 **Usage:**
 
@@ -124,6 +124,8 @@ npm run check:assessment-reporting
 - Verifies `submitAttempt` still persists `score` and `passed` to `assessment_attempts`
 - Verifies the `assessment_submit` analytics event and rollup refresh call still exist
 - Verifies reporting and analytics code still aggregate from `assessment_attempts.score`
+- Verifies learner recommendation and browse surfaces keep filtering course lists by audience before display or persistence
+- Verifies admin and trainer reporting surfaces still use full staff-visible course catalogs for counts and chart labels
 - Verifies staff visibility policies/RPC hooks for assessment attempts are still present
 - Writes a markdown report to `temp_markdowns/assessment_reporting_regression_report.md`
 

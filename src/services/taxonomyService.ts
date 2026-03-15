@@ -2,12 +2,14 @@ import { supabase } from "@/lib/supabase";
 import {
   getRuntimeTaxonomyConfig,
   setRuntimeTaxonomyConfig,
+  TAXONOMY_CAREER_PATHS,
   TAXONOMY_COURSE_CATEGORIES,
+  TAXONOMY_INDUSTRY_TAGS,
   TAXONOMY_SKILL_TAGS,
   TAXONOMY_TOPIC_TAGS,
 } from "@/lib/taxonomy";
 
-export type TaxonomyTermType = "course_category" | "skill_tag" | "topic_tag";
+export type TaxonomyTermType = "course_category" | "skill_tag" | "topic_tag" | "industry_tag" | "career_path";
 
 export interface TaxonomyTerm {
   id: string;
@@ -23,6 +25,8 @@ export interface TaxonomyOptions {
   courseCategories: string[];
   skillTags: string[];
   topicTags: string[];
+  industryTags: string[];
+  careerPaths: string[];
 }
 
 const normalizeDisplayValue = (value: string) => value.trim().replace(/\s+/g, " ");
@@ -56,6 +60,8 @@ const fallbackOptions: TaxonomyOptions = {
   courseCategories: [...TAXONOMY_COURSE_CATEGORIES],
   skillTags: [...TAXONOMY_SKILL_TAGS],
   topicTags: [...TAXONOMY_TOPIC_TAGS],
+  industryTags: [...TAXONOMY_INDUSTRY_TAGS],
+  careerPaths: [...TAXONOMY_CAREER_PATHS],
 };
 
 const mapRow = (row: any): TaxonomyTerm => ({
@@ -78,6 +84,12 @@ const groupTerms = (terms: TaxonomyTerm[]): TaxonomyOptions => ({
   topicTags: dedupeTerms(
     terms.filter((term) => term.termType === "topic_tag" && term.isActive).map((term) => term.name),
   ),
+  industryTags: dedupeTerms(
+    terms.filter((term) => term.termType === "industry_tag" && term.isActive).map((term) => term.name),
+  ),
+  careerPaths: dedupeTerms(
+    terms.filter((term) => term.termType === "career_path" && term.isActive).map((term) => term.name),
+  ),
 });
 
 let taxonomyTermsCache: TaxonomyTerm[] | null = null;
@@ -94,6 +106,8 @@ const buildFallbackTerms = (): TaxonomyTerm[] => {
     ...fallbackOptions.courseCategories.map((name) => ({ id: `fallback-course-${normalizeToken(name)}`, termType: "course_category" as const, name, isActive: true, createdAt: now, updatedAt: now })),
     ...fallbackOptions.skillTags.map((name) => ({ id: `fallback-skill-${normalizeToken(name)}`, termType: "skill_tag" as const, name, isActive: true, createdAt: now, updatedAt: now })),
     ...fallbackOptions.topicTags.map((name) => ({ id: `fallback-topic-${normalizeToken(name)}`, termType: "topic_tag" as const, name, isActive: true, createdAt: now, updatedAt: now })),
+    ...fallbackOptions.industryTags.map((name) => ({ id: `fallback-industry-${normalizeToken(name)}`, termType: "industry_tag" as const, name, isActive: true, createdAt: now, updatedAt: now })),
+    ...fallbackOptions.careerPaths.map((name) => ({ id: `fallback-career-${normalizeToken(name)}`, termType: "career_path" as const, name, isActive: true, createdAt: now, updatedAt: now })),
   ];
 };
 

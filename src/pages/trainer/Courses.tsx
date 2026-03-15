@@ -31,6 +31,17 @@ import { useState, useEffect, useMemo } from "react";
 import { Course, Program } from "@/types";
 import { toast } from "sonner";
 
+const getCourseAudienceLabel = (audience: Course["traineeAudience"]) => {
+  switch (audience) {
+    case "peso_client":
+      return "PESO Clients";
+    case "peso_employee":
+      return "PESO Employees";
+    default:
+      return "General Public";
+  }
+};
+
 const TrainerCourses = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -337,6 +348,11 @@ const TrainerCourses = () => {
                           <p className="mt-3 line-clamp-3 text-sm leading-7 text-muted-foreground">
                             {course.description}
                           </p>
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            <Badge variant="secondary" className="rounded-full px-3 py-1 text-[11px] font-semibold">
+                              Audience: {getCourseAudienceLabel(course.traineeAudience)}
+                            </Badge>
+                          </div>
                         </div>
                         <div className="space-y-2 text-sm text-muted-foreground">
                           <span className="flex items-center gap-1">

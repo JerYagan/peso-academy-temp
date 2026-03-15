@@ -120,4 +120,26 @@ describe("ThemePreferenceContext", () => {
     expect(window.localStorage.getItem("peso-theme-preference")).toBe("dark");
     expect(setThemeMock).toHaveBeenCalledWith("dark");
   });
+
+  it("defaults a newly authenticated user without a saved preference to system", () => {
+    window.localStorage.setItem("peso-theme-preference", "dark");
+
+    mockedUser = {
+      id: "new-user-1",
+      email: "newlearner@example.com",
+      name: "New Learner",
+      role: "trainee",
+    } as User;
+    mockedTheme = "dark";
+    mockedResolvedTheme = "dark";
+
+    render(
+      <ThemePreferenceProvider>
+        <ThemeProbe />
+      </ThemePreferenceProvider>,
+    );
+
+    expect(screen.getByTestId("theme-preference")).toHaveTextContent("system");
+    expect(setThemeMock).toHaveBeenCalledWith("system");
+  });
 });

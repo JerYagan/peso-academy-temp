@@ -4,18 +4,27 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
-import { X, Plus, Loader2, Eye } from "lucide-react";
-import { Course, Program } from "@/types";
-import { courseService, programService } from "@/services/supabaseDatabaseService";
+import { Loader2, Eye, Info } from "lucide-react";
+import { Course, CourseTraineeAudience } from "@/types";
+import { courseService } from "@/services/supabaseDatabaseService";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import { supabase } from "@/lib/supabase";
 import type { UserRole } from "@/types/auth";
 import { TaxonomyTagField } from "@/components/course/TaxonomyTagField";
 import { TaxonomySingleField } from "@/components/course/TaxonomySingleField";
-import { buildCanonicalCourseTaxonomy, getAllowedSkillTagsForCategory, getAllowedTopicTagsForCategory, TAXONOMY_COURSE_CATEGORIES } from "@/lib/taxonomy";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  buildCanonicalCourseTaxonomy,
+  TAXONOMY_CAREER_PATHS,
+  TAXONOMY_COURSE_CATEGORIES,
+  TAXONOMY_INDUSTRY_TAGS,
+  TAXONOMY_SKILL_TAGS,
+  TAXONOMY_TOPIC_TAGS,
+} from "@/lib/taxonomy";
 
 type CourseSaveMode = "draft" | "finalized";
 
@@ -29,7 +38,15 @@ interface CourseCreateEditDialogProps {
 const COURSE_LEVELS = ["Beginner", "Intermediate", "Advanced"] as const;
 const COURSE_PREVIEW_STORAGE_PREFIX = "peso-course-preview:";
 const COURSE_MANAGER_PROFILE_ROLES = ["admin", "trainer"] as const;
-const PRIMARY_COURSE_CATEGORIES = TAXONOMY_COURSE_CATEGORIES.filter((category) => category !== "Others");
+const PRIMARY_COURSE_CATEGORIES = TAXONOMY_COURSE_CATEGORIES;
+const COURSE_AUDIENCE_OPTIONS: Array<{ value: CourseTraineeAudience; label: string }> = [
+  { value: "general_public", label: "All / General Public" },
+  { value: "peso_client", label: "PESO Clients" },
+  { value: "peso_employee", label: "PESO Employees" },
+];
+
+const getCourseAudienceLabel = (audience: CourseTraineeAudience) =>
+  COURSE_AUDIENCE_OPTIONS.find((option) => option.value === audience)?.label || "All / General Public";
 
 const mapUserRoleToProfileRole = (role: UserRole): "admin" | "trainer" | "trainee" => {
   switch (role) {
@@ -50,26 +67,24 @@ export const CourseCreateEditDialog = ({
 }: CourseCreateEditDialogProps) => {
   const { user } = useAuth();
   const [loading, setLoading] = useState(false);
-  const [programs, setPrograms] = useState<Program[]>([]);
   const [formData, setFormData] = useState({
     title: "",
     description: "",
-    programId: "",
     category: "",
     level: "Beginner" as Course["level"],
+    traineeAudience: "general_public" as CourseTraineeAudience,
     duration: "",
+    isTESDAAccredited: false,
     skills: [] as string[],
     topicTags: [] as string[],
     industryTags: [] as string[],
     careerPaths: [] as string[],
     thumbnail: "",
   });
-  const [newIndustryTag, setNewIndustryTag] = useState("");
-  const [newCareerPath, setNewCareerPath] = useState("");
   const [selectedThumbnailFile, setSelectedThumbnailFile] = useState<File | null>(null);
   const [thumbnailPreviewUrl, setThumbnailPreviewUrl] = useState<string | null>(null);
-  const allowedSkillOptions = getAllowedSkillTagsForCategory(formData.category);
-  const allowedTopicOptions = getAllowedTopicTagsForCategory(formData.category);
+  const courseSkillOptions = TAXONOMY_SKILL_TAGS as unknown as string[];
+  const courseTopicOptions = TAXONOMY_TOPIC_TAGS as unknown as string[];
 
   const resolveCourseOwnerId = async () => {
     if (!user) {
@@ -175,15 +190,15 @@ export const CourseCreateEditDialog = ({
     return {
       title: formData.title,
       description: formData.description,
-      programId: formData.programId || null,
       category: canonicalTaxonomy.category,
       level: formData.level,
       duration: parseInt(formData.duration, 10),
+      traineeAudience: formData.traineeAudience,
       instructorId: ownerId,
       instructor: user.name || user.email,
       thumbnail: thumbnailPreviewUrl || formData.thumbnail || undefined,
       courseDocument: course?.courseDocument || undefined,
-      isTESDAAccredited: false,
+      isTESDAAccredited: formData.isTESDAAccredited,
       skills: canonicalTaxonomy.skillTags,
       topicTags: canonicalTaxonomy.topicTags,
       industryTags: formData.industryTags,
@@ -257,27 +272,15 @@ export const CourseCreateEditDialog = ({
   };
 
   useEffect(() => {
-    if (!open) {
-      return;
-    }
-
-    const loadPrograms = async () => {
-      const programRows = await programService.getPrograms();
-      setPrograms(programRows);
-    };
-
-    void loadPrograms();
-  }, [open]);
-
-  useEffect(() => {
     if (course) {
       setFormData({
         title: course.title,
         description: course.description,
-        programId: course.programId || "",
         category: course.category,
         level: course.level,
+        traineeAudience: course.traineeAudience || "general_public",
         duration: course.duration.toString(),
+        isTESDAAccredited: course.isTESDAAccredited || false,
         skills: course.skills || [],
         topicTags: course.topicTags || [],
         industryTags: course.industryTags || [],
@@ -288,10 +291,11 @@ export const CourseCreateEditDialog = ({
       setFormData({
         title: "",
         description: "",
-        programId: "",
         category: "",
         level: "Beginner",
+        traineeAudience: "general_public",
         duration: "",
+        isTESDAAccredited: false,
         skills: [],
         topicTags: [],
         industryTags: [],
@@ -413,28 +417,6 @@ export const CourseCreateEditDialog = ({
     }
   };
 
-  const addIndustryTag = () => {
-    if (newIndustryTag.trim() && !formData.industryTags.includes(newIndustryTag.trim())) {
-      setFormData({ ...formData, industryTags: [...formData.industryTags, newIndustryTag.trim()] });
-      setNewIndustryTag("");
-    }
-  };
-
-  const addCareerPath = () => {
-    if (newCareerPath.trim() && !formData.careerPaths.includes(newCareerPath.trim())) {
-      setFormData({ ...formData, careerPaths: [...formData.careerPaths, newCareerPath.trim()] });
-      setNewCareerPath("");
-    }
-  };
-
-  const removeIndustryTag = (tag: string) => {
-    setFormData({ ...formData, industryTags: formData.industryTags.filter((value) => value !== tag) });
-  };
-
-  const removeCareerPath = (path: string) => {
-    setFormData({ ...formData, careerPaths: formData.careerPaths.filter((value) => value !== path) });
-  };
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
@@ -474,36 +456,17 @@ export const CourseCreateEditDialog = ({
 
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
             <div className="space-y-2">
-              <Label htmlFor="program">Program</Label>
-              <Select
-                value={formData.programId || "none"}
-                onValueChange={(value) => setFormData({ ...formData, programId: value === "none" ? "" : value })}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Assign to a program" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="none">No program</SelectItem>
-                  {programs.map((program) => (
-                    <SelectItem key={program.id} value={program.id}>
-                      {program.title}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
               <TaxonomySingleField
                 label="Category *"
                 value={formData.category}
                 onChange={(value) => setFormData({ ...formData, category: value })}
-                placeholder="Select or create category"
+                placeholder="Select managed category"
                 termType="course_category"
-                fallbackOptions={TAXONOMY_COURSE_CATEGORIES}
+                fallbackOptions={PRIMARY_COURSE_CATEGORIES}
+                allowCreate={false}
               />
               <p className="text-xs text-muted-foreground">
-                If you choose Others, select the closest approved skill and topic tags below so reporting and recommendations continue to classify the course correctly.
+                Choose a taxonomy-managed category so course analytics, reporting, and recommendations stay aligned.
               </p>
             </div>
 
@@ -525,9 +488,56 @@ export const CourseCreateEditDialog = ({
                 </SelectContent>
               </Select>
             </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="traineeAudience">Audience *</Label>
+              <Select
+                value={formData.traineeAudience}
+                onValueChange={(value) => setFormData({ ...formData, traineeAudience: value as CourseTraineeAudience })}
+              >
+                <SelectTrigger id="traineeAudience">
+                  <SelectValue placeholder="Select audience" />
+                </SelectTrigger>
+                <SelectContent>
+                  {COURSE_AUDIENCE_OPTIONS.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="rounded-xl border border-border/70 bg-muted/20 p-4 md:col-span-2 lg:col-span-3">
+              <div className="flex items-start gap-3">
+                <Checkbox
+                  id="tesda-accredited"
+                  checked={formData.isTESDAAccredited}
+                  onCheckedChange={(checked) => setFormData((current) => ({ ...current, isTESDAAccredited: Boolean(checked) }))}
+                />
+                <div className="space-y-1">
+                  <Label htmlFor="tesda-accredited" className="flex items-center gap-2">
+                    TESDA Accredited
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button type="button" className="inline-flex text-muted-foreground hover:text-foreground">
+                          <Info className="h-4 w-4" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent className="max-w-xs">
+                        Marks the course as TESDA-recognized or TESDA-aligned. Learners will see that label and certificate messaging will follow the TESDA path.
+                      </TooltipContent>
+                    </Tooltip>
+                  </Label>
+                  <p className="text-xs text-muted-foreground">
+                    Turn this on only when the course should visibly carry TESDA accreditation or TESDA-style certificate wording.
+                  </p>
+                </div>
+              </div>
+            </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor="duration">Duration (hours) *</Label>
               <Input
@@ -540,7 +550,61 @@ export const CourseCreateEditDialog = ({
                 required
               />
             </div>
+          </div>
 
+          <TaxonomyTagField
+            label="Skill Tags"
+            options={courseSkillOptions}
+            values={formData.skills}
+            onChange={(skills) => setFormData((current) => ({ ...current, skills }))}
+            placeholder="Select approved skill tags"
+            description="Managed skill tags are global course metadata and are not restricted by category. Update the available vocabulary from Taxonomy Management when needed."
+            allowCreate={false}
+            termType="skill_tag"
+            maxVisibleOptions={5}
+            restrictToOptions={false}
+          />
+
+          <TaxonomyTagField
+            label="Topic Tags"
+            options={courseTopicOptions}
+            values={formData.topicTags}
+            onChange={(topicTags) => setFormData((current) => ({ ...current, topicTags }))}
+            placeholder="Select approved topic tags"
+            description="Managed topic tags are global course metadata and are not restricted by category. Update the available vocabulary from Taxonomy Management when needed."
+            termType="topic_tag"
+            allowCreate={false}
+            maxVisibleOptions={5}
+            restrictToOptions={false}
+          />
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <TaxonomyTagField
+              label="Industry Tags"
+              options={TAXONOMY_INDUSTRY_TAGS as unknown as string[]}
+              values={formData.industryTags}
+              onChange={(industryTags) => setFormData((current) => ({ ...current, industryTags }))}
+              placeholder="Select relevant industries"
+              description="Optional recommendation metadata. Industry tags are global managed terms and are not restricted by category."
+              termType="industry_tag"
+              allowCreate={false}
+              maxVisibleOptions={6}
+            />
+
+            <TaxonomyTagField
+              label="Career Path Tags"
+              options={TAXONOMY_CAREER_PATHS as unknown as string[]}
+              values={formData.careerPaths}
+              onChange={(careerPaths) => setFormData((current) => ({ ...current, careerPaths }))}
+              placeholder="Select relevant career paths"
+              description="Optional recommendation metadata. Career path tags are global managed terms and are not restricted by category."
+              termType="career_path"
+              allowCreate={false}
+              maxVisibleOptions={6}
+            />
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-[1fr_280px]">
             <div className="space-y-2">
               <Label htmlFor="thumbnail">Thumbnail (image)</Label>
               <Input
@@ -560,127 +624,54 @@ export const CourseCreateEditDialog = ({
                 className="flex-1"
                 disabled={loading}
               />
+              <p className="text-xs text-muted-foreground">
+                Thumbnail is optional and can be added after the core course details and taxonomy are in place.
+              </p>
               {selectedThumbnailFile && (
                 <Badge variant="secondary" className="gap-1 mt-1">
                   {selectedThumbnailFile.name}
                 </Badge>
               )}
             </div>
-          </div>
 
-          <TaxonomyTagField
-            label="Skill Tags"
-            options={allowedSkillOptions}
-            values={formData.skills}
-            onChange={(skills) => setFormData((current) => ({ ...current, skills }))}
-            placeholder="Select approved skill tags"
-            description="Choose approved skill tags only. These drive recommendation matching and analytics."
-          />
-
-          <TaxonomyTagField
-            label="Topic Tags"
-            options={allowedTopicOptions}
-            values={formData.topicTags}
-            onChange={(topicTags) => setFormData((current) => ({ ...current, topicTags }))}
-            placeholder="Select approved topic tags"
-            description="Choose the topics this course contributes to. Topic analytics and recommendation explanations use these values directly."
-            termType="topic_tag"
-          />
-
-          <div className="space-y-2">
-            <Label>Industry Tags</Label>
-            <div className="flex gap-2">
-              <Input
-                value={newIndustryTag}
-                onChange={(e) => setNewIndustryTag(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    addIndustryTag();
-                  }
-                }}
-                placeholder="Add an industry tag"
-              />
-              <Button type="button" onClick={addIndustryTag} variant="outline">
-                <Plus className="w-4 h-4" />
-              </Button>
-            </div>
-            {formData.industryTags.length > 0 && (
-              <div className="mt-2 flex flex-wrap gap-2">
-                {formData.industryTags.map((tag) => (
-                  <Badge key={tag} variant="secondary" className="gap-1">
-                    {tag}
-                    <button type="button" onClick={() => removeIndustryTag(tag)} className="ml-1 hover:text-destructive">
-                      <X className="w-3 h-3" />
-                    </button>
-                  </Badge>
-                ))}
+            <div className="rounded-lg border bg-muted/30 p-4 space-y-3">
+              <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+                <Eye className="w-4 h-4" />
+                Preview
               </div>
-            )}
-          </div>
-
-          <div className="space-y-2">
-            <Label>Career Paths</Label>
-            <div className="flex gap-2">
-              <Input
-                value={newCareerPath}
-                onChange={(e) => setNewCareerPath(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    addCareerPath();
-                  }
-                }}
-                placeholder="Add a career path"
-              />
-              <Button type="button" onClick={addCareerPath} variant="outline">
-                <Plus className="w-4 h-4" />
-              </Button>
-            </div>
-            {formData.careerPaths.length > 0 && (
-              <div className="mt-2 flex flex-wrap gap-2">
-                {formData.careerPaths.map((path) => (
-                  <Badge key={path} variant="secondary" className="gap-1">
-                    {path}
-                    <button type="button" onClick={() => removeCareerPath(path)} className="ml-1 hover:text-destructive">
-                      <X className="w-3 h-3" />
-                    </button>
-                  </Badge>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Preview: see how thumbnail, title, description and uploaded file reflect */}
-          <div className="rounded-lg border bg-muted/30 p-4 space-y-3">
-            <div className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
-              <Eye className="w-4 h-4" />
-              Preview
-            </div>
-            <div className="grid gap-3 sm:grid-cols-[140px_1fr]">
-              <div className="aspect-video rounded-md border bg-muted flex items-center justify-center overflow-hidden min-h-[80px]">
-                {thumbnailPreviewUrl ? (
-                  <img
-                    src={thumbnailPreviewUrl}
-                    alt="Thumbnail preview"
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <span className="text-xs text-muted-foreground">Thumbnail</span>
-                )}
-              </div>
-              <div className="min-w-0 space-y-1">
-                <p className="font-semibold truncate">
-                  {formData.title || "Course title"}
-                </p>
-                <p className="text-xs text-muted-foreground line-clamp-2">
-                  {formData.description || "Description"}
-                </p>
-                {formData.category && (
-                  <Badge variant="outline" className="text-xs">
-                    {formData.category}
-                  </Badge>
-                )}
+              <div className="space-y-3">
+                <div className="aspect-video rounded-md border bg-muted flex items-center justify-center overflow-hidden min-h-[80px]">
+                  {thumbnailPreviewUrl ? (
+                    <img
+                      src={thumbnailPreviewUrl}
+                      alt="Thumbnail preview"
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <span className="text-xs text-muted-foreground">Thumbnail</span>
+                  )}
+                </div>
+                <div className="min-w-0 space-y-1">
+                  <p className="font-semibold truncate">
+                    {formData.title || "Course title"}
+                  </p>
+                  <p className="text-xs text-muted-foreground line-clamp-2">
+                    {formData.description || "Description"}
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {formData.category ? (
+                      <Badge variant="outline" className="text-xs">
+                        {formData.category}
+                      </Badge>
+                    ) : null}
+                    <Badge variant={formData.isTESDAAccredited ? "default" : "secondary"} className="text-xs">
+                      {formData.isTESDAAccredited ? "TESDA Accredited" : "Standard Certificate"}
+                    </Badge>
+                    <Badge variant="secondary" className="text-xs">
+                      {getCourseAudienceLabel(formData.traineeAudience)}
+                    </Badge>
+                  </div>
+                </div>
               </div>
             </div>
           </div>

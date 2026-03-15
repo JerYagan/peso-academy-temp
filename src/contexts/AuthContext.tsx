@@ -11,7 +11,7 @@ interface AuthContextType extends AuthState {
   login: (email: string, password: string) => Promise<{ success: boolean; error?: string; user?: User | null }>;
   loginWithGoogle: (redirectTo?: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => Promise<void>;
-  signup: (email: string, password: string, name: string, role: UserRole, profile?: Partial<User>) => Promise<{ success: boolean; error?: string; user?: User | null }>;
+  signup: (email: string, password: string, name: string, role: UserRole, profile?: Partial<User>) => Promise<{ success: boolean; error?: string; user?: User | null; requiresEmailVerification?: boolean }>;
   updateUser: (user: Partial<User>) => Promise<void>;
   loading: boolean;
   role: UserRole;
@@ -241,11 +241,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     name: string,
     role: UserRole,
     profile?: Partial<User>
-  ): Promise<{ success: boolean; error?: string; user?: User | null }> => {
+  ): Promise<{ success: boolean; error?: string; user?: User | null; requiresEmailVerification?: boolean }> => {
     try {
       setLoading(true);
-      const { user, error } = await supabaseAuthService.signup(email, password, name, role, profile);
-      if (error || !user) {
+      const { user, error, requiresEmailVerification } = await supabaseAuthService.signup(email, password, name, role, profile);
+      if (error) {
         setLoading(false);
         return {
           success: false,
@@ -253,6 +253,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           user: null,
         };
       }
+
+      if (requiresEmailVerification) {
+        setLoading(false);
+        return {
+          success: true,
+          user: null,
+          requiresEmailVerification: true,
+        };
+      }
+
+      if (!user) {
+        setLoading(false);
+        return {
+          success: false,
+          error: "Failed to sign up",
+          user: null,
+        };
+      }
+
       // Update state
       setAuthState({
         user,

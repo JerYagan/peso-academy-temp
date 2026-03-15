@@ -47,9 +47,12 @@ import {
 import {
   BookOpen,
   ChevronLeft,
+  ChevronDown,
+  ChevronUp,
   Copy,
   Edit,
   Eye,
+  FileQuestion,
   FileText,
   GripVertical,
   ImageIcon,
@@ -57,6 +60,7 @@ import {
   Plus,
   Trash2,
 } from "lucide-react";
+import { assessmentService, type Assessment } from "@/services/assessmentService";
 import { courseService, moduleService } from "@/services/supabaseDatabaseService";
 import { ModulePreview } from "@/components/course/ModulePreview";
 import { useAuth } from "@/contexts/AuthContext";
@@ -72,6 +76,21 @@ interface SortableModuleCardProps {
   onDelete: (moduleId: string) => void;
   onDuplicate: (module: Module) => void;
   onPreview: (module: Module) => void;
+}
+
+interface CourseAssessmentListItem extends Assessment {
+  questionCount: number;
+}
+
+interface SortableAssessmentCardProps {
+  assessment: CourseAssessmentListItem;
+  position: number;
+  modules: Module[];
+  canMoveUp: boolean;
+  canMoveDown: boolean;
+  onEdit: (assessment: CourseAssessmentListItem) => void;
+  onDelete: (assessment: CourseAssessmentListItem) => void;
+  onMove: (assessmentId: string, direction: "up" | "down") => void;
 }
 
 const getBaseModulePath = (role?: string) => (role === "admin" ? "/admin/courses" : "/trainer/courses");
@@ -190,6 +209,117 @@ const SortableModuleCard = ({ module, prerequisites, onEdit, onDelete, onDuplica
   );
 };
 
+const SortableAssessmentCard = ({
+  assessment,
+  position,
+  modules,
+  canMoveUp,
+  canMoveDown,
+  onEdit,
+  onDelete,
+  onMove,
+}: SortableAssessmentCardProps) => {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: assessment.id });
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  };
+
+  const prerequisiteLabels = modules
+    .filter((module) => (assessment.prerequisiteModuleIds || []).includes(module.id))
+    .map((module) => module.title);
+
+  return (
+    <Card ref={setNodeRef} style={style} className={cn("transition-all hover:shadow-md", isDragging && "shadow-lg")}>
+      <CardContent className="p-5">
+        <div className="flex gap-4">
+          <button
+            type="button"
+            {...attributes}
+            {...listeners}
+            className="mt-1 rounded-md p-1 text-muted-foreground hover:bg-muted"
+            aria-label={`Reorder ${assessment.title}`}
+          >
+            <GripVertical className="h-4 w-4" />
+          </button>
+
+          <div className="min-w-0 flex-1 space-y-3">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0 flex-1 space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge variant="outline">Assessment {position}</Badge>
+                  <Badge variant={assessment.isActive ? "default" : "secondary"}>
+                    {assessment.isActive ? "Active" : "Inactive"}
+                  </Badge>
+                  <Badge variant="outline">{assessment.questionCount} question{assessment.questionCount === 1 ? "" : "s"}</Badge>
+                </div>
+
+                <div className="flex items-start gap-4">
+                  {assessment.thumbnail ? (
+                    <img src={assessment.thumbnail} alt={assessment.title} className="h-20 w-32 rounded-lg border object-cover" />
+                  ) : (
+                    <div className="flex h-20 w-32 items-center justify-center rounded-lg border bg-muted text-muted-foreground">
+                      <ImageIcon className="h-5 w-5" />
+                    </div>
+                  )}
+
+                  <div className="min-w-0 flex-1">
+                    <h3 className="truncate text-lg font-semibold">{assessment.title}</h3>
+                    <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">{assessment.description || "No assessment description yet."}</p>
+                    <div className="mt-2 flex flex-wrap gap-2 text-xs text-muted-foreground">
+                      {assessment.timeLimit ? <span>{assessment.timeLimit} min time limit</span> : <span>No time limit</span>}
+                      <span>{assessment.maxAttempts} attempt{assessment.maxAttempts === 1 ? "" : "s"}</span>
+                      <span>{assessment.passingScore}% passing score</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="icon">
+                    <MoreVertical className="h-4 w-4" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onClick={() => onEdit(assessment)}>
+                    <Edit className="mr-2 h-4 w-4" />
+                    Edit
+                  </DropdownMenuItem>
+                  <DropdownMenuItem disabled={!canMoveUp} onClick={() => onMove(assessment.id, "up")}>
+                    <ChevronUp className="mr-2 h-4 w-4" />
+                    Move earlier
+                  </DropdownMenuItem>
+                  <DropdownMenuItem disabled={!canMoveDown} onClick={() => onMove(assessment.id, "down")}>
+                    <ChevronDown className="mr-2 h-4 w-4" />
+                    Move later
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => onDelete(assessment)} className="text-destructive focus:text-destructive">
+                    <Trash2 className="mr-2 h-4 w-4" />
+                    Delete
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+
+            {prerequisiteLabels.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {prerequisiteLabels.map((label) => (
+                  <Badge key={label} variant="outline" className="text-xs">
+                    Requires: {label}
+                  </Badge>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+};
+
 const ManageModules = () => {
   const { courseId } = useParams<{ courseId: string }>();
   const navigate = useNavigate();
@@ -198,9 +328,12 @@ const ManageModules = () => {
 
   const [course, setCourse] = useState<Course | null>(null);
   const [modules, setModules] = useState<Module[]>([]);
+  const [courseAssessments, setCourseAssessments] = useState<CourseAssessmentListItem[]>([]);
   const [loadingCourse, setLoadingCourse] = useState(true);
   const [loadingModules, setLoadingModules] = useState(true);
+  const [loadingAssessments, setLoadingAssessments] = useState(true);
   const [deletingModuleId, setDeletingModuleId] = useState<string | null>(null);
+  const [deletingAssessment, setDeletingAssessment] = useState<CourseAssessmentListItem | null>(null);
   const [previewModule, setPreviewModule] = useState<Module | null>(null);
 
   const sensors = useSensors(
@@ -252,11 +385,48 @@ const ManageModules = () => {
     void loadModules();
   }, [loadModules]);
 
+  const loadAssessments = useCallback(async () => {
+    if (!courseId) return;
+
+    setLoadingAssessments(true);
+    try {
+      const assessments = await assessmentService.getCourseAssessments(courseId);
+      const assessmentsWithCounts = await Promise.all(
+        assessments.map(async (assessment) => {
+          const questions = await assessmentService.getAssessmentQuestions(assessment.id);
+          return {
+            ...assessment,
+            questionCount: questions.length,
+          } satisfies CourseAssessmentListItem;
+        }),
+      );
+
+      setCourseAssessments(assessmentsWithCounts);
+    } catch (error) {
+      console.error("Error loading assessments:", error);
+      toast.error("Failed to load assessments");
+    } finally {
+      setLoadingAssessments(false);
+    }
+  }, [courseId]);
+
+  useEffect(() => {
+    void loadAssessments();
+  }, [loadAssessments]);
+
   const finalizedCount = modules.filter((module) => module.status === "finalized").length;
   const draftCount = modules.length - finalizedCount;
 
   const handleCreateModule = () => {
     navigate(`${basePath}/${courseId}/modules/new`);
+  };
+
+  const handleManageAssessments = () => {
+    navigate(`${basePath}/${courseId}/assessments`);
+  };
+
+  const handleEditAssessment = (assessment: CourseAssessmentListItem) => {
+    navigate(`${basePath}/${courseId}/assessments#${assessment.id}`);
   };
 
   const handleEditModule = (module: Module) => {
@@ -274,6 +444,20 @@ const ManageModules = () => {
     } catch (error) {
       console.error("Error deleting module:", error);
       toast.error("Failed to delete module");
+    }
+  };
+
+  const handleDeleteAssessment = async () => {
+    if (!deletingAssessment) return;
+
+    try {
+      await assessmentService.deactivateAssessment(deletingAssessment.id);
+      toast.success("Assessment deleted successfully");
+      setDeletingAssessment(null);
+      await loadAssessments();
+    } catch (error) {
+      console.error("Error deleting assessment:", error);
+      toast.error("Failed to delete assessment");
     }
   };
 
@@ -328,6 +512,51 @@ const ManageModules = () => {
     }
   };
 
+  const persistAssessmentOrder = async (
+    reorderedAssessments: CourseAssessmentListItem[],
+    successMessage: string,
+  ) => {
+    if (!courseId) return;
+
+    setCourseAssessments(reorderedAssessments);
+
+    try {
+      await assessmentService.reorderCourseAssessments(
+        courseId,
+        reorderedAssessments.map((assessment, index) => ({ id: assessment.id, order: index + 1 })),
+      );
+      toast.success(successMessage);
+    } catch (error) {
+      console.error("Error reordering assessments:", error);
+      toast.error("Failed to reorder assessments");
+      await loadAssessments();
+    }
+  };
+
+  const handleAssessmentDragEnd = async (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+
+    const oldIndex = courseAssessments.findIndex((assessment) => assessment.id === active.id);
+    const newIndex = courseAssessments.findIndex((assessment) => assessment.id === over.id);
+    if (oldIndex < 0 || newIndex < 0) return;
+
+    await persistAssessmentOrder(arrayMove(courseAssessments, oldIndex, newIndex), "Assessments reordered successfully");
+  };
+
+  const moveAssessment = async (assessmentId: string, direction: "up" | "down") => {
+    const currentIndex = courseAssessments.findIndex((assessment) => assessment.id === assessmentId);
+    if (currentIndex < 0) return;
+
+    const nextIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1;
+    if (nextIndex < 0 || nextIndex >= courseAssessments.length) return;
+
+    await persistAssessmentOrder(
+      arrayMove(courseAssessments, currentIndex, nextIndex),
+      direction === "up" ? "Assessment moved earlier" : "Assessment moved later",
+    );
+  };
+
   if (loadingCourse) {
     return (
       <DashboardLayout>
@@ -357,13 +586,19 @@ const ManageModules = () => {
             </div>
           </div>
 
-          <Button onClick={handleCreateModule}>
-            <Plus className="mr-2 h-4 w-4" />
-            Create Module
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="outline" onClick={handleManageAssessments}>
+              <FileText className="mr-2 h-4 w-4" />
+              Add Assessment
+            </Button>
+            <Button onClick={handleCreateModule}>
+              <Plus className="mr-2 h-4 w-4" />
+              Create Module
+            </Button>
+          </div>
         </div>
 
-        <div className="grid gap-4 md:grid-cols-3">
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
           <Card>
             <CardHeader className="pb-2">
               <CardTitle className="text-sm font-medium">Total Modules</CardTitle>
@@ -386,6 +621,14 @@ const ManageModules = () => {
             </CardHeader>
             <CardContent>
               <p className="text-2xl font-bold text-amber-600">{draftCount}</p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium">Assessments</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-2xl font-bold text-sky-600">{courseAssessments.length}</p>
             </CardContent>
           </Card>
         </div>
@@ -434,6 +677,53 @@ const ManageModules = () => {
           </CardContent>
         </Card>
 
+        <Card>
+          <CardHeader className="flex flex-row items-start justify-between gap-4">
+            <div>
+              <CardTitle>Course Assessments</CardTitle>
+              <p className="mt-1 text-sm text-muted-foreground">Edit assessment details, reorder release sequence, and remove assessments without leaving this management view.</p>
+            </div>
+            <Button variant="outline" onClick={handleManageAssessments}>
+              <FileText className="mr-2 h-4 w-4" />
+              Open Assessment Editor
+            </Button>
+          </CardHeader>
+          <CardContent>
+            {loadingAssessments ? (
+              <div className="py-16 text-center text-muted-foreground">Loading assessments...</div>
+            ) : courseAssessments.length === 0 ? (
+              <div className="py-16 text-center">
+                <FileQuestion className="mx-auto mb-4 h-12 w-12 text-muted-foreground" />
+                <p className="text-muted-foreground">No course-level assessments yet for this course.</p>
+                <Button variant="outline" className="mt-4" onClick={handleManageAssessments}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  Create the first assessment
+                </Button>
+              </div>
+            ) : (
+              <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleAssessmentDragEnd}>
+                <SortableContext items={courseAssessments.map((assessment) => assessment.id)} strategy={verticalListSortingStrategy}>
+                  <div className="space-y-4">
+                    {courseAssessments.map((assessment, index) => (
+                      <SortableAssessmentCard
+                        key={assessment.id}
+                        assessment={assessment}
+                        position={index + 1}
+                        modules={modules}
+                        canMoveUp={index > 0}
+                        canMoveDown={index < courseAssessments.length - 1}
+                        onEdit={handleEditAssessment}
+                        onDelete={setDeletingAssessment}
+                        onMove={moveAssessment}
+                      />
+                    ))}
+                  </div>
+                </SortableContext>
+              </DndContext>
+            )}
+          </CardContent>
+        </Card>
+
         <Dialog open={Boolean(previewModule)} onOpenChange={(open) => !open && setPreviewModule(null)}>
           <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-5xl">
             <DialogHeader>
@@ -455,6 +745,23 @@ const ManageModules = () => {
             <AlertDialogFooter>
               <AlertDialogCancel>Cancel</AlertDialogCancel>
               <AlertDialogAction onClick={handleDeleteModule} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                Delete
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+
+        <AlertDialog open={Boolean(deletingAssessment)} onOpenChange={(open) => !open && setDeletingAssessment(null)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete assessment?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This will hide the assessment from learners and remove it from this course's graded assessment flow.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction onClick={handleDeleteAssessment} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
                 Delete
               </AlertDialogAction>
             </AlertDialogFooter>

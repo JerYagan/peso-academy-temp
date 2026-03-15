@@ -15,7 +15,8 @@
     "seed:courses": "tsx scripts/seed-course-content.ts",
     "seed:analytics": "tsx scripts/seed-analytics-demo.ts",
     "audit:derived-assessments": "tsx scripts/audit-derived-assessments.ts",
-    "backfill:derived-assessments": "tsx scripts/audit-derived-assessments.ts --apply-backfill",
+    "convert:derived-assessments": "tsx scripts/audit-derived-assessments.ts --apply-conversion",
+    "backfill:derived-assessments": "tsx scripts/audit-derived-assessments.ts --apply-conversion",
     "check:assessment-reporting": "tsx scripts/check-assessment-reporting-regressions.ts"
   },
   "dependencies": {
