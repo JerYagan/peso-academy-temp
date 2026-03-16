@@ -946,3 +946,5 @@ This course is intended as a real, trainer-ready beginner pathway for learners w
 - Set each module status to finalized after content blocks are added.
 - For modules using only quiz content blocks, make sure each gradable quiz block has points and a correct answer where required.
 - For short-answer and essay questions, expect manual review workflows where applicable.
+
+in Admin, remove enrollments tab from top navigation (but don't delete the page). Move Learners, Certificates, and Assessment review links to a new dropdown under the "Learners". Rename Learners to "Learners & Assessments" to reflect the new combined dropdown content. Same with trainer side

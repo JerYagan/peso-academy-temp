@@ -46,11 +46,20 @@ type NavLinkItem = {
   icon: typeof BarChart3;
 };
 
+type NavSubmenuItem = {
+  type: "submenu";
+  label: string;
+  icon: typeof BarChart3;
+  items: NavLinkItem[];
+};
+
+type NavGroupChild = NavLinkItem | NavSubmenuItem;
+
 type NavGroupItem = {
   type: "group";
   label: string;
   icon: typeof BarChart3;
-  items: NavLinkItem[];
+  items: NavGroupChild[];
 };
 
 type NavItem = NavLinkItem | NavGroupItem;
@@ -69,6 +78,8 @@ const DashboardLayout = ({ children }: DashboardLayoutProps) => {
   };
 
   const isPathActive = (path: string) => location.pathname === path || location.pathname.startsWith(`${path}/`);
+  const isGroupChildActive = (item: NavGroupChild) =>
+    item.type === "link" ? isPathActive(item.path) : item.items.some((child) => isPathActive(child.path));
 
   const getNavItems = (): NavItem[] => {
     if (!user) {
@@ -93,12 +104,18 @@ const DashboardLayout = ({ children }: DashboardLayoutProps) => {
             icon: ClipboardList,
             items: [
               { type: "link", path: "/admin/users", label: "Users", icon: Users },
-              { type: "link", path: "/admin/learners", label: "Learners", icon: Users },
+              {
+                type: "submenu",
+                label: "Learners & Assessments",
+                icon: Users,
+                items: [
+                  { type: "link", path: "/admin/learners", label: "Learners", icon: Users },
+                  { type: "link", path: "/admin/certificates", label: "Certificates", icon: Award },
+                  { type: "link", path: "/admin/assessment-reviews", label: "Assessment Reviews", icon: FileQuestion },
+                ],
+              },
               { type: "link", path: "/admin/courses", label: "Courses", icon: BookOpen },
               { type: "link", path: "/admin/taxonomy", label: "Taxonomy", icon: Tags },
-              { type: "link", path: "/admin/enrollments", label: "Enrollments", icon: ClipboardList },
-              { type: "link", path: "/admin/certificates", label: "Certificates", icon: Award },
-              { type: "link", path: "/admin/assessment-reviews", label: "Assessment Reviews", icon: FileQuestion },
             ],
           },
           {
@@ -119,9 +136,16 @@ const DashboardLayout = ({ children }: DashboardLayoutProps) => {
             icon: ClipboardList,
             items: [
               { type: "link", path: "/trainer/courses", label: "My Courses", icon: BookOpen },
-              { type: "link", path: "/trainer/learners", label: "Learners", icon: Users },
-              { type: "link", path: "/trainer/assessment-reviews", label: "Assessment Reviews", icon: FileQuestion },
-              { type: "link", path: "/trainer/certificates", label: "Certificates", icon: Award },
+              {
+                type: "submenu",
+                label: "Learners & Assessments",
+                icon: Users,
+                items: [
+                  { type: "link", path: "/trainer/learners", label: "Learners", icon: Users },
+                  { type: "link", path: "/trainer/certificates", label: "Certificates", icon: Award },
+                  { type: "link", path: "/trainer/assessment-reviews", label: "Assessment Reviews", icon: FileQuestion },
+                ],
+              },
             ],
           },
           {
@@ -153,7 +177,7 @@ const DashboardLayout = ({ children }: DashboardLayoutProps) => {
               {navItems.map((item) => {
                 if (item.type === "group") {
                   const Icon = item.icon;
-                  const isActive = item.items.some((child) => isPathActive(child.path));
+                  const isActive = item.items.some((child) => isGroupChildActive(child));
 
                   return (
                     <DropdownMenu key={item.label}>
@@ -175,6 +199,33 @@ const DashboardLayout = ({ children }: DashboardLayoutProps) => {
                         <DropdownMenuLabel>{item.label}</DropdownMenuLabel>
                         {item.items.map((child) => {
                           const ChildIcon = child.icon;
+
+                          if (child.type === "submenu") {
+                            const isSubmenuActive = child.items.some((grandchild) => isPathActive(grandchild.path));
+
+                            return (
+                              <DropdownMenuSub key={child.label}>
+                                <DropdownMenuSubTrigger className={isSubmenuActive ? "bg-muted font-medium text-foreground" : undefined}>
+                                  <ChildIcon className="h-4 w-4" />
+                                  <span>{child.label}</span>
+                                </DropdownMenuSubTrigger>
+                                <DropdownMenuSubContent className="w-56">
+                                  {child.items.map((grandchild) => {
+                                    const GrandchildIcon = grandchild.icon;
+
+                                    return (
+                                      <DropdownMenuItem key={grandchild.path} asChild>
+                                        <Link to={grandchild.path} className="cursor-pointer gap-2">
+                                          <GrandchildIcon className="h-4 w-4" />
+                                          {grandchild.label}
+                                        </Link>
+                                      </DropdownMenuItem>
+                                    );
+                                  })}
+                                </DropdownMenuSubContent>
+                              </DropdownMenuSub>
+                            );
+                          }
 
                           return (
                             <DropdownMenuItem key={child.path} asChild>
