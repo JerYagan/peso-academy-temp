@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { AlertCircle, CheckCircle2, Loader2, ShieldAlert } from "lucide-react";
 import AuthPageShell from "@/components/auth/AuthPageShell";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -44,15 +44,19 @@ const readRecoveryState = (search: string, hash: string) => {
     searchParams.get("type") === "recovery" ||
     Boolean(hashParams.get("access_token"));
 
+  const hasRecoveryFlowMarker = searchParams.get("flow") === "recovery";
+
   return {
     errorDescription,
     hasRecoveryToken,
+    hasRecoveryFlowMarker,
   };
 };
 
 const ResetPassword = () => {
   const location = useLocation();
-  const { authUser } = useAuth();
+  const navigate = useNavigate();
+  const { authUser, loading: authLoading } = useAuth();
   const { t } = useLocale();
   const [status, setStatus] = useState<ResetPasswordStatus>("checking");
   const [statusMessage, setStatusMessage] = useState("");
@@ -60,6 +64,7 @@ const ResetPassword = () => {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [recoverySessionDetected, setRecoverySessionDetected] = useState(false);
 
   const authProvider = useMemo(() => resolveAuthProvider(authUser), [authUser]);
   const passwordCriteriaItems = useMemo(
@@ -73,8 +78,9 @@ const ResetPassword = () => {
 
   useEffect(() => {
     const evaluateRecoveryState = (recoveryEvent = false, providerOverride?: string | null) => {
-      const { errorDescription, hasRecoveryToken } = readRecoveryState(location.search, window.location.hash);
+      const { errorDescription, hasRecoveryToken, hasRecoveryFlowMarker } = readRecoveryState(location.search, window.location.hash);
       const provider = providerOverride ?? authProvider;
+      const hasActiveRecoverySession = hasRecoveryFlowMarker && Boolean(authUser);
 
       if (errorDescription) {
         setStatus("invalid");
@@ -82,13 +88,19 @@ const ResetPassword = () => {
         return;
       }
 
-      if (provider && provider !== "email" && (hasRecoveryToken || recoveryEvent)) {
+      if ((hasRecoveryToken || hasRecoveryFlowMarker) && authLoading && !recoveryEvent && !recoverySessionDetected) {
+        setStatus("checking");
+        setStatusMessage("");
+        return;
+      }
+
+      if (provider && provider !== "email" && (hasRecoveryToken || hasActiveRecoverySession || recoveryEvent || recoverySessionDetected)) {
         setStatus("provider");
         setStatusMessage(t("resetPassword.providerOnlyDescription"));
         return;
       }
 
-      if (hasRecoveryToken || recoveryEvent) {
+      if (hasRecoveryToken || hasActiveRecoverySession || recoveryEvent || recoverySessionDetected) {
         setStatus("ready");
         setStatusMessage("");
         return;
@@ -102,6 +114,7 @@ const ResetPassword = () => {
 
     const authStateChange = supabaseAuthService.onAuthStateChange((_user, nextUser, event) => {
       if (event === "PASSWORD_RECOVERY") {
+        setRecoverySessionDetected(true);
         evaluateRecoveryState(true, resolveAuthProvider(nextUser));
       }
     });
@@ -109,7 +122,12 @@ const ResetPassword = () => {
     return () => {
       authStateChange.data?.subscription?.unsubscribe();
     };
-  }, [authProvider, location.search, t]);
+  }, [authLoading, authProvider, authUser, location.search, recoverySessionDetected, t]);
+
+  const handleExitRecoveryFlow = async (targetPath: "/login" | "/forgot-password") => {
+    await supabaseAuthService.logout();
+    navigate(targetPath, { replace: true });
+  };
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -272,12 +290,17 @@ const ResetPassword = () => {
 
         <div className="flex flex-wrap justify-center gap-3">
           {status !== "complete" ? (
-            <Button asChild type="button" variant="outline" className="rounded-xl">
-              <Link to="/forgot-password">{t("resetPassword.requestAnotherLink")}</Link>
+            <Button type="button" variant="outline" className="rounded-xl" onClick={() => void handleExitRecoveryFlow("/forgot-password")}>
+              {t("resetPassword.requestAnotherLink")}
             </Button>
           ) : null}
-          <Button asChild type="button" variant={status === "complete" ? "default" : "ghost"} className="rounded-xl">
-            <Link to="/login">{t("resetPassword.backToLogin")}</Link>
+          <Button
+            type="button"
+            variant={status === "complete" ? "default" : "ghost"}
+            className="rounded-xl"
+            onClick={() => void handleExitRecoveryFlow("/login")}
+          >
+            {t("resetPassword.backToLogin")}
           </Button>
         </div>
       </div>
