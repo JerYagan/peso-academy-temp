@@ -839,7 +839,6 @@ const CourseAssessmentEditorPage = () => {
                               <Icon className="h-4 w-4 shrink-0" />
                               <span className="space-y-1">
                                 <span className="block font-medium text-foreground">{option.label}</span>
-                                <span className="block text-xs text-muted-foreground">{option.description}</span>
                               </span>
                             </Button>
                           );
