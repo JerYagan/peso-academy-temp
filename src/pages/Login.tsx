@@ -19,6 +19,7 @@ const Login = () => {
   const [rememberMe, setRememberMe] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [suppressAuthenticatedRedirect, setSuppressAuthenticatedRedirect] = useState(false);
   const { login, user, isAuthenticated, loading: authLoading } = useAuth();
   const { t } = useLocale();
   const navigate = useNavigate();
@@ -33,7 +34,7 @@ const Login = () => {
 
   // When already authenticated (e.g. returned from Google OAuth), redirect to dashboard
   useEffect(() => {
-    if (!authLoading && isAuthenticated && user) {
+    if (!authLoading && isAuthenticated && user && !suppressAuthenticatedRedirect) {
       toast.info(t("login.alreadyLoggedInTitle"), {
         description: t("login.alreadyLoggedInDescription", { name: user.name || user.email }),
       });
@@ -41,11 +42,12 @@ const Login = () => {
         navigate(route, { replace: true });
       });
     }
-  }, [authLoading, isAuthenticated, navigate, t, user]);
+  }, [authLoading, isAuthenticated, navigate, suppressAuthenticatedRedirect, t, user]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    setSuppressAuthenticatedRedirect(true);
     setLoading(true);
 
     try {
@@ -74,12 +76,14 @@ const Login = () => {
       } else {
         console.error("Login failed:", result.error);
         setError(result.error || t("login.fallbackError"));
+        setSuppressAuthenticatedRedirect(false);
         setLoading(false);
       }
     } catch (err) {
       console.error("Login form error:", err);
       const errorMessage = err instanceof Error ? err.message : t("login.unknownError");
       setError(errorMessage);
+      setSuppressAuthenticatedRedirect(false);
       setLoading(false);
     } finally {
       // Ensure loading is always reset, even if something unexpected happens

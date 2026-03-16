@@ -162,11 +162,12 @@ const ResetPassword = () => {
       }
 
       await supabaseAuthService.logout();
-      window.history.replaceState(null, document.title, window.location.pathname);
+      window.history.replaceState(null, document.title, "/login");
       setStatus("complete");
       setStatusMessage("");
       setPassword("");
       setConfirmPassword("");
+      navigate("/login", { replace: true });
     } catch (updatePasswordError) {
       setError(updatePasswordError instanceof Error ? updatePasswordError.message : t("resetPassword.updateError"));
     } finally {
