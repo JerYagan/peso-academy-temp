@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { BellRing, Languages, Loader2, Lock, Monitor, Moon, Palette, Send, ShieldCheck, Sun, UserRound } from "lucide-react";
 import DashboardLayout from "@/components/DashboardLayout";
 import LanguageSwitcher from "@/components/LanguageSwitcher";
+import SecurityCriteriaPanel from "@/components/auth/SecurityCriteriaPanel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -13,7 +14,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLocale } from "@/contexts/LocaleContext";
 import { useThemePreference } from "@/contexts/ThemePreferenceContext";
-import { isPasswordPolicySatisfied } from "@/lib/passwordPolicy";
+import { getPasswordRequirementChecks, isPasswordPolicySatisfied } from "@/lib/passwordPolicy";
 import { supabase } from "@/lib/supabase";
 import { notificationService, type TestNotificationAudience } from "@/services/notificationService";
 import { supabaseAuthService } from "@/services/supabaseAuthService";
@@ -68,6 +69,14 @@ const SettingsPage = () => {
   );
 
   const selectedTestAudience = testNotificationAudienceOptions.find((option) => option.value === testNotificationAudience);
+  const passwordCriteriaItems = useMemo(
+    () => getPasswordRequirementChecks(passwordForm.newPassword).map((requirement) => ({
+      id: requirement.id,
+      label: t(`signup.passwordRequirements.${requirement.id}`),
+      met: passwordForm.newPassword ? requirement.met : undefined,
+    })),
+    [passwordForm.newPassword, t],
+  );
 
   const handleChangePassword = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -239,58 +248,66 @@ const SettingsPage = () => {
             <CardDescription>{t("settings.securityBody")}</CardDescription>
           </CardHeader>
           <CardContent>
-            <form onSubmit={handleChangePassword} className="grid gap-4 xl:grid-cols-[1fr_1.35fr_auto] xl:items-end">
-              <div className="space-y-2">
-                <Label htmlFor="settings-current-password">{t("settings.currentPassword")}</Label>
-                <Input
-                  id="settings-current-password"
-                  type="password"
-                  placeholder={t("settings.currentPasswordPlaceholder")}
-                  value={passwordForm.currentPassword}
-                  onChange={(event) => setPasswordForm((current) => ({ ...current, currentPassword: event.target.value }))}
-                  autoComplete="current-password"
-                />
-              </div>
-
-              <div className="grid gap-4 sm:grid-cols-2">
+            <form onSubmit={handleChangePassword} className="space-y-4">
+              <div className="grid gap-4 xl:grid-cols-[1fr_1.35fr_auto] xl:items-end">
                 <div className="space-y-2">
-                  <Label htmlFor="settings-new-password">{t("settings.newPassword")}</Label>
+                  <Label htmlFor="settings-current-password">{t("settings.currentPassword")}</Label>
                   <Input
-                    id="settings-new-password"
+                    id="settings-current-password"
                     type="password"
-                    placeholder={t("settings.newPasswordPlaceholder")}
-                    value={passwordForm.newPassword}
-                    onChange={(event) => setPasswordForm((current) => ({ ...current, newPassword: event.target.value }))}
-                    autoComplete="new-password"
+                    placeholder={t("settings.currentPasswordPlaceholder")}
+                    value={passwordForm.currentPassword}
+                    onChange={(event) => setPasswordForm((current) => ({ ...current, currentPassword: event.target.value }))}
+                    autoComplete="current-password"
                   />
                 </div>
 
-                <div className="space-y-2">
-                  <Label htmlFor="settings-confirm-password">{t("settings.confirmPassword")}</Label>
-                  <Input
-                    id="settings-confirm-password"
-                    type="password"
-                    placeholder={t("settings.confirmPasswordPlaceholder")}
-                    value={passwordForm.confirmPassword}
-                    onChange={(event) => setPasswordForm((current) => ({ ...current, confirmPassword: event.target.value }))}
-                    autoComplete="new-password"
-                  />
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="settings-new-password">{t("settings.newPassword")}</Label>
+                    <Input
+                      id="settings-new-password"
+                      type="password"
+                      placeholder={t("settings.newPasswordPlaceholder")}
+                      value={passwordForm.newPassword}
+                      onChange={(event) => setPasswordForm((current) => ({ ...current, newPassword: event.target.value }))}
+                      autoComplete="new-password"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="settings-confirm-password">{t("settings.confirmPassword")}</Label>
+                    <Input
+                      id="settings-confirm-password"
+                      type="password"
+                      placeholder={t("settings.confirmPasswordPlaceholder")}
+                      value={passwordForm.confirmPassword}
+                      onChange={(event) => setPasswordForm((current) => ({ ...current, confirmPassword: event.target.value }))}
+                      autoComplete="new-password"
+                    />
+                  </div>
                 </div>
+
+                <Button type="submit" className="gap-2" disabled={changingPassword}>
+                  {changingPassword ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      {t("settings.updating")}
+                    </>
+                  ) : (
+                    <>
+                      <Lock className="h-4 w-4" />
+                      {t("settings.changePassword")}
+                    </>
+                  )}
+                </Button>
               </div>
 
-              <Button type="submit" className="gap-2" disabled={changingPassword}>
-                {changingPassword ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    {t("settings.updating")}
-                  </>
-                ) : (
-                  <>
-                    <Lock className="h-4 w-4" />
-                    {t("settings.changePassword")}
-                  </>
-                )}
-              </Button>
+              <SecurityCriteriaPanel
+                title={t("authCriteria.passwordTitle")}
+                items={passwordCriteriaItems}
+                columns={2}
+              />
             </form>
           </CardContent>
         </Card>

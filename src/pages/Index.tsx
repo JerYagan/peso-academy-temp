@@ -113,7 +113,7 @@ const audienceDecor = [
 const Index = () => {
   const { t, getMessage } = useLocale();
   const { resolvedTheme } = useThemePreference();
-  const heroLogoSrc = resolvedTheme === "dark" ? "/images/logo_dark.png" : "/images/logo.png";
+  const heroLogoSrc = resolvedTheme === "dark" ? "/images/hero.png" : "/images/hero.png";
   const featureCards = getMessage<Array<{ title: string; description: string }>>("home.featureCards").map((item, index) => ({
     ...item,
     ...featureCardDecor[index],
@@ -160,11 +160,11 @@ const Index = () => {
 
             <div className="relative order-first flex items-center justify-center animate-scale-in lg:order-none">
               <div className="absolute inset-x-2 top-6 h-40 rounded-full bg-primary/10 blur-3xl dark:bg-primary/20 sm:inset-x-0 sm:top-10 sm:h-80" />
-              <div className="relative flex w-full max-w-[240px] items-center justify-center px-2 py-6 sm:max-w-[360px] sm:p-8 lg:max-w-[560px] lg:p-10">
+              <div className="relative flex w-full max-w-[300px] items-center justify-center sm:max-w-[600px] lg:max-w-[1200px]">
                 <img
                   src={heroLogoSrc}
                   alt="PESO Academy"
-                  className="h-auto w-full max-w-[220px] object-contain sm:max-w-[320px] lg:max-w-[420px]"
+                  className="h-auto w-full max-w-[280px] object-contain sm:max-w-[600px] lg:max-w-[1200px]"
                 />
               </div>
             </div>

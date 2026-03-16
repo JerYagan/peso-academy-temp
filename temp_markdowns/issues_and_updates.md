@@ -584,3 +584,15 @@ Operational verification status
 - The forgot-password flow is wired correctly in code: learners can request a reset email, the reset route recognizes recovery links, and password updates now enforce the stronger policy.
 - Live email delivery and recovery-link completion still require an end-to-end Supabase mailbox round-trip in the target environment; this was not directly testable from the local workspace.
 - Public trainee email verification enforcement depends on Supabase Authentication email confirmations being enabled in the deployed project.
+
+### Create a new markdown file to address these problems:
+Verification queue needs pagination
+Update Trainee Verification Modal is not needed, clicking "Verify" or "Reject" actions should just bring out a small verify action modal. The current approach makes validation redundant, as clicking the verify or reject actions just brings out another modal to set the status again. 
+
+API Request Body should contain atleast Auth Tokens/Session Tokens to be more robust. Not using Auth Tokens means you can send an API request to the link even without any permissions.
+
+System should display criteria for email and password
+
+you had multiple API Request for a simple adding of new user
+
+Website shouldn't refresh when you do certain actions, like creating a new user, it should just update the list of users without refreshing the whole page. Right now, when you create a new user, it signs up again, reloads the list of users, creates the user, and then reloads the list again with the new user added. This is inefficient and can be improved by just updating the list after the user is created without refreshing the entire page.

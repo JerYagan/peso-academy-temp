@@ -406,6 +406,30 @@ export const supabaseAuthService = {
       const adminCreateInProgress =
         typeof window !== "undefined" && window.sessionStorage.getItem("admin_creating_user") === "1";
 
+      if (adminCreateInProgress) {
+        const { data: currentAuthUserData, error: currentAuthUserError } = await supabase.auth.getUser();
+
+        if (currentAuthUserError || !currentAuthUserData.user) {
+          return {
+            user: null,
+            error: new Error("An authenticated admin session is required to create users from the admin page."),
+          };
+        }
+
+        const { profileData: currentActorProfile } = await loadUserProfile(
+          currentAuthUserData.user.id,
+          currentAuthUserData.user.email,
+        );
+
+        const currentActorRole = resolveUserRole(currentActorProfile?.role, currentAuthUserData.user.user_metadata?.role);
+        if (currentActorRole !== "admin") {
+          return {
+            user: null,
+            error: new Error("Only authenticated admins can create users from the admin page."),
+          };
+        }
+      }
+
       // IMPORTANT: Save the current admin session before creating user
       // signUp() will automatically log in as the new user, so we need to restore admin session
       const { data: currentSession } = await supabase.auth.getSession();

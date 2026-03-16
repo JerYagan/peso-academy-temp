@@ -3,6 +3,7 @@ import DashboardLayout from "@/components/DashboardLayout";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
   DialogContent,
@@ -40,6 +41,7 @@ import TraineeVerificationBadge from "@/components/trainee/TraineeVerificationBa
 import { useAuth } from "@/contexts/AuthContext";
 import { downloadPhysicalIdDocument } from "@/lib/traineeVerificationDocuments";
 import { userService } from "@/services/supabaseDatabaseService";
+import { cn } from "@/lib/utils";
 import type { User, VerificationStatus } from "@/types/auth";
 
 const traineeTypeLabel: Record<NonNullable<User["traineeType"]>, string> = {
@@ -59,6 +61,7 @@ export default function TraineeVerification() {
   const [page, setPage] = useState(1);
   const [selectedTrainee, setSelectedTrainee] = useState<User | null>(null);
   const [nextStatus, setNextStatus] = useState<VerificationStatus>("verified");
+  const [verificationNotes, setVerificationNotes] = useState("");
   const [saving, setSaving] = useState(false);
   const [physicalIdPreviewUrl, setPhysicalIdPreviewUrl] = useState<string | null>(null);
   const [physicalIdPreviewLoading, setPhysicalIdPreviewLoading] = useState(false);
@@ -120,6 +123,7 @@ export default function TraineeVerification() {
   const openStatusDialog = (trainee: User, status: VerificationStatus) => {
     setSelectedTrainee(trainee);
     setNextStatus(status);
+    setVerificationNotes(status === "rejected" ? trainee.verificationNotes || "" : "");
     setPhysicalIdPreviewUrl((currentUrl) => {
       if (currentUrl) {
         URL.revokeObjectURL(currentUrl);
@@ -132,6 +136,7 @@ export default function TraineeVerification() {
   const closeStatusDialog = () => {
     setSelectedTrainee(null);
     setNextStatus("verified");
+    setVerificationNotes("");
     setPhysicalIdPreviewUrl((currentUrl) => {
       if (currentUrl) {
         URL.revokeObjectURL(currentUrl);
@@ -197,7 +202,12 @@ export default function TraineeVerification() {
 
     try {
       setSaving(true);
-      await userService.updateTraineeVerification(selectedTrainee.id, nextStatus, undefined, currentUser?.id);
+      await userService.updateTraineeVerification(
+        selectedTrainee.id,
+        nextStatus,
+        nextStatus === "rejected" ? verificationNotes.trim() || undefined : undefined,
+        currentUser?.id,
+      );
       toast.success(`Trainee marked as ${nextStatus}.`);
       closeStatusDialog();
       await loadTrainees();
@@ -419,35 +429,40 @@ export default function TraineeVerification() {
         </Card>
 
         <Dialog open={Boolean(selectedTrainee)} onOpenChange={(open) => !open && closeStatusDialog()}>
-          <DialogContent className="max-h-[88vh] max-w-2xl overflow-y-auto">
+          <DialogContent className="max-h-[88vh] max-w-lg overflow-y-auto">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
-                <ShieldCheck className="h-5 w-5" />
-                Update trainee verification
+                {nextStatus === "verified" ? <UserCheck className="h-5 w-5" /> : <UserX className="h-5 w-5" />}
+                {nextStatus === "verified" ? "Verify trainee" : "Reject trainee"}
               </DialogTitle>
               <DialogDescription>
                 {selectedTrainee
-                  ? `Set ${selectedTrainee.name}'s verification status to ${nextStatus}.`
+                  ? nextStatus === "verified"
+                    ? `Confirm verification for ${selectedTrainee.name}.`
+                    : `Confirm rejection for ${selectedTrainee.name}.`
                   : "Update trainee verification status."}
               </DialogDescription>
             </DialogHeader>
 
             <div className="space-y-4">
               {selectedTrainee ? (
-                <div className="space-y-3 rounded-2xl border border-border/60 bg-muted/20 p-4">
-                  <div className="grid gap-3 md:grid-cols-2">
+                <div className="space-y-4 rounded-2xl border border-border/60 bg-muted/20 p-4">
+                  <div className="space-y-1">
+                    <p className="font-medium text-foreground">{selectedTrainee.name}</p>
+                    <p className="text-sm text-muted-foreground">{selectedTrainee.email}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {selectedTrainee.traineeType ? traineeTypeLabel[selectedTrainee.traineeType] : "Trainee type not set"}
+                    </p>
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-2">
                     <div>
                       <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Learner ID</p>
                       <p className="mt-1 font-mono text-sm text-foreground">{selectedTrainee.id}</p>
                     </div>
                     <div>
-                      <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Trainee</p>
-                      <p className="mt-1 font-medium text-foreground">{selectedTrainee.name}</p>
-                      <p className="text-sm text-muted-foreground">{selectedTrainee.email}</p>
-                    </div>
-                    <div>
                       <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Employee ID</p>
-                      <p className="mt-1 font-medium text-foreground">
+                      <p className="mt-1 text-sm text-foreground">
                         {selectedTrainee.traineeType === "peso_employee"
                           ? selectedTrainee.employeeId || "Not provided"
                           : "Not required"}
@@ -456,7 +471,12 @@ export default function TraineeVerification() {
                   </div>
 
                   <div className="space-y-2">
-                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Physical ID image</p>
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">Physical ID image</p>
+                      {selectedTrainee.traineeType === "peso_employee" ? (
+                        <span className="text-xs text-muted-foreground">Optional review aid</span>
+                      ) : null}
+                    </div>
                     {selectedTrainee.traineeType !== "peso_employee" ? (
                       <div className="rounded-xl border border-border/60 bg-background/70 p-4 text-sm text-muted-foreground">
                         No employee verification document is required for PESO Client registrations.
@@ -479,27 +499,40 @@ export default function TraineeVerification() {
                       </div>
                     )}
                   </div>
+
+                  <div className={cn(
+                    "rounded-xl border px-4 py-3 text-sm",
+                    nextStatus === "verified"
+                      ? "border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-900/50 dark:bg-emerald-950/20 dark:text-emerald-100"
+                      : "border-rose-200 bg-rose-50 text-rose-900 dark:border-rose-900/50 dark:bg-rose-950/20 dark:text-rose-100",
+                  )}>
+                    {nextStatus === "verified"
+                      ? "This will unlock course participation for the trainee if all other requirements are satisfied."
+                      : "This will keep course participation locked until the trainee is reviewed again."}
+                  </div>
                 </div>
               ) : null}
 
-              <div className="space-y-2">
-                <Select value={nextStatus} onValueChange={(value) => setNextStatus(value as VerificationStatus)}>
-                  <SelectTrigger id="verification-status">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="verified">Verified</SelectItem>
-                    <SelectItem value="rejected">Rejected</SelectItem>
-                    <SelectItem value="pending">Pending</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+              {nextStatus === "rejected" ? (
+                <div className="space-y-2">
+                  <label htmlFor="verification-notes" className="text-sm font-medium text-foreground">
+                    Rejection notes
+                  </label>
+                  <Textarea
+                    id="verification-notes"
+                    value={verificationNotes}
+                    onChange={(event) => setVerificationNotes(event.target.value)}
+                    placeholder="Optionally explain what the trainee needs to fix before another review."
+                    rows={4}
+                  />
+                </div>
+              ) : null}
             </div>
 
             <DialogFooter>
               <Button variant="outline" onClick={closeStatusDialog} disabled={saving}>Cancel</Button>
               <Button onClick={() => void handleStatusUpdate()} disabled={saving}>
-                {saving ? "Saving..." : "Save status"}
+                {saving ? "Saving..." : nextStatus === "verified" ? "Confirm verify" : "Confirm reject"}
               </Button>
             </DialogFooter>
           </DialogContent>

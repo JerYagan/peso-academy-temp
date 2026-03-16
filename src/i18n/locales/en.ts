@@ -230,6 +230,12 @@ export const en = {
       match: "Your password confirmation does not match.",
     },
   },
+  authCriteria: {
+    emailTitle: "Email requirements",
+    emailFormat: "Use a valid email address format, such as name@example.com.",
+    employeeDomainAllowed: "PESO Employee registration must use one of these allowed domains: {{domains}}.",
+    passwordTitle: "Password requirements",
+  },
   signup: {
     pageTitle: "Create your PESO Academy account",
     pageSubtitle:

@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { AlertCircle, CheckCircle2, Mail } from "lucide-react";
 import AuthPageShell from "@/components/auth/AuthPageShell";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import SecurityCriteriaPanel from "@/components/auth/SecurityCriteriaPanel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -34,6 +35,14 @@ const ForgotPassword = () => {
 
   const authProvider = useMemo(() => resolveAuthProvider(authUser), [authUser]);
   const passwordResetDisabled = Boolean(authUser && authProvider && authProvider !== "email");
+  const emailCriteriaItems = useMemo(
+    () => [{
+      id: "email-format",
+      label: t("authCriteria.emailFormat"),
+      met: email.trim() ? /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) : undefined,
+    }],
+    [email, t],
+  );
 
   useEffect(() => {
     if (authUser?.email) {
@@ -139,6 +148,7 @@ const ForgotPassword = () => {
             disabled={submitting || passwordResetDisabled}
             className="h-12 rounded-xl border-border/80 bg-muted/30 px-4"
           />
+          <SecurityCriteriaPanel title={t("authCriteria.emailTitle")} items={emailCriteriaItems} />
           <p className="text-xs text-muted-foreground dark:text-slate-300">{t("forgotPassword.emailHint")}</p>
         </div>
 

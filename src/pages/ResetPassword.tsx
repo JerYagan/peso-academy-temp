@@ -3,12 +3,13 @@ import { Link, useLocation } from "react-router-dom";
 import { AlertCircle, CheckCircle2, Loader2, ShieldAlert } from "lucide-react";
 import AuthPageShell from "@/components/auth/AuthPageShell";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import SecurityCriteriaPanel from "@/components/auth/SecurityCriteriaPanel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLocale } from "@/contexts/LocaleContext";
-import { isPasswordPolicySatisfied } from "@/lib/passwordPolicy";
+import { getPasswordRequirementChecks, isPasswordPolicySatisfied } from "@/lib/passwordPolicy";
 import { supabaseAuthService } from "@/services/supabaseAuthService";
 
 type ResetPasswordStatus = "checking" | "ready" | "invalid" | "provider" | "complete";
@@ -61,6 +62,14 @@ const ResetPassword = () => {
   const [submitting, setSubmitting] = useState(false);
 
   const authProvider = useMemo(() => resolveAuthProvider(authUser), [authUser]);
+  const passwordCriteriaItems = useMemo(
+    () => getPasswordRequirementChecks(password).map((requirement) => ({
+      id: requirement.id,
+      label: t(`signup.passwordRequirements.${requirement.id}`),
+      met: password ? requirement.met : undefined,
+    })),
+    [password, t],
+  );
 
   useEffect(() => {
     const evaluateRecoveryState = (recoveryEvent = false, providerOverride?: string | null) => {
@@ -246,6 +255,12 @@ const ResetPassword = () => {
                 className="h-12 rounded-xl border-border/80 bg-muted/30 px-4"
               />
             </div>
+
+            <SecurityCriteriaPanel
+              title={t("authCriteria.passwordTitle")}
+              items={passwordCriteriaItems}
+              columns={2}
+            />
 
             <p className="text-xs text-muted-foreground dark:text-slate-300">{t("resetPassword.passwordHint")}</p>
 

@@ -36,8 +36,8 @@ import { defaultRoleDisplayNames, getRoleDisplayName } from "@/lib/roles";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import { useNavigate } from "react-router-dom";
-import { supabaseAuthService } from "@/services/supabaseAuthService";
 import { roleService, DatabaseRole } from "@/services/roleService";
+import { adminUserService } from "@/services/adminUserService";
 import {
   PROFILE_FIELD_LIMITS,
   normalizePhoneNumber,
@@ -48,6 +48,7 @@ import {
   validateMaxLength,
   validatePhoneNumber,
 } from "@/lib/profileFieldValidation";
+import { PASSWORD_POLICY_ERROR_MESSAGE, isPasswordPolicySatisfied } from "@/lib/passwordPolicy";
 
 const SYSTEM_USER_ROLES: UserRole[] = ["trainee", "trainer", "admin"];
 const ROLE_CHANGE_ELIGIBLE_ROLES: UserRole[] = ["trainer", "admin"];
@@ -396,25 +397,35 @@ const AdminUsers = () => {
     }
   };
 
+  const appendCreatedUser = (createdUser: User) => {
+    setUsers((currentUsers) => {
+      const nextUsers = [createdUser, ...currentUsers.filter((user) => user.id !== createdUser.id)];
+      return nextUsers.filter((user) => user.email.toLowerCase() !== "zyrusinso@gmail.com");
+    });
+  };
+
   const handleCreateUser = async () => {
     if (!newUser.name || !newUser.email || !newUser.password) {
       toast.error("Please fill in all required fields");
       return;
     }
 
+    if (!isPasswordPolicySatisfied(newUser.password)) {
+      toast.error(PASSWORD_POLICY_ERROR_MESSAGE);
+      return;
+    }
+
     try {
       setCreating(true);
       const requestedRole = normalizeAdminRole(newUser.role as UserRole);
-      // Prevent redirect to new user's dashboard while admin session is being restored
-      if (typeof window !== "undefined") sessionStorage.setItem("admin_creating_user", "1");
       console.log("Starting user creation for:", newUser.email);
 
-      const result = await supabaseAuthService.signup(
-        newUser.email,
-        newUser.password,
-        newUser.name,
-        requestedRole
-      );
+      const result = await adminUserService.createUser({
+        email: newUser.email,
+        password: newUser.password,
+        name: newUser.name,
+        role: requestedRole,
+      });
 
       console.log("User creation result:", { 
         hasUser: !!result.user, 
@@ -431,16 +442,13 @@ const AdminUsers = () => {
         }
         const userMessage = result.error.message || "Failed to create user. Please try again.";
         toast.error(userMessage);
-        setCreating(false);
-        if (typeof window !== "undefined") sessionStorage.removeItem("admin_creating_user");
         return;
       }
 
       if (result.user) {
         console.log("User created successfully:", result.user.id);
         toast.success(`Account created successfully for ${newUser.name}. They can sign in with the email and password you provided.`);
-
-        await loadUsers();
+        appendCreatedUser(result.user);
 
         if (requestedRole === "trainer") {
           setNewUser({
@@ -458,24 +466,19 @@ const AdminUsers = () => {
             role: "trainee",
           });
         }
-
-        setCreating(false);
-        if (typeof window !== "undefined") sessionStorage.removeItem("admin_creating_user");
         return;
       }
 
       // Fallback: If no error but also no user, something unexpected happened
       console.warn("User creation returned no error but also no user:", result);
       toast.error("User creation completed but no user data was returned. Please refresh and check if the user was created.");
-      setCreating(false);
-      if (typeof window !== "undefined") sessionStorage.removeItem("admin_creating_user");
     } catch (error) {
       // Log full error to console only
       console.error("Error creating user:", error);
       if (error instanceof Error && error.stack) console.error("Stack:", error.stack);
       toast.error("Failed to create user. Please try again.");
+    } finally {
       setCreating(false);
-      if (typeof window !== "undefined") sessionStorage.removeItem("admin_creating_user");
     }
   };
 

@@ -230,6 +230,12 @@ export const tl = {
       match: "Hindi tugma ang kumpirmasyon ng password.",
     },
   },
+  authCriteria: {
+    emailTitle: "Mga kinakailangan sa email",
+    emailFormat: "Gumamit ng wastong email address format, gaya ng name@example.com.",
+    employeeDomainAllowed: "Ang PESO Employee registration ay dapat gumamit ng isa sa mga pinapayagang domain na ito: {{domains}}.",
+    passwordTitle: "Mga kinakailangan sa password",
+  },
   signup: {
     pageTitle: "Gumawa ng iyong PESO Academy account",
     pageSubtitle:

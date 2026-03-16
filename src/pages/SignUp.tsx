@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import SecurityCriteriaPanel from "@/components/auth/SecurityCriteriaPanel";
 import { useAuth } from "@/contexts/AuthContext";
 import { formatAllowedEmployeeDomains, isAllowedEmployeeRegistrationEmail } from "@/lib/employeeRegistration";
 import { TRAINEE_ONBOARDING_MODAL_PENDING_KEY } from "@/lib/onboarding";
@@ -64,6 +65,7 @@ const SignUp = () => {
   const [physicalIdPreviewUrl, setPhysicalIdPreviewUrl] = useState<string | null>(null);
   const [verificationEmailSentTo, setVerificationEmailSentTo] = useState("");
   const [verificationPendingTraineeType, setVerificationPendingTraineeType] = useState<User["traineeType"] | "">("");
+  const [suppressAuthenticatedSignupRedirect, setSuppressAuthenticatedSignupRedirect] = useState(false);
 
   const allowedDomainLabel = useMemo(
     () => formatAllowedEmployeeDomains(allowedEmployeeDomains),
@@ -92,6 +94,33 @@ const SignUp = () => {
     number: t("signup.passwordRequirements.number"),
     special: t("signup.passwordRequirements.special"),
   };
+  const emailCriteriaItems = useMemo(() => {
+    const trimmedEmail = formData.email.trim();
+    const employeeFlow = isEmployeeTrainee(formData);
+
+    return [
+      {
+        id: "email-format",
+        label: t("authCriteria.emailFormat"),
+        met: trimmedEmail ? isValidEmail(trimmedEmail) : undefined,
+      },
+      ...(employeeFlow
+        ? [{
+            id: "employee-domain",
+            label: t("authCriteria.employeeDomainAllowed", { domains: allowedDomainLabel }),
+            met: trimmedEmail ? isAllowedEmployeeRegistrationEmail(trimmedEmail, allowedEmployeeDomains) : undefined,
+          }]
+        : []),
+    ];
+  }, [allowedDomainLabel, allowedEmployeeDomains, formData, t]);
+  const passwordCriteriaItems = useMemo(
+    () => passwordRequirementChecks.map((requirement) => ({
+      id: requirement.id,
+      label: passwordRequirementLabels[requirement.id],
+      met: formData.password ? requirement.met : undefined,
+    })),
+    [formData.password, passwordRequirementChecks, passwordRequirementLabels],
+  );
 
   useEffect(() => {
     let active = true;
@@ -126,13 +155,17 @@ const SignUp = () => {
       return;
     }
 
+    if (suppressAuthenticatedSignupRedirect) {
+      return;
+    }
+
     if (redirectTo && redirectTo.startsWith("/")) {
       navigate(redirectTo, { replace: true });
       return;
     }
 
     navigate(getDashboardRoute(user.role as AppUserRole), { replace: true });
-  }, [authLoading, isAuthenticated, navigate, redirectTo, user]);
+  }, [authLoading, isAuthenticated, navigate, redirectTo, suppressAuthenticatedSignupRedirect, user]);
 
   const setField = <K extends keyof SignUpFormData>(field: K, value: SignUpFormData[K]) => {
     const nextValue = typeof value === "string"
@@ -232,6 +265,7 @@ const SignUp = () => {
       return;
     }
 
+    setSuppressAuthenticatedSignupRedirect(true);
     setLoading(true);
 
     try {
@@ -246,6 +280,7 @@ const SignUp = () => {
 
       if (result.error) {
         setError(typeof result.error === "string" ? result.error : t("signup.validation.signupFailed"));
+        setSuppressAuthenticatedSignupRedirect(false);
         return;
       }
 
@@ -254,11 +289,13 @@ const SignUp = () => {
         setVerificationPendingTraineeType(formData.traineeType || "peso_client");
         setPhysicalIdFile(null);
         setFormData(createInitialFormData());
+        setSuppressAuthenticatedSignupRedirect(false);
         return;
       }
 
       if (!result.user) {
         setError(t("signup.validation.signupFailed"));
+        setSuppressAuthenticatedSignupRedirect(false);
         return;
       }
 
@@ -278,6 +315,7 @@ const SignUp = () => {
     } catch (signupError) {
       console.error("Signup failed:", signupError);
       setError(signupError instanceof Error ? signupError.message : t("signup.validation.signupUnexpected"));
+      setSuppressAuthenticatedSignupRedirect(false);
     } finally {
       setLoading(false);
     }
@@ -412,9 +450,10 @@ const SignUp = () => {
                     required
                   />
                 </div>
-                {isEmployeeTrainee(formData) ? (
-                  <p className="text-xs text-muted-foreground dark:text-slate-300">{t("signup.employeeDomainHint", { domains: allowedDomainLabel })}</p>
-                ) : null}
+                <SecurityCriteriaPanel
+                  title={t("authCriteria.emailTitle")}
+                  items={emailCriteriaItems}
+                />
               </div>
 
               <div className="space-y-2">
@@ -456,20 +495,12 @@ const SignUp = () => {
                       />
                     ))}
                   </div>
-                  <div className="grid gap-2 text-xs text-muted-foreground sm:grid-cols-2">
-                    {passwordRequirementChecks.map((requirement) => (
-                      <div
-                        key={requirement.id}
-                        className={cn(
-                          "flex items-center gap-2 rounded-lg px-2 py-1 transition-colors",
-                          requirement.met ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300" : "bg-muted/40",
-                        )}
-                      >
-                        <span className={cn("h-2 w-2 rounded-full", requirement.met ? "bg-emerald-500" : "bg-muted-foreground/50")} />
-                        <span>{passwordRequirementLabels[requirement.id]}</span>
-                      </div>
-                    ))}
-                  </div>
+                  <SecurityCriteriaPanel
+                    title={t("authCriteria.passwordTitle")}
+                    items={passwordCriteriaItems}
+                    columns={2}
+                    className="border-0 bg-transparent p-0"
+                  />
                 </div>
               </div>
 
