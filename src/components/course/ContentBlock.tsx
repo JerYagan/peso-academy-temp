@@ -5,10 +5,12 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import { Switch } from "@/components/ui/switch";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { X, GripVertical, Type, Code, Video, FileQuestion, Plus, ImageIcon, FileText, Link2, Upload } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { RichTextEditor } from "@/components/course/RichTextEditor";
 import {
   TRUE_FALSE_QUIZ_OPTIONS,
   type ContentBlock,
@@ -135,12 +137,14 @@ export const ContentBlockComponent = ({
             </div>
             <div className="space-y-2">
               <Label>Content Body</Label>
-              <Textarea
-                value={block.content}
-                onChange={(e) => handleUpdate({ content: e.target.value })}
-                placeholder="Write your content here..."
-                rows={6}
+              <RichTextEditor
+                content={block.content}
+                onChange={(content) => handleUpdate({ content })}
+                placeholder="Write your content here. Use headings, spacing, bold, italic, underline, and links as needed."
               />
+              <p className="text-xs text-muted-foreground">
+                Supports headings, paragraph spacing, bullet lists, numbered lists, bold, italic, underline, and links.
+              </p>
             </div>
           </div>
         );
@@ -180,6 +184,32 @@ export const ContentBlockComponent = ({
               />
             </div>
             {renderUrlUploadField("Document URL or Upload", "documentUrl", block.documentUrl, ".pdf,.doc,.docx,.ppt,.pptx", "https://example.com/document.pdf")}
+            <div className="flex items-center justify-between rounded-lg border p-3">
+              <div className="space-y-1">
+                <Label htmlFor={`${block.id}-learner-upload`} className="text-sm font-medium">
+                  Allow learners to upload their own file
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  Reuses the assignment submission flow so uploaded files can still be reviewed later.
+                </p>
+              </div>
+              <Switch
+                id={`${block.id}-learner-upload`}
+                checked={Boolean(block.allowLearnerUpload)}
+                onCheckedChange={(checked) => handleUpdate({ allowLearnerUpload: checked })}
+              />
+            </div>
+            {block.allowLearnerUpload && (
+              <div className="space-y-2">
+                <Label>Learner Upload Instructions (optional)</Label>
+                <Textarea
+                  value={block.learnerUploadInstructions || ""}
+                  onChange={(e) => handleUpdate({ learnerUploadInstructions: e.target.value })}
+                  placeholder="Tell learners what file to upload, required format, or any naming instructions."
+                  rows={3}
+                />
+              </div>
+            )}
           </div>
         );
 
@@ -299,9 +329,26 @@ export const ContentBlockComponent = ({
                 rows={3}
               />
             </div>
+            <div className="space-y-2">
+              <Label>Practice Quiz Points</Label>
+              <Input
+                type="number"
+                min={1}
+                step={1}
+                value={String(block.points || 1)}
+                onChange={(e) => {
+                  const parsedPoints = Number.parseInt(e.target.value, 10);
+                  handleUpdate({ points: Number.isFinite(parsedPoints) && parsedPoints > 0 ? parsedPoints : 1 });
+                }}
+                placeholder="1"
+              />
+              <p className="text-xs text-muted-foreground">
+                Used only for the learner&apos;s practice quiz score summary. It does not affect graded assessments or completion.
+              </p>
+            </div>
             {block.questionType === "essay" ? (
               <div className="rounded-lg border border-dashed px-4 py-3 text-sm text-muted-foreground">
-                Learners will answer this question in a long-form text area. Scoring and feedback are handled through the trainer review workflow.
+                Essay responses are reviewed separately from graded assessments. Trainers and admins can leave formative feedback from the learner progress pages, while automatic practice scoring still excludes essay prompts.
               </div>
             ) : (
               <div className="space-y-2">

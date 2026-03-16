@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import DashboardLayout from "@/components/DashboardLayout";
 import { Button } from "@/components/ui/button";
@@ -95,6 +95,22 @@ const DEFAULT_ASSESSMENT_CONFIG = {
 };
 
 const createAssessmentDraftId = () => `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+const MODULE_EDITOR_AUTOSAVE_DELAY_MS = 1500;
+
+type ModuleEditorDraftSnapshot = {
+  formData: {
+    title: string;
+    description: string;
+    materials: string[];
+    prerequisites: string[];
+    skillTags: string[];
+    topicTags: string[];
+    module_thumbnail: string;
+    module_document: string;
+  };
+  contentBlocks: ContentBlock[];
+  updatedAt: string;
+};
 
 const createEmptyAssessmentQuestion = (): AssessmentQuestionDraft => ({
   localId: createAssessmentDraftId(),
@@ -213,9 +229,15 @@ const ModuleEditorPage = () => {
   const [editingModule, setEditingModule] = useState<Module | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [autosaveState, setAutosaveState] = useState<"idle" | "local" | "pending" | "saving" | "saved" | "error">("idle");
+  const [autosaveMessage, setAutosaveMessage] = useState<string>("");
   const [activeTab, setActiveTab] = useState<EditorTab>("content");
   const [uploadingAssetKey, setUploadingAssetKey] = useState<string | null>(null);
   const [newMaterial, setNewMaterial] = useState("");
+  const autosaveTimerRef = useRef<number | null>(null);
+  const autosaveHydratedRef = useRef(false);
+  const latestSavedSignatureRef = useRef("");
+  const editingModuleRef = useRef<Module | null>(null);
 
   const [formData, setFormData] = useState({
     title: "",
@@ -233,6 +255,14 @@ const ModuleEditorPage = () => {
   const inheritedSkillOptions = useMemo(() => normalizeSkillTags(course?.skills || []), [course?.skills]);
   const inheritedTopicOptions = useMemo(() => normalizeTopicTags(course?.topicTags || []), [course?.topicTags]);
   const importedPracticeQuestions = useMemo(() => importPracticeQuizQuestions(contentBlocks), [contentBlocks]);
+  const localDraftStorageKey = useMemo(
+    () => (!moduleId && courseId ? `module-editor-draft:${courseId}:new` : null),
+    [courseId, moduleId],
+  );
+
+  useEffect(() => {
+    editingModuleRef.current = editingModule;
+  }, [editingModule]);
 
   const loadCourseAssessments = useCallback(async (targetCourseId: string) => {
     try {
@@ -254,6 +284,13 @@ const ModuleEditorPage = () => {
   }, []);
 
   const loadEditor = useCallback(async () => {
+    autosaveHydratedRef.current = false;
+    latestSavedSignatureRef.current = "";
+    if (autosaveTimerRef.current) {
+      window.clearTimeout(autosaveTimerRef.current);
+      autosaveTimerRef.current = null;
+    }
+
     if (!courseId) {
       setCourse(null);
       setModules([]);
@@ -279,18 +316,39 @@ const ModuleEditorPage = () => {
       setModules(moduleList);
 
       if (!moduleId) {
+        let restoredDraftSnapshot: ModuleEditorDraftSnapshot | null = null;
+
+        if (localDraftStorageKey && typeof window !== "undefined") {
+          const rawDraft = window.localStorage.getItem(localDraftStorageKey);
+          if (rawDraft) {
+            try {
+              restoredDraftSnapshot = JSON.parse(rawDraft) as ModuleEditorDraftSnapshot;
+            } catch (error) {
+              console.warn("Failed to parse module editor draft snapshot:", error);
+              window.localStorage.removeItem(localDraftStorageKey);
+            }
+          }
+        }
+
         setEditingModule(null);
         setFormData({
-          title: "",
-          description: "",
-          materials: [],
-          prerequisites: [],
-          skillTags: normalizeSkillTags(courseData.skills || []),
-          topicTags: normalizeTopicTags(courseData.topicTags || []),
-          module_thumbnail: "",
-          module_document: "",
+          title: restoredDraftSnapshot?.formData.title || "",
+          description: restoredDraftSnapshot?.formData.description || "",
+          materials: restoredDraftSnapshot?.formData.materials || [],
+          prerequisites: restoredDraftSnapshot?.formData.prerequisites || [],
+          skillTags: restoredDraftSnapshot?.formData.skillTags || normalizeSkillTags(courseData.skills || []),
+          topicTags: restoredDraftSnapshot?.formData.topicTags || normalizeTopicTags(courseData.topicTags || []),
+          module_thumbnail: restoredDraftSnapshot?.formData.module_thumbnail || "",
+          module_document: restoredDraftSnapshot?.formData.module_document || "",
         });
-        setContentBlocks([]);
+        setContentBlocks(restoredDraftSnapshot?.contentBlocks || []);
+        if (restoredDraftSnapshot) {
+          setAutosaveState("local");
+          setAutosaveMessage("Recovered unsaved local draft.");
+        } else {
+          setAutosaveState("idle");
+          setAutosaveMessage("");
+        }
         return;
       }
 
@@ -314,6 +372,8 @@ const ModuleEditorPage = () => {
         module_document: targetModule.module_document || "",
       });
       setContentBlocks(parseModuleContentBlocks(targetModule.content));
+      setAutosaveState("idle");
+      setAutosaveMessage("");
     } catch (error) {
       console.error("Error loading module editor:", error);
       toast.error("Failed to load module editor");
@@ -394,6 +454,29 @@ const ModuleEditorPage = () => {
     status: editingModule?.status || "draft",
   }), [contentBlocks, courseId, editingModule, formData, modules.length]);
 
+  const buildModulePayload = useCallback(
+    (status: "draft" | "finalized") => ({
+      course_id: courseId || "",
+      title: formData.title.trim(),
+      description: formData.description.trim(),
+      order: editingModuleRef.current?.order || (modules.length > 0 ? Math.max(...modules.map((module) => module.order)) + 1 : 1),
+      content: JSON.stringify(contentBlocks),
+      materials: formData.materials,
+      prerequisites: formData.prerequisites,
+      skillTags: formData.skillTags,
+      topicTags: formData.topicTags,
+      module_thumbnail: formData.module_thumbnail || undefined,
+      module_document: formData.module_document || undefined,
+      status,
+    }),
+    [contentBlocks, courseId, formData, modules],
+  );
+
+  const getPayloadSignature = useCallback(
+    (status: "draft" | "finalized") => JSON.stringify(buildModulePayload(status)),
+    [buildModulePayload],
+  );
+
   const addMaterial = () => {
     if (!newMaterial.trim() || formData.materials.includes(newMaterial.trim())) return;
     setFormData((current) => ({ ...current, materials: [...current.materials, newMaterial.trim()] }));
@@ -404,53 +487,147 @@ const ModuleEditorPage = () => {
     setFormData((current) => ({ ...current, materials: current.materials.filter((item) => item !== material) }));
   };
 
-  const handleSaveModule = async (status: "draft" | "finalized") => {
-    if (!courseId) return;
-    if (!formData.title.trim() || !formData.description.trim()) {
+  const persistModule = useCallback(async (
+    status: "draft" | "finalized",
+    options?: { manual?: boolean; autosave?: boolean },
+  ) => {
+    if (!courseId) {
+      return null;
+    }
+
+    const isManual = Boolean(options?.manual);
+    const isAutosave = Boolean(options?.autosave);
+
+    if (isManual && (!formData.title.trim() || !formData.description.trim())) {
       toast.error("Title and description are required");
-      return;
+      return null;
     }
-    if (formData.skillTags.length === 0 || formData.topicTags.length === 0) {
+
+    if (isManual && (formData.skillTags.length === 0 || formData.topicTags.length === 0)) {
       toast.error("Modules must include at least one approved skill tag and one approved topic tag");
-      return;
+      return null;
     }
 
-    setSaving(true);
-    try {
-      const payload = {
-        course_id: courseId,
-        title: formData.title.trim(),
-        description: formData.description.trim(),
-        order: editingModule?.order || (modules.length > 0 ? Math.max(...modules.map((module) => module.order)) + 1 : 1),
-        content: JSON.stringify(contentBlocks),
-        materials: formData.materials,
-        prerequisites: formData.prerequisites,
-        skillTags: formData.skillTags,
-        topicTags: formData.topicTags,
-        module_thumbnail: formData.module_thumbnail || undefined,
-        module_document: formData.module_document || undefined,
-        status,
-      };
+    if (isAutosave && !editingModuleRef.current && (!formData.title.trim() || !formData.description.trim())) {
+      setAutosaveState("local");
+      setAutosaveMessage("Local draft saved. Add a title and description to enable draft autosave.");
+      return null;
+    }
 
-      if (editingModule) {
-        const updatedModule = await moduleService.updateModule(editingModule.id, payload);
-        setEditingModule(updatedModule);
-        setModules((current) => current.map((module) => (module.id === updatedModule.id ? updatedModule : module)));
+    if (isManual) {
+      setSaving(true);
+    }
+
+    if (isAutosave) {
+      setAutosaveState("saving");
+      setAutosaveMessage("Saving draft...");
+    }
+
+    try {
+      const payload = buildModulePayload(status);
+      let savedModule: Module;
+
+      if (editingModuleRef.current) {
+        savedModule = await moduleService.updateModule(editingModuleRef.current.id, payload);
+        setEditingModule(savedModule);
+        setModules((current) => current.map((module) => (module.id === savedModule.id ? savedModule : module)));
       } else {
-        const createdModule = await moduleService.createModule(payload as Omit<Module, "id" | "created_at">);
-        setEditingModule(createdModule);
-        setModules((current) => [...current, createdModule].sort((left, right) => left.order - right.order));
-        navigate(`${basePath}/${courseId}/modules/${createdModule.id}/edit`, { replace: true });
+        savedModule = await moduleService.createModule(payload as Omit<Module, "id" | "created_at">);
+        setEditingModule(savedModule);
+        setModules((current) => [...current, savedModule].sort((left, right) => left.order - right.order));
+        navigate(`${basePath}/${courseId}/modules/${savedModule.id}/edit`, { replace: true });
       }
 
-      toast.success(status === "finalized" ? "Module saved" : "Module draft saved");
+      editingModuleRef.current = savedModule;
+      latestSavedSignatureRef.current = getPayloadSignature(status);
+
+      if (localDraftStorageKey && typeof window !== "undefined") {
+        window.localStorage.removeItem(localDraftStorageKey);
+      }
+
+      if (isAutosave) {
+        setAutosaveState("saved");
+        setAutosaveMessage("Draft saved automatically.");
+      }
+
+      if (isManual) {
+        toast.success(status === "finalized" ? "Module saved" : "Module draft saved");
+      }
+
+      return savedModule;
     } catch (error) {
       console.error("Error saving module:", error);
-      toast.error(editingModule ? "Failed to update module" : "Failed to create module");
+      if (isAutosave) {
+        setAutosaveState("error");
+        setAutosaveMessage("Autosave failed. Your changes are still in the editor.");
+      } else {
+        toast.error(editingModuleRef.current ? "Failed to update module" : "Failed to create module");
+      }
+      return null;
     } finally {
-      setSaving(false);
+      if (isManual) {
+        setSaving(false);
+      }
     }
+  }, [basePath, buildModulePayload, courseId, formData.description, formData.skillTags.length, formData.title, formData.topicTags.length, getPayloadSignature, localDraftStorageKey, navigate]);
+
+  const handleSaveModule = async (status: "draft" | "finalized") => {
+    await persistModule(status, { manual: true });
   };
+
+  useEffect(() => {
+    if (!localDraftStorageKey || typeof window === "undefined") {
+      return;
+    }
+
+    const snapshot: ModuleEditorDraftSnapshot = {
+      formData,
+      contentBlocks,
+      updatedAt: new Date().toISOString(),
+    };
+
+    window.localStorage.setItem(localDraftStorageKey, JSON.stringify(snapshot));
+  }, [contentBlocks, formData, localDraftStorageKey]);
+
+  useEffect(() => {
+    if (!courseId || loading) {
+      return;
+    }
+
+    const autosaveStatus = editingModuleRef.current?.status === "finalized" ? "finalized" : "draft";
+    const draftSignature = getPayloadSignature(autosaveStatus);
+
+    if (!autosaveHydratedRef.current) {
+      autosaveHydratedRef.current = true;
+      latestSavedSignatureRef.current = editingModuleRef.current ? draftSignature : "";
+      return;
+    }
+
+    if (draftSignature === latestSavedSignatureRef.current) {
+      return;
+    }
+
+    if (autosaveTimerRef.current) {
+      window.clearTimeout(autosaveTimerRef.current);
+    }
+
+    setAutosaveState(editingModuleRef.current || formData.title.trim() || formData.description.trim() ? "pending" : "local");
+    setAutosaveMessage(
+      editingModuleRef.current || formData.title.trim() || formData.description.trim()
+        ? "Unsaved changes. Autosave will run shortly."
+        : "Local draft saved. Add a title and description to enable draft autosave.",
+    );
+
+    autosaveTimerRef.current = window.setTimeout(() => {
+      void persistModule(autosaveStatus, { autosave: true });
+    }, MODULE_EDITOR_AUTOSAVE_DELAY_MS);
+
+    return () => {
+      if (autosaveTimerRef.current) {
+        window.clearTimeout(autosaveTimerRef.current);
+      }
+    };
+  }, [contentBlocks, courseId, editingModule, formData, getPayloadSignature, loading, persistModule]);
 
   const updateAssessmentDraft = (localId: string, updates: Partial<CourseAssessmentDraft>) => {
     setCourseAssessments((current) => current.map((assessment) => (
@@ -565,6 +742,14 @@ const ModuleEditorPage = () => {
             <div>
               <h1 className="text-3xl font-bold">{isEditing ? "Edit Module" : "Create Module"}</h1>
               <p className="mt-1 text-muted-foreground">{course.title}</p>
+              {autosaveMessage ? (
+                <p className={`mt-2 text-sm ${autosaveState === "error" ? "text-destructive" : "text-muted-foreground"}`}>
+                  {autosaveState === "saving" || autosaveState === "pending" ? (
+                    <Loader2 className="mr-2 inline h-3.5 w-3.5 animate-spin" />
+                  ) : null}
+                  {autosaveMessage}
+                </p>
+              ) : null}
             </div>
           </div>
 

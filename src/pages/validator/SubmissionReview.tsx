@@ -37,7 +37,7 @@ import { validatorService } from "@/services/validatorService";
 import { Submission, Validation } from "@/types";
 import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
-import { supabase } from "@/lib/supabase";
+import { createSubmissionAccessUrl, downloadSubmissionFile, getSubmissionAttachmentName } from "@/lib/submissionFiles";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 
 const SubmissionReview = () => {
@@ -167,23 +167,26 @@ const SubmissionReview = () => {
     if (!submission?.file_path) return;
 
     try {
-      const { data, error } = await supabase.storage
-        .from("submissions")
-        .download(submission.file_path);
-
-      if (error) throw error;
-
-      const url = URL.createObjectURL(data);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = submission.file_path.split("/").pop() || "submission";
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      URL.revokeObjectURL(url);
+      await downloadSubmissionFile(submission.file_path, getSubmissionAttachmentName(submission.file_path));
     } catch (error) {
       console.error("Error downloading file:", error);
       toast.error("Failed to download file");
+    }
+  };
+
+  const viewFile = async () => {
+    if (!submission?.file_path) return;
+
+    try {
+      const accessUrl = await createSubmissionAccessUrl(submission.file_path);
+      if (!accessUrl) {
+        throw new Error("No file access URL available.");
+      }
+
+      window.open(accessUrl, "_blank", "noopener,noreferrer");
+    } catch (error) {
+      console.error("Error opening file:", error);
+      toast.error("Failed to open file");
     }
   };
 
@@ -323,7 +326,10 @@ const SubmissionReview = () => {
                       <Label className="text-muted-foreground">Attached File</Label>
                       <div className="flex items-center gap-2 mt-2">
                         <FileText className="w-4 h-4 text-muted-foreground" />
-                        <span className="text-sm">{submission.file_path.split("/").pop()}</span>
+                        <span className="text-sm">{getSubmissionAttachmentName(submission.file_path)}</span>
+                        <Button variant="outline" size="sm" onClick={viewFile}>
+                          View
+                        </Button>
                         <Button variant="outline" size="sm" onClick={downloadFile}>
                           <Download className="w-4 h-4 mr-1" />
                           Download

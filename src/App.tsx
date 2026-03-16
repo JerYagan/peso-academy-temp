@@ -40,6 +40,7 @@ import TaxonomyManagement from "@/pages/TaxonomyManagement";
 import TraineeVerification from "@/pages/TraineeVerification";
 import ProgressDashboard from "./pages/ProgressDashboard";
 import AssessmentReviewPage from "./pages/AssessmentReviewPage";
+import PracticeQuizModuleReviewPage from "./pages/PracticeQuizModuleReviewPage";
 import NotFound from "./pages/NotFound";
 import StaffCertificatesPage from "./pages/StaffCertificatesPage";
 import { initializeMockData } from "@/services/mockData";
@@ -284,6 +285,14 @@ const App = () => (
               }
             />
             <Route
+              path="/admin/module-reviews/:enrollmentId/:moduleId"
+              element={
+                <ProtectedRoute allowedRoles={["admin"]}>
+                  <PracticeQuizModuleReviewPage portal="admin" />
+                </ProtectedRoute>
+              }
+            />
+            <Route
               path="/admin/reports"
               element={
                 <ProtectedRoute allowedRoles={["admin"]}>
@@ -346,6 +355,14 @@ const App = () => (
               element={
                 <ProtectedRoute allowedRoles={["trainer", "admin"]}>
                   <AssessmentReviewPage portal="trainer" />
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/trainer/module-reviews/:enrollmentId/:moduleId"
+              element={
+                <ProtectedRoute allowedRoles={["trainer", "admin"]}>
+                  <PracticeQuizModuleReviewPage portal="trainer" />
                 </ProtectedRoute>
               }
             />

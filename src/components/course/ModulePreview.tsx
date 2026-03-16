@@ -96,7 +96,7 @@ export const ModulePreview = ({ module, allModules = [] }: ModulePreviewProps) =
                     <div className="space-y-2">
                       {block.title && <h3 className="text-lg font-semibold">{block.title}</h3>}
                       <div
-                        className="prose prose-sm max-w-none"
+                        className="prose prose-sm max-w-none prose-p:my-4 prose-p:leading-7 prose-ul:my-4 prose-ul:list-disc prose-ul:pl-6 prose-ol:my-4 prose-ol:list-decimal prose-ol:pl-6 prose-li:my-1 [&_ul_ul]:my-2 [&_ul_ul]:list-[circle] [&_ul_ul]:pl-6 [&_ol_ol]:my-2 [&_ol_ol]:list-[lower-alpha] [&_ol_ol]:pl-6 [&_ol_ul]:my-2 [&_ol_ul]:list-disc [&_ol_ul]:pl-6 [&_ul_ol]:my-2 [&_ul_ol]:list-decimal [&_ul_ol]:pl-6 [&_p:empty]:block [&_p:empty]:h-6"
                         dangerouslySetInnerHTML={{ __html: block.content }}
                       />
                     </div>
@@ -142,6 +142,19 @@ export const ModulePreview = ({ module, allModules = [] }: ModulePreviewProps) =
                     <div className="space-y-2">
                       {block.title && <h3 className="font-semibold">{block.title}</h3>}
                       <DocumentViewer url={block.documentUrl} title={block.title || "Document"} />
+                      {block.allowLearnerUpload && (
+                        <div className="rounded-lg border border-dashed p-3 text-sm text-muted-foreground">
+                          Learners can also upload their own file for this document block.
+                          {block.learnerUploadInstructions?.trim() ? ` ${block.learnerUploadInstructions.trim()}` : ""}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {block.type === "document" && !block.documentUrl && block.allowLearnerUpload && (
+                    <div className="rounded-lg border border-dashed p-3 text-sm text-muted-foreground">
+                      Learners can upload their own file for this document block.
+                      {block.learnerUploadInstructions?.trim() ? ` ${block.learnerUploadInstructions.trim()}` : ""}
                     </div>
                   )}
 
@@ -173,7 +186,7 @@ export const ModulePreview = ({ module, allModules = [] }: ModulePreviewProps) =
                       </div>
                       {block.questionType === "essay" ? (
                         <div className="rounded-lg border border-dashed p-3 text-sm text-muted-foreground">
-                          Learners will answer this prompt in a long-form response area during assessment.
+                          Learners can type a long-form response here in practice mode. Trainers and admins review these essay responses separately from graded assessments and leave formative feedback only.
                         </div>
                       ) : (
                         <div className="space-y-2">

@@ -65,11 +65,48 @@ export interface Enrollment {
   lastActivityAt?: string;
 }
 
+export interface PracticeQuizCompletionSummary {
+  totalQuestions: number;
+  scoredQuestions: number;
+  submittedQuestions: number;
+  correctQuestions: number;
+  totalPoints: number;
+  earnedPoints: number;
+  percentageScore: number | null;
+  essayQuestionCount: number;
+  essayAnsweredCount: number;
+  updatedAt: string;
+}
+
+export interface PracticeQuizCompletionEssayResponseSnapshot {
+  blockId: string;
+  responseId?: string;
+  responseText: string;
+  updatedAt?: string;
+}
+
+export interface PracticeQuizCompletionSnapshot {
+  summary: PracticeQuizCompletionSummary;
+  selections: Record<string, string>;
+  submittedAnswers: Record<string, string>;
+  essayResponses: PracticeQuizCompletionEssayResponseSnapshot[];
+  completedAt: string;
+}
+
+export interface PracticeQuizDraftSnapshot {
+  summary: PracticeQuizCompletionSummary;
+  selections: Record<string, string>;
+  submittedAnswers: Record<string, string>;
+  essayResponses: PracticeQuizCompletionEssayResponseSnapshot[];
+  updatedAt: string;
+}
+
 export interface EnrollmentModuleProgress {
   module: Module;
   completed: boolean;
   completedAt?: string;
   timeSpent?: number;
+  practiceQuizSnapshot?: PracticeQuizCompletionSnapshot;
   blockedByModuleIds: string[];
 }
 
@@ -143,22 +180,46 @@ export interface Certificate {
 export interface Submission {
   id: string;
   enrollment_id: string;
+  module_id?: string;
   course_id: string | null; // Retrieved through enrollment relationship
   user_id: string;
   submission_type: "completion" | "assignment" | "assessment";
   title: string;
   description?: string;
   content: Record<string, any>;
-  attachments: Array<{ url: string; name: string; type?: string }>;
+  attachments: Array<{ url: string; name: string; type?: string; path?: string; size?: number | null }>;
   status: "pending" | "under_review" | "approved" | "rejected" | "revision_requested";
   priority: "low" | "normal" | "high" | "urgent";
   submitted_at: string;
   created_at: string;
   updated_at: string;
+  file_path?: string | null;
   // Joined data
   user_name?: string;
   user_email?: string;
   course_title?: string;
+}
+
+export interface PracticeQuizEssayResponse {
+  id: string;
+  enrollment_id: string;
+  course_id: string;
+  module_id: string;
+  user_id: string;
+  block_id: string;
+  prompt_title?: string | null;
+  prompt_text: string;
+  guidance_text?: string | null;
+  response_text: string;
+  submitted_at: string;
+  created_at: string;
+  updated_at: string;
+  review_feedback?: string | null;
+  review_score_points?: number | null;
+  reviewed_at?: string | null;
+  reviewed_by?: string | null;
+  reviewer_name?: string | null;
+  reviewer_email?: string | null;
 }
 
 export interface Validation {

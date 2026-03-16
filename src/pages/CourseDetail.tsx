@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useNavigate, Link, useSearchParams, useLocation } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLocale } from "@/contexts/LocaleContext";
@@ -8,7 +8,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import {
   Dialog,
@@ -57,14 +56,17 @@ import {
   moduleService,
   moduleCompletionService,
 } from "@/services/supabaseDatabaseService";
-import AssessmentInterface from "@/components/course/AssessmentInterface";
+import { moduleSessionService } from "@/services/moduleSessionService";
 import { Course, Module, Enrollment, EnrollmentAssessmentProgress, EnrollmentProgressDetail } from "@/types";
 import { toast } from "sonner";
-import ModuleContentViewer from "@/components/course/ModuleContentViewer";
-import DocumentViewer from "@/components/course/DocumentViewer";
 import CourseMaterialImage from "@/components/course/CourseMaterialImage";
 
+const AssessmentInterface = lazy(() => import("@/components/course/AssessmentInterface"));
+const ModuleContentViewer = lazy(() => import("@/components/course/ModuleContentViewer"));
+const DocumentViewer = lazy(() => import("@/components/course/DocumentViewer"));
+
 const COURSE_PREVIEW_STORAGE_PREFIX = "peso-course-preview:";
+const COURSE_RESUME_STORAGE_PREFIX = "peso-course-resume:";
 
 const buildSidebarFallbackLabel = (title: string, fallback: string) => {
   const words = title
@@ -80,56 +82,217 @@ const buildSidebarFallbackLabel = (title: string, fallback: string) => {
   return words.map((word) => word[0]?.toUpperCase() || "").join("") || fallback;
 };
 
-const CourseDetail = () => {
-  const { id } = useParams<{ id: string }>();
-  const navigate = useNavigate();
-  const location = useLocation();
-  const [searchParams] = useSearchParams();
-  const { user } = useAuth();
-  const { language } = useLocale();
-  const [course, setCourse] = useState<Course | null>(null);
-  const [modules, setModules] = useState<Module[]>([]);
-  const [enrollment, setEnrollment] = useState<Enrollment | null>(null);
-  const [progressDetail, setProgressDetail] = useState<EnrollmentProgressDetail | null>(null);
-  const [selectedModule, setSelectedModule] = useState<Module | null>(null);
-  const [loadingSelectedModuleId, setLoadingSelectedModuleId] = useState<string | null>(null);
-  const [completedModuleIds, setCompletedModuleIds] = useState<string[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [enrolling, setEnrolling] = useState(false);
-  const [showCompletionDialog, setShowCompletionDialog] = useState(false);
-  const [showUnenrollConfirm, setShowUnenrollConfirm] = useState(false);
-  const [unenrolling, setUnenrolling] = useState(false);
-  const [practiceQuizState, setPracticeQuizState] = useState<{ canRetry: boolean; retry: (() => void) | null }>({ canRetry: false, retry: null });
-  const [activeAssessmentId, setActiveAssessmentId] = useState<string | null>(null);
-  const [enrollmentRecovery, setEnrollmentRecovery] = useState<ReturnType<typeof getEnrollmentErrorFeedback> | null>(null);
-  const previewKey = searchParams.get("previewKey");
-  const isPreviewMode = Boolean(searchParams.get("preview") && previewKey);
-  const previewEnrollmentId = `preview-enrollment-${id || "course"}`;
-  const locationState = location.state as { entrySource?: string; moduleId?: string } | null;
-  const moduleRequestSequenceRef = useRef(0);
-  const modulesListRef = useRef<HTMLDivElement | null>(null);
+const CoursePanelLoadingState = ({ label }: { label: string }) => (
+  <Card>
+    <CardContent className="flex min-h-[240px] items-center justify-center">
+      <div className="text-center">
+        <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-b-2 border-primary"></div>
+        <p className="text-sm text-muted-foreground">{label}</p>
+      </div>
+    </CardContent>
+  </Card>
+);
 
-  const moduleEntrySource = (() => {
-    if (typeof locationState?.entrySource === "string" && locationState.entrySource.trim()) {
-      return locationState.entrySource;
-    }
+const areStringArraysEqual = (left: string[] = [], right: string[] = []) => {
+  if (left.length !== right.length) {
+    return false;
+  }
 
-    if (isPreviewMode) {
-      return "course_preview";
-    }
+  return left.every((value, index) => value === right[index]);
+};
 
-    return "course_detail";
-  })();
+const mergeSelectedModuleState = (nextModule: Module | null, currentModule: Module | null): Module | null => {
+  if (!nextModule || !currentModule || nextModule.id !== currentModule.id) {
+    return nextModule;
+  }
 
-  const requestedModuleId =
-    typeof locationState?.moduleId === "string" && locationState.moduleId.trim()
-      ? locationState.moduleId
-      : null;
-  const verificationBlocked = isTraineeEnrollmentBlocked(user);
-  const verificationFeedback = verificationBlocked
-    ? getTraineeEnrollmentVerificationFeedback(user?.verificationStatus, course?.title)
-    : null;
-  const copy = language === "tl"
+  const mergedModule: Module = {
+    ...currentModule,
+    ...nextModule,
+    content: currentModule.content ?? nextModule.content,
+    module_document: currentModule.module_document ?? nextModule.module_document,
+    module_thumbnail: currentModule.module_thumbnail ?? nextModule.module_thumbnail,
+  };
+
+  if (
+    mergedModule.title === currentModule.title
+    && mergedModule.description === currentModule.description
+    && mergedModule.order === currentModule.order
+    && mergedModule.status === currentModule.status
+    && mergedModule.created_at === currentModule.created_at
+    && mergedModule.updated_at === currentModule.updated_at
+    && mergedModule.content === currentModule.content
+    && mergedModule.module_document === currentModule.module_document
+    && mergedModule.module_thumbnail === currentModule.module_thumbnail
+    && areStringArraysEqual(mergedModule.materials, currentModule.materials)
+    && areStringArraysEqual(mergedModule.prerequisites, currentModule.prerequisites)
+  ) {
+    return currentModule;
+  }
+
+  return mergedModule;
+};
+
+const mergeModuleListState = (nextModules: Module[], currentModules: Module[]) => {
+  const currentModuleMap = new Map(currentModules.map((module) => [module.id, module]));
+
+  return nextModules.map((module) => mergeSelectedModuleState(module, currentModuleMap.get(module.id) || null) || module);
+};
+
+const SelectedModulePanel = memo(({
+  selectedModule,
+  loadingSelectedModuleId,
+  enrollment,
+  isPreviewMode,
+  moduleEntrySource,
+  onComplete,
+  onPracticeQuizStateChange,
+  onCompletionActionStateChange,
+  isModuleCompleted,
+  courseDocument,
+  courseTitle,
+  copy,
+  shouldShowCompletionAction,
+  moduleCompletionAction,
+  nextAccessibleModule,
+  onBackToModules,
+  onSelectNextModule,
+  practiceQuizState,
+}: {
+  selectedModule: Module;
+  loadingSelectedModuleId: string | null;
+  enrollment: Pick<Enrollment, "id" | "courseId">;
+  isPreviewMode: boolean;
+  moduleEntrySource: string;
+  onComplete: (timeSpentMinutes?: number, options?: { silent?: boolean; practiceQuizSnapshot?: import("@/types").PracticeQuizCompletionSnapshot }) => void | Promise<void>;
+  onPracticeQuizStateChange: (state: { canRetry: boolean; retry: (() => void) | null }) => void;
+  onCompletionActionStateChange: (state: {
+    canComplete: boolean;
+    isCompleting: boolean;
+    complete: (() => void) | null;
+    blockedReason?: string | null;
+  }) => void;
+  isModuleCompleted: (moduleId: string) => boolean;
+  courseDocument?: string;
+  courseTitle: string;
+  copy: ReturnType<typeof buildCourseDetailCopy>;
+  shouldShowCompletionAction: boolean;
+  moduleCompletionAction: {
+    canComplete: boolean;
+    isCompleting: boolean;
+    complete: (() => void) | null;
+    blockedReason?: string | null;
+  };
+  nextAccessibleModule: Module | null;
+  onBackToModules: () => void;
+  onSelectNextModule: (module: Module) => void;
+  practiceQuizState: { canRetry: boolean; retry: (() => void) | null };
+}) => (
+  <div className="space-y-6">
+    <Suspense fallback={<CoursePanelLoadingState label={copy.loadingModule} />}>
+      <ModuleContentViewer
+        module={selectedModule}
+        enrollment={enrollment}
+        isCompleted={isModuleCompleted(selectedModule.id)}
+        isPreviewMode={isPreviewMode}
+        entrySource={moduleEntrySource}
+        onComplete={onComplete}
+        onPracticeQuizStateChange={onPracticeQuizStateChange}
+        onCompletionActionStateChange={onCompletionActionStateChange}
+      />
+    </Suspense>
+
+    {courseDocument ? (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <FileText className="w-5 h-5" />
+            Course Document
+          </CardTitle>
+          <CardDescription>{courseTitle} - Course Material</CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Suspense fallback={<CoursePanelLoadingState label="Loading course document..." />}>
+            <DocumentViewer url={courseDocument} title={courseTitle} />
+          </Suspense>
+        </CardContent>
+      </Card>
+    ) : null}
+
+    <Card>
+      <CardContent className="pt-6">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <p className="font-medium text-foreground">
+              {shouldShowCompletionAction
+                ? copy.completeModuleHint
+                : nextAccessibleModule
+                  ? copy.nextModuleHint(nextAccessibleModule.title)
+                  : copy.noNextModuleHint}
+            </p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {shouldShowCompletionAction ? copy.moduleCompletionFlowHint : copy.completedModuleFlowHint}
+            </p>
+            {shouldShowCompletionAction && moduleCompletionAction.blockedReason ? (
+              <p className="mt-2 text-sm text-amber-700 dark:text-amber-300">{moduleCompletionAction.blockedReason}</p>
+            ) : null}
+          </div>
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
+            {practiceQuizState.canRetry && practiceQuizState.retry ? (
+              <Button variant="outline" onClick={() => practiceQuizState.retry?.()}>
+                Retry Quiz
+              </Button>
+            ) : null}
+            {shouldShowCompletionAction ? (
+              <>
+                <Button variant="outline" onClick={onBackToModules}>
+                  {copy.backToModules}
+                </Button>
+                <Button onClick={() => moduleCompletionAction.complete?.()} disabled={!moduleCompletionAction.complete || moduleCompletionAction.isCompleting}>
+                  {moduleCompletionAction.isCompleting ? copy.savingProgress : copy.markAsComplete}
+                </Button>
+              </>
+            ) : nextAccessibleModule ? (
+              <>
+                <Button variant="outline" onClick={onBackToModules}>
+                  {copy.backToModules}
+                </Button>
+                <Button onClick={() => onSelectNextModule(nextAccessibleModule)}>
+                  {copy.continueToNextModule}
+                  <ChevronRight className="ml-2 h-4 w-4" />
+                </Button>
+              </>
+            ) : (
+              <Button onClick={onBackToModules}>{copy.backToModules}</Button>
+            )}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  </div>
+), (prev, next) => (
+  prev.selectedModule === next.selectedModule
+  && prev.loadingSelectedModuleId === next.loadingSelectedModuleId
+  && prev.enrollment === next.enrollment
+  && prev.isPreviewMode === next.isPreviewMode
+  && prev.moduleEntrySource === next.moduleEntrySource
+  && prev.onComplete === next.onComplete
+  && prev.onPracticeQuizStateChange === next.onPracticeQuizStateChange
+  && prev.onCompletionActionStateChange === next.onCompletionActionStateChange
+  && prev.isModuleCompleted === next.isModuleCompleted
+  && prev.courseDocument === next.courseDocument
+  && prev.courseTitle === next.courseTitle
+  && prev.copy === next.copy
+  && prev.shouldShowCompletionAction === next.shouldShowCompletionAction
+  && prev.moduleCompletionAction === next.moduleCompletionAction
+  && prev.nextAccessibleModule === next.nextAccessibleModule
+  && prev.onBackToModules === next.onBackToModules
+  && prev.onSelectNextModule === next.onSelectNextModule
+  && prev.practiceQuizState === next.practiceQuizState
+));
+
+const buildCourseDetailCopy = (language: string) => (
+  language === "tl"
     ? {
         loadingCourse: "Ikinakarga ang kurso...",
         courseNotFound: "Hindi makita ang kurso",
@@ -171,9 +334,15 @@ const CourseDetail = () => {
         assessmentPanelTitle: "Assessment Activity",
         assessmentPanelDescription: "Kumpletuhin ang graded assessment na ito nang hiwalay sa practice quizzes sa module content.",
         nextModule: "Susunod na Module",
+        continueToNextModule: "Magpatuloy sa Susunod na Module",
         backToModules: "Bumalik sa Mga Module",
+        markAsComplete: "Markahan bilang Kumpleto",
+        savingProgress: "Sine-save...",
         nextModuleHint: (title: string) => `Magpatuloy sa ${title} kapag handa ka na.`,
         noNextModuleHint: "Wala nang accessible na susunod na module ngayon. Bumalik sa module list o tapusin ang naka-lock na prerequisites.",
+        completeModuleHint: "Kapag handa ka nang magpatuloy, markahan ang module na ito bilang kumpleto.",
+        moduleCompletionFlowHint: "Mananatiling available ang practice quizzes para sa review. Magpapakita ang footer ng susunod na hakbang kapag nakumpirma na ang completion.",
+        completedModuleFlowHint: "Kumpleto na ang module na ito. Maaari ka nang bumalik sa listahan o magpatuloy sa susunod na available na module.",
         modulesCardTitle: "Mga Module",
         modulesCardDescription: (count: number) => `${count} modules sa kursong ito`,
         moduleLabel: (index: number) => `Module ${index + 1}`,
@@ -235,9 +404,15 @@ const CourseDetail = () => {
         assessmentPanelTitle: "Assessment Activity",
         assessmentPanelDescription: "Complete this graded assessment separately from the practice quizzes inside module content.",
         nextModule: "Next Module",
+        continueToNextModule: "Continue to Next Module",
         backToModules: "Back to Modules",
+        markAsComplete: "Mark as Complete",
+        savingProgress: "Saving...",
         nextModuleHint: (title: string) => `Continue into ${title} when you are ready.`,
         noNextModuleHint: "There is no next accessible module right now. Return to the module list or complete the locked prerequisites first.",
+        completeModuleHint: "Mark this module complete when you are ready to move forward.",
+        moduleCompletionFlowHint: "Practice quizzes stay available for review. The footer action switches to the next available step after completion is confirmed.",
+        completedModuleFlowHint: "This module is already complete. You can return to the module list or continue into the next available module.",
         modulesCardTitle: "Modules",
         modulesCardDescription: (count: number) => `${count} modules in this course`,
         moduleLabel: (index: number) => `Module ${index + 1}`,
@@ -257,7 +432,127 @@ const CourseDetail = () => {
         unenrollAction: "Unenroll",
         blockedRejected: "Verification rejected",
         blockedPending: "Awaiting verification",
-      };
+      }
+);
+
+const buildCourseResumeStorageKey = (userId: string, enrollmentId: string, courseId: string) =>
+  `${COURSE_RESUME_STORAGE_PREFIX}${userId}:${enrollmentId}:${courseId}`;
+
+const readStoredCourseResumeModuleId = (userId: string, enrollmentId: string, courseId: string): string | null => {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  try {
+    const rawValue = window.localStorage.getItem(buildCourseResumeStorageKey(userId, enrollmentId, courseId));
+    if (!rawValue) {
+      return null;
+    }
+
+    const parsed = JSON.parse(rawValue) as { moduleId?: string };
+    return typeof parsed.moduleId === "string" && parsed.moduleId.trim() ? parsed.moduleId : null;
+  } catch {
+    return null;
+  }
+};
+
+const writeStoredCourseResumeModuleId = (userId: string, enrollmentId: string, courseId: string, moduleId: string) => {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(
+      buildCourseResumeStorageKey(userId, enrollmentId, courseId),
+      JSON.stringify({ moduleId, updatedAt: new Date().toISOString() }),
+    );
+  } catch {
+    // Ignore storage write failures for resume hints.
+  }
+};
+
+const clearStoredCourseResumeModuleId = (userId: string, enrollmentId: string, courseId: string) => {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  try {
+    window.localStorage.removeItem(buildCourseResumeStorageKey(userId, enrollmentId, courseId));
+  } catch {
+    // Ignore storage cleanup failures.
+  }
+};
+
+const CourseDetail = () => {
+  const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [searchParams] = useSearchParams();
+  const { user } = useAuth();
+  const { language } = useLocale();
+  const [course, setCourse] = useState<Course | null>(null);
+  const [modules, setModules] = useState<Module[]>([]);
+  const [enrollment, setEnrollment] = useState<Enrollment | null>(null);
+  const [progressDetail, setProgressDetail] = useState<EnrollmentProgressDetail | null>(null);
+  const [selectedModule, setSelectedModule] = useState<Module | null>(null);
+  const [loadingSelectedModuleId, setLoadingSelectedModuleId] = useState<string | null>(null);
+  const [completedModuleIds, setCompletedModuleIds] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [enrolling, setEnrolling] = useState(false);
+  const [showCompletionDialog, setShowCompletionDialog] = useState(false);
+  const [showUnenrollConfirm, setShowUnenrollConfirm] = useState(false);
+  const [unenrolling, setUnenrolling] = useState(false);
+  const [practiceQuizState, setPracticeQuizState] = useState<{ canRetry: boolean; retry: (() => void) | null }>({ canRetry: false, retry: null });
+  const [moduleCompletionAction, setModuleCompletionAction] = useState<{
+    canComplete: boolean;
+    isCompleting: boolean;
+    complete: (() => void) | null;
+    blockedReason?: string | null;
+  }>({ canComplete: false, isCompleting: false, complete: null, blockedReason: null });
+  const [activeAssessmentId, setActiveAssessmentId] = useState<string | null>(null);
+  const [enrollmentRecovery, setEnrollmentRecovery] = useState<ReturnType<typeof getEnrollmentErrorFeedback> | null>(null);
+  const previewKey = searchParams.get("previewKey");
+  const isPreviewMode = Boolean(searchParams.get("preview") && previewKey);
+  const previewEnrollmentId = `preview-enrollment-${id || "course"}`;
+  const locationState = location.state as { entrySource?: string; moduleId?: string } | null;
+  const moduleRequestSequenceRef = useRef(0);
+  const courseLoadRequestSequenceRef = useRef(0);
+  const modulesListRef = useRef<HTMLDivElement | null>(null);
+  const attemptedModuleHydrationIdsRef = useRef<Set<string>>(new Set());
+  const courseRef = useRef<Course | null>(null);
+  const selectedModuleRef = useRef<Module | null>(null);
+  const moduleHydrationAbortControllerRef = useRef<AbortController | null>(null);
+  const moduleHydrationRequestRef = useRef<{ moduleId: string; promise: Promise<Module | null> } | null>(null);
+
+  const moduleEntrySource = (() => {
+    if (typeof locationState?.entrySource === "string" && locationState.entrySource.trim()) {
+      return locationState.entrySource;
+    }
+
+    if (isPreviewMode) {
+      return "course_preview";
+    }
+
+    return "course_detail";
+  })();
+
+  const requestedModuleId =
+    typeof locationState?.moduleId === "string" && locationState.moduleId.trim()
+      ? locationState.moduleId
+      : null;
+  const userId = user?.id ?? null;
+  const userRole = user?.role ?? null;
+  const userTraineeType = user?.traineeType ?? null;
+  const userVerificationStatus = user?.verificationStatus ?? null;
+  const userLoadKey = useMemo(
+    () => (user ? `${user.id}:${user.role}:${user.traineeType ?? "unknown"}:${user.verificationStatus ?? "unknown"}` : "guest"),
+    [user?.id, user?.role, user?.traineeType, user?.verificationStatus],
+  );
+  const verificationBlocked = isTraineeEnrollmentBlocked(user);
+  const verificationFeedback = verificationBlocked
+    ? getTraineeEnrollmentVerificationFeedback(user?.verificationStatus, course?.title)
+    : null;
+  const copy = useMemo(() => buildCourseDetailCopy(language), [language]);
   const blockedEnrollLabel = user?.verificationStatus === "rejected"
     ? copy.blockedRejected
     : copy.blockedPending;
@@ -281,7 +576,7 @@ const CourseDetail = () => {
     return moduleList.find((module) => canAccessModuleEntry(module, moduleList, completedIds)) || moduleList[0] || null;
   }
 
-  const refreshEnrollmentState = async (
+  const refreshEnrollmentState = useCallback(async (
     enrollmentId: string,
     options?: { openCompletionDialog?: boolean },
   ) => {
@@ -307,37 +602,28 @@ const CourseDetail = () => {
     }
 
     return updatedEnrollment;
-  };
+  }, [user]);
 
   useEffect(() => {
-    if (id) {
-      void loadCourseData();
-    }
-  }, [id, user, isPreviewMode, previewKey, requestedModuleId]);
+    courseRef.current = course;
+  }, [course]);
 
-  const loadModuleContent = async (moduleId: string): Promise<Module | null> => {
-    setLoadingSelectedModuleId(moduleId);
-    const requestSequence = moduleRequestSequenceRef.current + 1;
-    moduleRequestSequenceRef.current = requestSequence;
+  useEffect(() => {
+    selectedModuleRef.current = selectedModule;
+  }, [selectedModule]);
 
-    try {
-      const module = await moduleService.getModule(moduleId);
-      if (moduleRequestSequenceRef.current !== requestSequence) {
-        return null;
-      }
-
-      return module;
-    } finally {
-      if (moduleRequestSequenceRef.current === requestSequence) {
-        setLoadingSelectedModuleId(null);
-      }
-    }
-  };
-
-  const loadCourseData = async () => {
+  const loadCourseData = useCallback(async (options?: { preserveUi?: boolean }) => {
     if (!id) return;
 
-    setLoading(true);
+    const requestSequence = courseLoadRequestSequenceRef.current + 1;
+    courseLoadRequestSequenceRef.current = requestSequence;
+    const isLatestRequest = () => courseLoadRequestSequenceRef.current === requestSequence;
+    const shouldShowBlockingLoader = !options?.preserveUi && (!courseRef.current || courseRef.current.id !== id);
+
+    if (shouldShowBlockingLoader) {
+      setLoading(true);
+    }
+
     try {
       let courseData: Course | null = null;
       let modulesSourceCourseId: string | null = id;
@@ -383,35 +669,64 @@ const CourseDetail = () => {
         courseData = await courseService.getCourse(id);
       }
 
+      if (!isLatestRequest()) {
+        return;
+      }
+
       if (!courseData) {
         toast.error("Course not found");
         navigate("/courses");
         return;
       }
 
-      if (!isPreviewMode && !canUserViewCourse(courseData, user)) {
+      if (!isPreviewMode && !canUserViewCourse(courseData, user ? { role: userRole ?? "trainee", traineeType: userTraineeType ?? undefined } : null)) {
         toast.error("Course not found");
         navigate("/courses");
         return;
       }
 
+      if (!isLatestRequest()) {
+        return;
+      }
+
       setCourse(courseData);
 
-      const [modulesData, enrollments] = await Promise.all([
+      const [modulesResult, enrollmentsResult] = await Promise.allSettled([
         modulesSourceCourseId ? moduleService.getModulesByCourseSummary(modulesSourceCourseId) : Promise.resolve([]),
-        !isPreviewMode && user ? enrollmentService.getEnrollments(user.id) : Promise.resolve([]),
+        !isPreviewMode && userId ? enrollmentService.getEnrollments(userId) : Promise.resolve([]),
       ]);
-      setModules(modulesData);
+
+      if (!isLatestRequest()) {
+        return;
+      }
+
+      if (modulesResult.status !== "fulfilled") {
+        throw modulesResult.reason;
+      }
+
+      const modulesData = modulesResult.value;
+      const enrollments = enrollmentsResult.status === "fulfilled" ? enrollmentsResult.value : [];
+      const preservedSelectedModule = selectedModuleRef.current
+        ? mergeSelectedModuleState(
+            modulesData.find((module) => module.id === selectedModuleRef.current?.id) || null,
+            selectedModuleRef.current,
+          )
+        : null;
+
+      setModules((current) => mergeModuleListState(modulesData, current));
 
       const initialModule = requestedModuleId
         ? modulesData.find((module) => module.id === requestedModuleId) || modulesData[0] || null
-        : modulesData[0] || null;
+        : preservedSelectedModule || modulesData[0] || null;
 
       if (isPreviewMode) {
-        const previewTargetModule = getPreferredModule(modulesData, [], requestedModuleId);
+        const previewTargetModule = requestedModuleId
+          ? getPreferredModule(modulesData, [], requestedModuleId)
+          : preservedSelectedModule || getPreferredModule(modulesData, [], null);
+
         setEnrollment({
           id: previewEnrollmentId,
-          userId: user?.id || "preview-user",
+          userId: userId || "preview-user",
           courseId: courseData.id,
           progress: 0,
           status: "enrolled",
@@ -420,59 +735,167 @@ const CourseDetail = () => {
         setProgressDetail(null);
         setSelectedModule(previewTargetModule);
         setCompletedModuleIds([]);
-
-        if (previewTargetModule) {
-          void loadModuleContent(previewTargetModule.id).then((hydratedModule) => {
-            if (hydratedModule) {
-              setSelectedModule(hydratedModule);
-            }
-          });
-        }
         return;
       }
 
-      if (!user) {
+      if (!userId) {
         setEnrollment(null);
         setProgressDetail(null);
         setSelectedModule(initialModule);
-        setLoading(false);
         return;
       }
 
-      const userEnrollment = enrollments.find((e) => e.courseId === id);
-      
+      const userEnrollment = enrollments.find((candidate) => candidate.courseId === id);
+
       if (!userEnrollment) {
         setEnrollment(null);
         setProgressDetail(null);
         setSelectedModule(initialModule);
-        setLoading(false);
         return;
       }
 
       setEnrollment(userEnrollment);
 
-      const [completed, detail] = await Promise.all([
+      const [completedResult, detailResult, lastAccessedSessionResult] = await Promise.allSettled([
         moduleCompletionService.getCompletedModules(userEnrollment.id),
-        enrollmentService.getEnrollmentProgressDetail(userEnrollment.id).catch(() => null),
+        enrollmentService.getEnrollmentProgressDetail(userEnrollment.id),
+        moduleSessionService.getLastAccessedModule(userId, userEnrollment.id),
       ]);
-      const preferredModule = getPreferredModule(modulesData, completed, requestedModuleId);
+
+      if (!isLatestRequest()) {
+        return;
+      }
+
+      const completed = completedResult.status === "fulfilled" ? completedResult.value : [];
+      const detail = detailResult.status === "fulfilled" ? detailResult.value : null;
+      const lastAccessedSession = lastAccessedSessionResult.status === "fulfilled" ? lastAccessedSessionResult.value : null;
+      const storedResumeModuleId = readStoredCourseResumeModuleId(userId, userEnrollment.id, courseData.id);
+      const resumeCandidateId = requestedModuleId || storedResumeModuleId || lastAccessedSession?.moduleId || null;
+      const preferredModule = mergeSelectedModuleState(
+        getPreferredModule(modulesData, completed, resumeCandidateId),
+        selectedModuleRef.current,
+      );
+      const nextSelectedModule = requestedModuleId
+        ? preferredModule
+        : preservedSelectedModule && canAccessModuleEntry(preservedSelectedModule, modulesData, completed)
+        ? preservedSelectedModule
+        : preferredModule;
+
       setCompletedModuleIds(completed);
       setProgressDetail(detail);
-      setSelectedModule(preferredModule);
-
-      if (preferredModule) {
-        void loadModuleContent(preferredModule.id).then((hydratedModule) => {
-          if (hydratedModule) {
-            setSelectedModule(hydratedModule);
-          }
-        });
-      }
+      setSelectedModule(nextSelectedModule);
     } catch (error) {
       console.error("Error loading course data:", error);
       toast.error("Failed to load course data");
     } finally {
-      setLoading(false);
+      if (shouldShowBlockingLoader && isLatestRequest()) {
+        setLoading(false);
+      }
     }
+  }, [id, isPreviewMode, navigate, previewEnrollmentId, previewKey, requestedModuleId, userId, userRole, userTraineeType]);
+
+  useEffect(() => {
+    if (id) {
+      attemptedModuleHydrationIdsRef.current = new Set();
+      void loadCourseData({ preserveUi: courseRef.current?.id === id });
+    }
+  }, [id, isPreviewMode, loadCourseData, previewKey, requestedModuleId, userLoadKey]);
+
+  useEffect(() => {
+    if (!selectedModule || selectedModule.content !== undefined) {
+      if (selectedModule?.content !== undefined) {
+        attemptedModuleHydrationIdsRef.current.add(selectedModule.id);
+      }
+      return;
+    }
+
+    if (attemptedModuleHydrationIdsRef.current.has(selectedModule.id)) {
+      return;
+    }
+
+    attemptedModuleHydrationIdsRef.current.add(selectedModule.id);
+
+    let cancelled = false;
+    const frame = window.requestAnimationFrame(() => {
+      void loadModuleContent(selectedModule.id).then((hydratedModule) => {
+        if (!cancelled && hydratedModule) {
+          setSelectedModule((current) => {
+            if (current?.id !== hydratedModule.id) {
+              return current;
+            }
+
+            const didModuleMeaningfullyChange =
+              current.content !== hydratedModule.content
+              || current.module_document !== hydratedModule.module_document
+              || current.module_thumbnail !== hydratedModule.module_thumbnail
+              || current.updated_at !== hydratedModule.updated_at;
+
+            return didModuleMeaningfullyChange ? mergeSelectedModuleState(hydratedModule, current) : current;
+          });
+        }
+      });
+    });
+
+    return () => {
+      cancelled = true;
+      window.cancelAnimationFrame(frame);
+    };
+  }, [selectedModule]);
+
+  useEffect(() => {
+    if (
+      isPreviewMode ||
+      !user?.id ||
+      !enrollment?.id ||
+      !enrollment.courseId ||
+      !selectedModule?.id
+    ) {
+      return;
+    }
+
+    writeStoredCourseResumeModuleId(user.id, enrollment.id, enrollment.courseId, selectedModule.id);
+  }, [enrollment?.courseId, enrollment?.id, isPreviewMode, selectedModule?.id, user?.id]);
+
+  const loadModuleContent = async (moduleId: string): Promise<Module | null> => {
+    if (moduleHydrationRequestRef.current?.moduleId === moduleId) {
+      return moduleHydrationRequestRef.current.promise;
+    }
+
+    moduleHydrationAbortControllerRef.current?.abort();
+    const abortController = new AbortController();
+    moduleHydrationAbortControllerRef.current = abortController;
+
+    setLoadingSelectedModuleId(moduleId);
+    const requestSequence = moduleRequestSequenceRef.current + 1;
+    moduleRequestSequenceRef.current = requestSequence;
+
+    const request = (async () => {
+      try {
+        const module = await moduleService.getModule(moduleId, { signal: abortController.signal });
+        if (abortController.signal.aborted || moduleRequestSequenceRef.current !== requestSequence) {
+          return null;
+        }
+
+        return module;
+      } catch (error) {
+        if (abortController.signal.aborted) {
+          return null;
+        }
+
+        throw error;
+      } finally {
+        if (moduleRequestSequenceRef.current === requestSequence) {
+          setLoadingSelectedModuleId(null);
+        }
+
+        if (moduleHydrationRequestRef.current?.moduleId === moduleId) {
+          moduleHydrationRequestRef.current = null;
+        }
+      }
+    })();
+
+    moduleHydrationRequestRef.current = { moduleId, promise: request };
+    return request;
   };
 
   const handleModuleSelect = async (module: Module) => {
@@ -487,18 +910,14 @@ const CourseDetail = () => {
     }
 
     if (selectedModule?.id === module.id) {
-      setSelectedModule(module);
       return;
     }
 
+    attemptedModuleHydrationIdsRef.current.delete(module.id);
     setSelectedModule(module);
-    const hydratedModule = await loadModuleContent(module.id);
-    if (hydratedModule) {
-      setSelectedModule(hydratedModule);
-    }
   };
 
-  const handleModuleComplete = async (moduleId: string, timeSpentMinutes?: number, options?: { silent?: boolean }) => {
+  const handleModuleComplete = useCallback(async (moduleId: string, timeSpentMinutes?: number, options?: { silent?: boolean; practiceQuizSnapshot?: import("@/types").PracticeQuizCompletionSnapshot }) => {
     if (!enrollment) return;
 
     if (isPreviewMode) {
@@ -536,7 +955,8 @@ const CourseDetail = () => {
       await moduleCompletionService.markModuleComplete(
         enrollment.id,
         moduleId,
-        timeSpentMinutes
+        timeSpentMinutes,
+        options?.practiceQuizSnapshot,
       );
       const newCompleted = [...completedModuleIds, moduleId];
       setCompletedModuleIds(newCompleted);
@@ -549,13 +969,27 @@ const CourseDetail = () => {
       console.error("Error completing module:", error);
       toast.error("Failed to mark module as complete");
     }
-  };
+  }, [completedModuleIds, enrollment, isPreviewMode, modules.length, refreshEnrollmentState, user]);
+
+  const handleSelectedModuleComplete = useCallback(
+    (timeSpentMinutes?: number, options?: { silent?: boolean; practiceQuizSnapshot?: import("@/types").PracticeQuizCompletionSnapshot }) => {
+      if (!selectedModule) {
+        return Promise.resolve();
+      }
+
+      return handleModuleComplete(selectedModule.id, timeSpentMinutes, options);
+    },
+    [handleModuleComplete, selectedModule],
+  );
 
   const handleUnenroll = async () => {
     if (!enrollment) return;
     setUnenrolling(true);
     try {
       await enrollmentService.unenroll(enrollment.id, false);
+      if (user?.id) {
+        clearStoredCourseResumeModuleId(user.id, enrollment.id, enrollment.courseId);
+      }
       toast.success("You have been unenrolled from this course.");
       setShowUnenrollConfirm(false);
       navigate("/courses");
@@ -567,13 +1001,13 @@ const CourseDetail = () => {
     }
   };
 
-  const isModuleCompleted = (moduleId: string) => {
+  const isModuleCompleted = useCallback((moduleId: string) => {
     return completedModuleIds.includes(moduleId);
-  };
+  }, [completedModuleIds]);
 
-  const canAccessModule = (module: Module) => {
+  const canAccessModule = useCallback((module: Module) => {
     return canAccessModuleEntry(module, modules, completedModuleIds);
-  };
+  }, [completedModuleIds, modules]);
 
   const moduleLookup = useMemo(
     () => new Map(modules.map((module) => [module.id, module])),
@@ -618,6 +1052,11 @@ const CourseDetail = () => {
     [modules],
   );
 
+  const moduleViewerEnrollment = useMemo(
+    () => (enrollment ? { id: enrollment.id, courseId: enrollment.courseId } : null),
+    [enrollment?.courseId, enrollment?.id],
+  );
+
   const nextAccessibleModule = useMemo(() => {
     if (!selectedModule) {
       return null;
@@ -637,6 +1076,9 @@ const CourseDetail = () => {
     return null;
   }, [completedModuleIds, selectedModule, sortedModules]);
 
+  const isSelectedModuleCompleted = selectedModule ? isModuleCompleted(selectedModule.id) : false;
+  const shouldShowCompletionAction = Boolean(selectedModule) && !isSelectedModuleCompleted;
+
   const handleAssessmentRefresh = async () => {
     if (!enrollment) {
       return;
@@ -649,9 +1091,33 @@ const CourseDetail = () => {
     }
   };
 
-  const handleBackToModules = () => {
+  const handleBackToModules = useCallback(() => {
     modulesListRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-  };
+  }, []);
+
+  const handleSelectNextModule = useCallback((module: Module) => {
+    void handleModuleSelect(module);
+  }, [handleModuleSelect]);
+
+  const handleModuleCompletionActionStateChange = useCallback((state: {
+    canComplete: boolean;
+    isCompleting: boolean;
+    complete: (() => void) | null;
+    blockedReason?: string | null;
+  }) => {
+    setModuleCompletionAction((current) => {
+      if (
+        current.canComplete === state.canComplete
+        && current.isCompleting === state.isCompleting
+        && current.complete === state.complete
+        && current.blockedReason === state.blockedReason
+      ) {
+        return current;
+      }
+
+      return state;
+    });
+  }, []);
 
   const handleAssessmentSelect = (assessment: EnrollmentAssessmentProgress) => {
     if (!isAssessmentUnlocked(assessment)) {
@@ -988,17 +1454,17 @@ const CourseDetail = () => {
           </Card>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-4 lg:items-start">
           {/* Modules Sidebar */}
-          <div ref={modulesListRef} className="lg:col-span-1 lg:self-start lg:sticky lg:top-24">
-            <Card>
+          <div ref={modulesListRef} className="lg:col-span-1 lg:self-start">
+            <Card className="lg:sticky lg:top-6 lg:self-start">
               <CardHeader>
                 <CardTitle className="text-lg">{copy.modulesCardTitle}</CardTitle>
                 <CardDescription>{copy.modulesCardDescription(modules.length)}</CardDescription>
               </CardHeader>
               <CardContent className="p-0">
-                <ScrollArea className="h-[420px] lg:h-[calc(100vh-12rem)]">
-                  <div className="p-4 space-y-1">
+                <div className="h-[420px] overflow-y-auto lg:h-[calc(100vh-12rem)]">
+                  <div className="space-y-1 p-4">
                     {modules.map((module, index) => {
                       const completed = isModuleCompleted(module.id);
                       const canAccess = canAccessModule(module);
@@ -1140,7 +1606,7 @@ const CourseDetail = () => {
                       </>
                     ) : null}
                   </div>
-                </ScrollArea>
+                </div>
               </CardContent>
             </Card>
           </div>
@@ -1148,76 +1614,28 @@ const CourseDetail = () => {
           {/* Module Content Area */}
           <div className="lg:col-span-3">
             {loadingSelectedModuleId && selectedModule?.id === loadingSelectedModuleId ? (
-              <Card>
-                <CardContent className="flex min-h-[400px] items-center justify-center">
-                  <div className="text-center">
-                    <div className="mx-auto mb-4 h-10 w-10 animate-spin rounded-full border-b-2 border-primary"></div>
-                    <p className="text-sm text-muted-foreground">{copy.loadingModule}</p>
-                  </div>
-                </CardContent>
-              </Card>
-            ) : selectedModule ? (
-              <div className="space-y-6">
-                <ModuleContentViewer
-                  module={selectedModule}
-                  enrollment={enrollment}
-                  isCompleted={isModuleCompleted(selectedModule.id)}
-                  isPreviewMode={isPreviewMode}
-                  entrySource={moduleEntrySource}
-                  onComplete={(timeSpentMinutes, options) => handleModuleComplete(selectedModule.id, timeSpentMinutes, options)}
-                  onPracticeQuizStateChange={setPracticeQuizState}
-                />
-
-                {course.courseDocument ? (
-                  <Card>
-                    <CardHeader>
-                      <CardTitle className="flex items-center gap-2">
-                        <FileText className="w-5 h-5" />
-                        Course Document
-                      </CardTitle>
-                      <CardDescription>
-                        {course.title} - Course Material
-                      </CardDescription>
-                    </CardHeader>
-                    <CardContent>
-                      <DocumentViewer url={course.courseDocument} title={course.title} />
-                    </CardContent>
-                  </Card>
-                ) : null}
-
-                <Card>
-                  <CardContent className="flex flex-col gap-3 pt-6 md:flex-row md:items-center md:justify-between">
-                    <div>
-                      <p className="font-medium text-foreground">
-                        {nextAccessibleModule
-                          ? copy.nextModuleHint(nextAccessibleModule.title)
-                          : copy.noNextModuleHint}
-                      </p>
-                      <p className="mt-1 text-sm text-muted-foreground">
-                        {isModuleCompleted(selectedModule.id)
-                          ? "This path follows the next module that is currently accessible from your completed prerequisites."
-                          : "Finish this module or return to the module list to continue along the currently accessible learning path."}
-                      </p>
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      {practiceQuizState.canRetry && practiceQuizState.retry ? (
-                        <Button variant="outline" onClick={() => practiceQuizState.retry?.()}>
-                          Retry Quiz
-                        </Button>
-                      ) : null}
-                      {nextAccessibleModule ? (
-                        <Button onClick={() => void handleModuleSelect(nextAccessibleModule)}>
-                          {copy.nextModule}
-                          <ChevronRight className="ml-2 h-4 w-4" />
-                        </Button>
-                      ) : null}
-                      <Button variant={nextAccessibleModule ? "outline" : "default"} onClick={handleBackToModules}>
-                        {copy.backToModules}
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
+              <CoursePanelLoadingState label={copy.loadingModule} />
+            ) : selectedModule && moduleViewerEnrollment ? (
+              <SelectedModulePanel
+                selectedModule={selectedModule}
+                loadingSelectedModuleId={loadingSelectedModuleId}
+                enrollment={moduleViewerEnrollment}
+                isPreviewMode={isPreviewMode}
+                moduleEntrySource={moduleEntrySource}
+                onComplete={handleSelectedModuleComplete}
+                onPracticeQuizStateChange={setPracticeQuizState}
+                onCompletionActionStateChange={handleModuleCompletionActionStateChange}
+                isModuleCompleted={isModuleCompleted}
+                courseDocument={course.courseDocument}
+                courseTitle={course.title}
+                copy={copy}
+                shouldShowCompletionAction={shouldShowCompletionAction}
+                moduleCompletionAction={moduleCompletionAction}
+                nextAccessibleModule={nextAccessibleModule}
+                onBackToModules={handleBackToModules}
+                onSelectNextModule={handleSelectNextModule}
+                practiceQuizState={practiceQuizState}
+              />
             ) : activeAssessment ? (
               <Card>
                 <CardHeader>
@@ -1235,13 +1653,15 @@ const CourseDetail = () => {
                     <p className="mt-2 text-sm text-muted-foreground">{copy.assessmentPanelDescription}</p>
                   </div>
                   {isAssessmentUnlocked(activeAssessment) ? (
-                    <AssessmentInterface
-                      enrollmentId={enrollment.id}
-                      courseId={enrollment.courseId}
-                      assessmentId={activeAssessment.assessmentId}
-                      emptyStateMessage={copy.noAssessmentActivities}
-                      onSubmitted={handleAssessmentRefresh}
-                    />
+                    <Suspense fallback={<CoursePanelLoadingState label="Loading assessment activity..." />}>
+                      <AssessmentInterface
+                        enrollmentId={enrollment.id}
+                        courseId={enrollment.courseId}
+                        assessmentId={activeAssessment.assessmentId}
+                        emptyStateMessage={copy.noAssessmentActivities}
+                        onSubmitted={handleAssessmentRefresh}
+                      />
+                    </Suspense>
                   ) : (
                     <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
                       <div className="flex items-start gap-2">
@@ -1271,7 +1691,9 @@ const CourseDetail = () => {
                     </CardDescription>
                   </CardHeader>
                   <CardContent>
-                    <DocumentViewer url={course.courseDocument} title={course.title} />
+                    <Suspense fallback={<CoursePanelLoadingState label="Loading course document..." />}>
+                      <DocumentViewer url={course.courseDocument} title={course.title} />
+                    </Suspense>
                   </CardContent>
                 </Card>
               ) : (

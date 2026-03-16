@@ -9,13 +9,18 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
-import { ArrowLeft, Award, BookOpen, CheckCircle2, Clock3, FileQuestion, Loader2, MessageSquareText } from "lucide-react";
+import { ArrowLeft, Award, BookOpen, CheckCircle2, Clock3, Download, ExternalLink, FileQuestion, Loader2, Search } from "lucide-react";
 import { Enrollment, EnrollmentProgressDetail, Module } from "@/types";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import { assessmentService, type AssessmentReviewDecision, type AssessmentReviewDetail, type AssessmentReviewQueueItem } from "@/services/assessmentService";
 import { certificateService, enrollmentService, moduleCompletionService } from "@/services/supabaseDatabaseService";
-import { moduleSessionService, type ModuleSession } from "@/services/moduleSessionService";
+import { moduleSessionService, type ModuleSession, type PracticeQuizSessionSummary } from "@/services/moduleSessionService";
+import { submissionService } from "@/services/submissionService";
+import { PracticeQuizEssayResponse, Submission } from "@/types";
+import { createSubmissionAccessUrl, downloadSubmissionFile, getSubmissionAttachmentName } from "@/lib/submissionFiles";
+import { practiceQuizEssayReviewService } from "@/services/practiceQuizEssayReviewService";
+import { getPracticeQuizModuleReviewSummary } from "@/lib/practiceQuizReview";
 
 type EnrollmentHeaderDetail = {
   enrollment: Enrollment;
@@ -33,11 +38,16 @@ type EnrollmentHeaderDetail = {
 
 type RecentSessionCard = {
   id: string;
+  moduleId: string;
   moduleTitle: string | null;
   lastSeenAt: string;
   durationSeconds: number;
   sessionStatus: ModuleSession["sessionStatus"];
+  practiceQuizSummary: PracticeQuizSessionSummary | null;
 };
+
+type ModuleSubmissionMap = Record<string, Submission[]>;
+type ModuleEssayResponseMap = Record<string, PracticeQuizEssayResponse[]>;
 
 const formatSessionDuration = (seconds: number) => {
   if (seconds <= 0) return "0m";
@@ -165,6 +175,8 @@ const AdminEnrollmentProgressPage = () => {
   const [progressDetail, setProgressDetail] = useState<EnrollmentProgressDetail | null>(null);
   const [manualReviews, setManualReviews] = useState<AssessmentReviewQueueItem[]>([]);
   const [recentSessions, setRecentSessions] = useState<RecentSessionCard[]>([]);
+  const [moduleSubmissions, setModuleSubmissions] = useState<ModuleSubmissionMap>({});
+  const [moduleEssayResponses, setModuleEssayResponses] = useState<ModuleEssayResponseMap>({});
   const [selectedReview, setSelectedReview] = useState<AssessmentReviewDetail | null>(null);
   const [reviewDialogOpen, setReviewDialogOpen] = useState(false);
   const [reviewDecision, setReviewDecision] = useState<AssessmentReviewDecision>("approved");
@@ -178,6 +190,9 @@ const AdminEnrollmentProgressPage = () => {
   const [completionDecision, setCompletionDecision] = useState<"approved" | "needs_revision">("approved");
   const [completionFeedback, setCompletionFeedback] = useState("");
   const [completionSubmitting, setCompletionSubmitting] = useState(false);
+  const [moduleSearchTerm, setModuleSearchTerm] = useState("");
+  const [moduleFilter, setModuleFilter] = useState<"all" | "needs-review" | "pending" | "completed">("all");
+  const moduleReviewRouteBase = "/admin/module-reviews";
 
   const assessmentsByModule = useMemo(() => {
     return (progressDetail?.assessments || []).reduce<Record<string, EnrollmentProgressDetail["assessments"]>>((acc, assessment) => {
@@ -201,6 +216,51 @@ const AdminEnrollmentProgressPage = () => {
   const blockedModuleCount = progressDetail?.modules.filter((entry) => !entry.completed && entry.blockedByModuleIds.length > 0).length || 0;
   const pendingReviewCount = manualReviews.filter((review) => review.reviewStatus !== "approved").length;
   const completedAssessmentCount = progressDetail?.assessments.filter((assessment) => Boolean(assessment.submittedAt)).length || 0;
+
+  const filteredModules = useMemo(() => {
+    if (!progressDetail) {
+      return [];
+    }
+
+    const normalizedQuery = moduleSearchTerm.trim().toLowerCase();
+
+    return progressDetail.modules.filter((moduleEntry) => {
+      const moduleAssessments = assessmentsByModule[moduleEntry.module.id] || [];
+      const modulePracticeReview = getPracticeQuizModuleReviewSummary({
+        module: moduleEntry.module,
+        responses: moduleEssayResponses[moduleEntry.module.id] || [],
+      });
+      const needsReview =
+        moduleAssessments.some((assessment) => assessment.requiresManualReview && assessment.reviewStatus !== "approved")
+        || modulePracticeReview.pendingEssayReviewCount > 0;
+
+      if (moduleFilter === "needs-review" && !needsReview) {
+        return false;
+      }
+
+      if (moduleFilter === "pending" && moduleEntry.completed) {
+        return false;
+      }
+
+      if (moduleFilter === "completed" && !moduleEntry.completed) {
+        return false;
+      }
+
+      if (!normalizedQuery) {
+        return true;
+      }
+
+      const searchableText = [
+        moduleEntry.module.title,
+        ...moduleAssessments.map((assessment) => assessment.assessmentTitle),
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+
+      return searchableText.includes(normalizedQuery);
+    });
+  }, [assessmentsByModule, moduleEssayResponses, moduleFilter, moduleSearchTerm, progressDetail]);
 
   const loadPage = async () => {
     if (!enrollmentId) {
@@ -232,6 +292,11 @@ const AdminEnrollmentProgressPage = () => {
         }),
       ]);
 
+      const [submissionRows, essayResponseRows] = await Promise.all([
+        submissionService.getEnrollmentSubmissions(enrollmentId),
+        practiceQuizEssayReviewService.getEnrollmentResponses(enrollmentId),
+      ]);
+
       const moduleLookup = new Map(detail.modules.map((entry) => [entry.module.id, entry.module]));
       setHeaderDetail(detailHeader as EnrollmentHeaderDetail);
       setProgressDetail(detail);
@@ -239,11 +304,30 @@ const AdminEnrollmentProgressPage = () => {
       setRecentSessions(
         sessionRows.map((session) => ({
           id: session.id,
+          moduleId: session.moduleId,
           moduleTitle: moduleLookup.get(session.moduleId)?.title || null,
           lastSeenAt: session.lastSeenAt,
           durationSeconds: session.durationSeconds,
           sessionStatus: session.sessionStatus,
+          practiceQuizSummary: moduleSessionService.getPracticeQuizSummaryFromMetadata(session.metadata),
         })),
+      );
+      setModuleSubmissions(
+        submissionRows.reduce<ModuleSubmissionMap>((acc, submission) => {
+          const moduleId = (submission as any).module_id || "";
+          const current = acc[moduleId] || [];
+          current.push(submission);
+          acc[moduleId] = current;
+          return acc;
+        }, {}),
+      );
+      setModuleEssayResponses(
+        essayResponseRows.reduce<ModuleEssayResponseMap>((acc, response) => {
+          const current = acc[response.module_id] || [];
+          current.push(response);
+          acc[response.module_id] = current;
+          return acc;
+        }, {}),
       );
     } catch (error) {
       console.error("Error loading enrollment progress:", error);
@@ -252,8 +336,33 @@ const AdminEnrollmentProgressPage = () => {
       setProgressDetail(null);
       setManualReviews([]);
       setRecentSessions([]);
+      setModuleSubmissions({});
+      setModuleEssayResponses({});
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleViewSubmission = async (filePath?: string | null) => {
+    try {
+      const accessUrl = await createSubmissionAccessUrl(filePath);
+      if (!accessUrl) {
+        throw new Error("No file available.");
+      }
+
+      window.open(accessUrl, "_blank", "noopener,noreferrer");
+    } catch (error) {
+      console.error("Error opening submission:", error);
+      toast.error("Failed to open learner file");
+    }
+  };
+
+  const handleDownloadSubmission = async (filePath?: string | null) => {
+    try {
+      await downloadSubmissionFile(filePath, getSubmissionAttachmentName(filePath));
+    } catch (error) {
+      console.error("Error downloading submission:", error);
+      toast.error("Failed to download learner file");
     }
   };
 
@@ -578,13 +687,37 @@ const AdminEnrollmentProgressPage = () => {
                 <CardHeader>
                   <CardTitle className="text-base">Module Progress</CardTitle>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="space-y-4">
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                    <div className="relative w-full lg:max-w-md">
+                      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                      <Input
+                        value={moduleSearchTerm}
+                        onChange={(event) => setModuleSearchTerm(event.target.value)}
+                        placeholder="Search modules or linked assessments"
+                        className="pl-9"
+                      />
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Button variant={moduleFilter === "all" ? "default" : "outline"} size="sm" onClick={() => setModuleFilter("all")}>All</Button>
+                      <Button variant={moduleFilter === "needs-review" ? "default" : "outline"} size="sm" onClick={() => setModuleFilter("needs-review")}>Needs Review</Button>
+                      <Button variant={moduleFilter === "pending" ? "default" : "outline"} size="sm" onClick={() => setModuleFilter("pending")}>Pending</Button>
+                      <Button variant={moduleFilter === "completed" ? "default" : "outline"} size="sm" onClick={() => setModuleFilter("completed")}>Completed</Button>
+                    </div>
+                  </div>
                   <Accordion type="multiple" className="space-y-2">
-                    {progressDetail.modules.map((moduleEntry) => {
+                    {filteredModules.map((moduleEntry) => {
                       const actionKey = `${progressDetail.enrollment.id}:${moduleEntry.module.id}`;
                       const moduleAssessments = assessmentsByModule[moduleEntry.module.id] || [];
                       const moduleReviews = reviewsByModule[moduleEntry.module.id] || [];
                       const hasPendingManualScore = moduleAssessments.some((assessment) => assessment.requiresManualReview && !assessment.submittedAt);
+                      const latestModuleSession = recentSessions.find((session) => session.moduleId === moduleEntry.module.id);
+                      const modulePracticeReview = getPracticeQuizModuleReviewSummary({
+                        module: moduleEntry.module,
+                        responses: moduleEssayResponses[moduleEntry.module.id] || [],
+                        latestPracticeQuizSummary: latestModuleSession?.practiceQuizSummary || moduleEntry.practiceQuizSnapshot?.summary || null,
+                      });
+                      const showModuleReviewLink = modulePracticeReview.essayQuestionCount > 0;
 
                       return (
                         <AccordionItem key={moduleEntry.module.id} value={moduleEntry.module.id} className="rounded-lg border px-4">
@@ -656,6 +789,80 @@ const AdminEnrollmentProgressPage = () => {
                               </div>
                             ) : null}
 
+                            {(moduleSubmissions[moduleEntry.module.id] || []).length > 0 ? (
+                              <div className="space-y-2">
+                                <p className="text-sm font-medium">Learner uploads</p>
+                                {(moduleSubmissions[moduleEntry.module.id] || []).map((submission) => (
+                                  <div key={submission.id} className="rounded-lg border p-3 text-sm">
+                                    <div className="flex flex-wrap items-start justify-between gap-2">
+                                      <div>
+                                        <p className="font-medium">{submission.title}</p>
+                                        <p className="text-xs text-muted-foreground">
+                                          Submitted {new Date(submission.submitted_at).toLocaleString()} • {submission.status.replace(/_/g, " ")}
+                                        </p>
+                                      </div>
+                                      <Badge variant="outline">{submission.submission_type}</Badge>
+                                    </div>
+                                    {submission.description ? <p className="mt-2 text-xs text-muted-foreground">{submission.description}</p> : null}
+                                    <div className="mt-3 flex flex-wrap gap-2">
+                                      <Button variant="outline" size="sm" onClick={() => void handleViewSubmission(submission.file_path)}>
+                                        <ExternalLink className="mr-2 h-4 w-4" />
+                                        View File
+                                      </Button>
+                                      <Button variant="outline" size="sm" onClick={() => void handleDownloadSubmission(submission.file_path)}>
+                                        <Download className="mr-2 h-4 w-4" />
+                                        Download File
+                                      </Button>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : null}
+
+                            {showModuleReviewLink ? (
+                              <div className="space-y-3">
+                                <div className="rounded-2xl border bg-muted/20 p-4 text-sm">
+                                  <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                                    <div>
+                                      <p className="font-medium">Module review workspace</p>
+                                      <p className="mt-1 text-muted-foreground">
+                                        Practice-quiz essay reviews now open in a dedicated module review page, separate from graded assessments.
+                                      </p>
+                                    </div>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => navigate(`${moduleReviewRouteBase}/${progressDetail.enrollment.id}/${moduleEntry.module.id}`)}
+                                    >
+                                      Open Module Review
+                                    </Button>
+                                  </div>
+                                  <div className="mt-4 grid gap-3 md:grid-cols-4">
+                                    <div className="rounded-lg border bg-background p-3">
+                                      <p className="text-muted-foreground">Essay coverage</p>
+                                      <p className="mt-1 font-medium">{modulePracticeReview.essayAnsweredCount} / {modulePracticeReview.essayQuestionCount}</p>
+                                    </div>
+                                    <div className="rounded-lg border bg-background p-3">
+                                      <p className="text-muted-foreground">Manual scoring</p>
+                                      <p className="mt-1 font-medium">{modulePracticeReview.essayReviewedCount} reviewed</p>
+                                    </div>
+                                    <div className="rounded-lg border bg-background p-3">
+                                      <p className="text-muted-foreground">Essay points</p>
+                                      <p className="mt-1 font-medium">{modulePracticeReview.essayAwardedPoints} / {modulePracticeReview.essayTotalPoints}</p>
+                                    </div>
+                                    <div className="rounded-lg border bg-background p-3">
+                                      <p className="text-muted-foreground">Combined formative score</p>
+                                      <p className="mt-1 font-medium">
+                                        {modulePracticeReview.combinedEarnedPoints != null
+                                          ? `${modulePracticeReview.combinedEarnedPoints} / ${modulePracticeReview.combinedTotalPoints}`
+                                          : "Awaiting objective auto-score"}
+                                      </p>
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                            ) : null}
+
                             {!moduleEntry.completed ? (
                               <div className="flex flex-wrap gap-2">
                                 <Button
@@ -694,6 +901,27 @@ const AdminEnrollmentProgressPage = () => {
                               <Badge variant="outline">{formatSessionStatus(session.sessionStatus)}</Badge>
                             </div>
                           </div>
+                          {session.practiceQuizSummary ? (
+                            <div className="mt-3 rounded-lg border border-dashed bg-muted/20 p-3 text-sm">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <FileQuestion className="h-4 w-4 text-muted-foreground" />
+                                <p className="font-medium">Practice quiz snapshot</p>
+                                <Badge variant="outline">
+                                  {session.practiceQuizSummary.earnedPoints} / {session.practiceQuizSummary.totalPoints} pts
+                                </Badge>
+                                <Badge variant="secondary">
+                                  {session.practiceQuizSummary.percentageScore !== null ? `${session.practiceQuizSummary.percentageScore}%` : "No auto-score"}
+                                </Badge>
+                              </div>
+                              <p className="mt-2 text-xs text-muted-foreground">
+                                Auto-scored {session.practiceQuizSummary.correctQuestions} / {session.practiceQuizSummary.submittedQuestions}
+                                {session.practiceQuizSummary.essayQuestionCount > 0
+                                  ? ` • Essay reflections ${session.practiceQuizSummary.essayAnsweredCount} / ${session.practiceQuizSummary.essayQuestionCount}`
+                                  : ""}
+                                {` • Updated ${getLastActiveLabel(session.practiceQuizSummary.updatedAt).text}`}
+                              </p>
+                            </div>
+                          ) : null}
                         </div>
                       ))
                     ) : (

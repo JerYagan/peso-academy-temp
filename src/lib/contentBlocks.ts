@@ -16,6 +16,8 @@ export interface ContentBlock {
   altText?: string;
   caption?: string;
   documentUrl?: string;
+  allowLearnerUpload?: boolean;
+  learnerUploadInstructions?: string;
   materialUrl?: string;
   questionType?: QuizBlockQuestionType;
   points?: number;
@@ -60,6 +62,115 @@ const VALID_CONTENT_BLOCK_TYPES = new Set<ContentBlockType>([
 export const DEFAULT_QUIZ_BLOCK_POINTS = 1;
 export const DEFAULT_QUIZ_BLOCK_QUESTION_TYPE: QuizBlockQuestionType = "multiple_choice";
 export const TRUE_FALSE_QUIZ_OPTIONS = ["True", "False"];
+
+const HTML_TAG_PATTERN = /<\/?[a-z][\s\S]*>/i;
+
+const escapeHtml = (value: string): string => {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+};
+
+const LIST_ITEM_PATTERN = /^(\s*)([-*+]|\d+[.)])\s+(.*)$/;
+
+const getIndentLevel = (indent: string): number => {
+  if (!indent) {
+    return 0;
+  }
+
+  return Math.floor(indent.replace(/\t/g, "  ").length / 2);
+};
+
+const getListTag = (marker: string): "ul" | "ol" => (/^\d/.test(marker) ? "ol" : "ul");
+
+const isListBlock = (lines: string[]) => lines.length > 0 && lines.every((line) => LIST_ITEM_PATTERN.test(line));
+
+const renderListHtml = (lines: string[]): string => {
+  const html: string[] = [];
+  const stack: Array<{ tag: "ul" | "ol"; level: number }> = [];
+
+  const closeList = () => {
+    const current = stack.pop();
+    if (current) {
+      html.push(`</li></${current.tag}>`);
+    }
+  };
+
+  lines.forEach((line) => {
+    const match = line.match(LIST_ITEM_PATTERN);
+    if (!match) {
+      return;
+    }
+
+    const [, indent, marker, rawContent] = match;
+    const level = getIndentLevel(indent);
+    const tag = getListTag(marker);
+    const content = escapeHtml(rawContent);
+
+    while (stack.length > 0 && stack[stack.length - 1].level > level) {
+      closeList();
+    }
+
+    if (stack.length === 0 || stack[stack.length - 1].level < level) {
+      stack.push({ tag, level });
+      html.push(`<${tag}><li>${content}`);
+      return;
+    }
+
+    if (stack[stack.length - 1].tag !== tag) {
+      closeList();
+      stack.push({ tag, level });
+      html.push(`<${tag}><li>${content}`);
+      return;
+    }
+
+    html.push(`</li><li>${content}`);
+  });
+
+  while (stack.length > 0) {
+    closeList();
+  }
+
+  return html.join("");
+};
+
+const normalizePlainTextToHtml = (content: string): string => {
+  return content
+    .replace(/\r\n/g, "\n")
+    .split(/\n{2,}/)
+    .map((block) => block.replace(/^\n+|\n+$/g, ""))
+    .filter((block) => block.length > 0)
+    .map((block) => {
+      const lines = block.split("\n").filter((line) => line.trim().length > 0);
+
+      if (isListBlock(lines)) {
+        return renderListHtml(lines);
+      }
+
+      return `<p>${escapeHtml(block).replace(/\n/g, "<br />")}</p>`;
+    })
+    .join("");
+};
+
+export const normalizeRichTextContent = (content: unknown): string => {
+  if (typeof content !== "string") {
+    return "";
+  }
+
+  const trimmedContent = content.trim();
+  if (!trimmedContent) {
+    return "";
+  }
+
+  if (HTML_TAG_PATTERN.test(trimmedContent)) {
+    return content;
+  }
+
+  return normalizePlainTextToHtml(content);
+};
 
 const normalizeContentBlockType = (type: unknown): ContentBlockType => {
   return typeof type === "string" && VALID_CONTENT_BLOCK_TYPES.has(type as ContentBlockType)
@@ -128,6 +239,8 @@ export const createDefaultContentBlock = (type: ContentBlockType, id: string): C
       return { ...base, language: "javascript" };
     case "video":
       return { ...base, videoUrl: "" };
+    case "document":
+      return { ...base, title: "", documentUrl: "", allowLearnerUpload: false, learnerUploadInstructions: "" };
     case "quiz":
       return {
         ...base,
@@ -149,6 +262,30 @@ export const normalizeContentBlock = (block: Partial<ContentBlock>, index = 0): 
   const id = typeof block.id === "string" && block.id.trim() ? block.id : `content-block-${index + 1}`;
 
   if (type !== "quiz") {
+    if (type === "text") {
+      return {
+        ...block,
+        id,
+        type,
+        title: typeof block.title === "string" ? block.title : "",
+        content: normalizeRichTextContent(block.content),
+      } as ContentBlock;
+    }
+
+    if (type === "document") {
+      return {
+        ...block,
+        id,
+        type,
+        title: typeof block.title === "string" ? block.title : "",
+        content: typeof block.content === "string" ? block.content : "",
+        documentUrl: typeof block.documentUrl === "string" ? block.documentUrl : "",
+        allowLearnerUpload: Boolean(block.allowLearnerUpload),
+        learnerUploadInstructions:
+          typeof block.learnerUploadInstructions === "string" ? block.learnerUploadInstructions : "",
+      } as ContentBlock;
+    }
+
     return {
       ...block,
       id,
@@ -202,11 +339,11 @@ export const parseModuleContentBlocks = (content?: string | null): ContentBlock[
     }
   } catch {
     return [
-      {
+      normalizeContentBlock({
         id: "content-block-1",
         type: "text",
         content,
-      },
+      }),
     ];
   }
 

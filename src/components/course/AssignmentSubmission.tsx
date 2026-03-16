@@ -1,17 +1,26 @@
-import { useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Upload, File, X, CheckCircle2, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
-import { validatorService } from "@/services/validatorService";
 import { supabase } from "@/lib/supabase";
+import { SUBMISSIONS_BUCKET } from "@/lib/submissionFiles";
 
 interface AssignmentSubmissionProps {
   enrollmentId: string;
   moduleId: string;
   courseId: string;
+  defaultTitle?: string;
+  titleLabel?: string;
+  titlePlaceholder?: string;
+  descriptionLabel?: string;
+  descriptionPlaceholder?: string;
+  submitLabel?: string;
+  successMessage?: string;
+  metadata?: Record<string, unknown>;
+  onSubmitted?: () => void | Promise<void>;
 }
 
 interface FileWithPreview {
@@ -24,12 +33,28 @@ const AssignmentSubmission = ({
   enrollmentId,
   moduleId,
   courseId,
+  defaultTitle,
+  titleLabel = "Assignment Title *",
+  titlePlaceholder = "Enter assignment title",
+  descriptionLabel = "Description",
+  descriptionPlaceholder = "Enter assignment description or notes",
+  submitLabel = "Submit Assignment",
+  successMessage = "Assignment submitted successfully! It will be reviewed by a validator.",
+  metadata,
+  onSubmitted,
 }: AssignmentSubmissionProps) => {
-  const [title, setTitle] = useState("");
+  const [title, setTitle] = useState(defaultTitle || "");
   const [description, setDescription] = useState("");
   const [files, setFiles] = useState<FileWithPreview[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submissionStatus, setSubmissionStatus] = useState<"idle" | "success" | "error">("idle");
+  const fileUploadId = useId();
+  const titleFieldId = useId();
+  const descriptionFieldId = useId();
+
+  useEffect(() => {
+    setTitle(defaultTitle || "");
+  }, [defaultTitle]);
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFiles = Array.from(e.target.files || []);
@@ -82,22 +107,32 @@ const AssignmentSubmission = ({
       return;
     }
 
+    if (files.length === 0) {
+      toast.error("Please upload at least one file before submitting.");
+      return;
+    }
+
     setIsSubmitting(true);
     setSubmissionStatus("idle");
 
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        throw new Error("User not authenticated");
+      }
+
       // Upload files to Supabase Storage
-      const uploadedFiles: Array<{ url: string; name: string; type?: string }> = [];
+      const uploadedFiles: Array<{ url: string; path: string; name: string; type?: string; size?: number | null }> = [];
 
       for (const fileWithPreview of files) {
         const file = fileWithPreview.file;
         const fileExt = file.name.split(".").pop();
         const fileName = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}.${fileExt}`;
-        const filePath = `submissions/${enrollmentId}/${fileName}`;
+        const filePath = `${user.id}/${enrollmentId}/${moduleId}/${fileName}`;
 
         // Upload to Supabase Storage
-        const { data: uploadData, error: uploadError } = await supabase.storage
-          .from("submissions")
+        const { error: uploadError } = await supabase.storage
+          .from(SUBMISSIONS_BUCKET)
           .upload(filePath, file, {
             cacheControl: "3600",
             upsert: false,
@@ -105,25 +140,16 @@ const AssignmentSubmission = ({
 
         if (uploadError) {
           console.error("Upload error:", uploadError);
-          throw new Error(`Failed to upload ${file.name}`);
+          throw new Error(uploadError.message || `Failed to upload ${file.name}`);
         }
 
-        // Get public URL
-        const { data: urlData } = supabase.storage
-          .from("submissions")
-          .getPublicUrl(filePath);
-
         uploadedFiles.push({
-          url: urlData.publicUrl,
+          url: filePath,
+          path: filePath,
           name: file.name,
           type: file.type,
+          size: file.size,
         });
-      }
-
-      // Get current user
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) {
-        throw new Error("User not authenticated");
       }
 
       // Create submission record
@@ -131,31 +157,25 @@ const AssignmentSubmission = ({
         enrollment_id: enrollmentId,
         module_id: moduleId,
         user_id: user.id,
-        title: title,
+        title: title.trim(),
         description: description || null,
         content: {
           files: uploadedFiles,
           submittedAt: new Date().toISOString(),
+          courseId,
+          ...(metadata || {}),
         },
         attachments: uploadedFiles,
         submission_type: "assignment" as const,
         status: "pending" as const,
         priority: "normal" as const,
+        file_path: uploadedFiles.length > 0 ? uploadedFiles[0].path : null,
+        submitted_at: new Date().toISOString(),
       };
 
-      // Use validatorService to create submission
-      // Note: We need to check if validatorService has a createSubmission method
-      // For now, we'll insert directly
       const { error: insertError } = await supabase
         .from("submissions")
-        .insert({
-          enrollment_id: enrollmentId,
-          module_id: moduleId,
-          user_id: user.id,
-          file_path: uploadedFiles.length > 0 ? uploadedFiles[0].url : null,
-          submitted_at: new Date().toISOString(),
-          status: "pending",
-        });
+        .insert(submissionData as any);
 
       if (insertError) {
         throw insertError;
@@ -169,7 +189,8 @@ const AssignmentSubmission = ({
       setDescription("");
       setFiles([]);
       setSubmissionStatus("success");
-      toast.success("Assignment submitted successfully!");
+      toast.success(successMessage);
+      await onSubmitted?.();
     } catch (error) {
       console.error("Error submitting assignment:", error);
       setSubmissionStatus("error");
@@ -185,25 +206,25 @@ const AssignmentSubmission = ({
       <div className="space-y-4">
         {/* Title Input */}
         <div className="space-y-2">
-          <Label htmlFor="title">Assignment Title *</Label>
+          <Label htmlFor={titleFieldId}>{titleLabel}</Label>
           <input
-            id="title"
+            id={titleFieldId}
             type="text"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            placeholder="Enter assignment title"
+            placeholder={titlePlaceholder}
             className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
           />
         </div>
 
         {/* Description Input */}
         <div className="space-y-2">
-          <Label htmlFor="description">Description</Label>
+          <Label htmlFor={descriptionFieldId}>{descriptionLabel}</Label>
           <Textarea
-            id="description"
+            id={descriptionFieldId}
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            placeholder="Enter assignment description or notes"
+            placeholder={descriptionPlaceholder}
             rows={4}
           />
         </div>
@@ -218,12 +239,12 @@ const AssignmentSubmission = ({
           >
             <input
               type="file"
-              id="file-upload"
+              id={fileUploadId}
               multiple
               onChange={handleFileSelect}
               className="hidden"
             />
-            <label htmlFor="file-upload" className="cursor-pointer">
+            <label htmlFor={fileUploadId} className="cursor-pointer">
               <Upload className="w-12 h-12 mx-auto mb-4 text-muted-foreground" />
               <p className="text-sm font-medium mb-1">
                 Drag and drop files here, or click to select
@@ -275,7 +296,7 @@ const AssignmentSubmission = ({
           ) : (
             <>
               <Upload className="w-4 h-4 mr-2" />
-              Submit Assignment
+              {submitLabel}
             </>
           )}
         </Button>
@@ -287,7 +308,7 @@ const AssignmentSubmission = ({
               <div className="flex items-center gap-2 text-green-700 dark:text-green-400">
                 <CheckCircle2 className="w-5 h-5" />
                 <p className="text-sm font-medium">
-                  Assignment submitted successfully! It will be reviewed by a validator.
+                  {successMessage}
                 </p>
               </div>
             </CardContent>

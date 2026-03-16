@@ -10,15 +10,20 @@ import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
-import { ArrowLeft, BookOpen, Loader2, MessageSquareText, Users } from "lucide-react";
+import { ArrowLeft, BookOpen, Download, ExternalLink, FileQuestion, Loader2, Search, Users } from "lucide-react";
 import { Course, Enrollment, EnrollmentProgressDetail, Module } from "@/types";
 import { User } from "@/types/auth";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import { assessmentService, type AssessmentReviewDecision, type AssessmentReviewDetail, type AssessmentReviewQueueItem } from "@/services/assessmentService";
 import { certificateService, courseService, enrollmentService, moduleCompletionService, userService } from "@/services/supabaseDatabaseService";
-import { moduleSessionService, type ModuleSession, type TrainerLearnerSessionSummary } from "@/services/moduleSessionService";
+import { moduleSessionService, type ModuleSession, type PracticeQuizSessionSummary, type TrainerLearnerSessionSummary } from "@/services/moduleSessionService";
 import { supabase } from "@/lib/supabase";
+import { submissionService } from "@/services/submissionService";
+import { PracticeQuizEssayResponse, Submission } from "@/types";
+import { createSubmissionAccessUrl, downloadSubmissionFile, getSubmissionAttachmentName } from "@/lib/submissionFiles";
+import { practiceQuizEssayReviewService } from "@/services/practiceQuizEssayReviewService";
+import { getPracticeQuizModuleReviewSummary } from "@/lib/practiceQuizReview";
 
 interface LearnerData extends User {
   enrollments: Enrollment[];
@@ -37,6 +42,8 @@ interface LearnerCourseProgress {
     timeSpent?: number;
     blockedByModuleIds: string[];
     assessments: EnrollmentProgressDetail["assessments"];
+    submissions: Submission[];
+    essayResponses: PracticeQuizEssayResponse[];
   }>;
 }
 
@@ -53,11 +60,14 @@ interface LearnerSessionInsight {
 
 interface RecentLearnerSessionCard {
   id: string;
+  courseId: string;
+  moduleId: string;
   courseTitle: string | null;
   moduleTitle: string | null;
   lastSeenAt: string;
   durationSeconds: number;
   sessionStatus: ModuleSession["sessionStatus"];
+  practiceQuizSummary: PracticeQuizSessionSummary | null;
 }
 
 const SHORT_SESSION_SECONDS = 5 * 60;
@@ -216,15 +226,62 @@ const LearnerProgressPage = () => {
   const [completionFeedback, setCompletionFeedback] = useState("");
   const [completionSubmitting, setCompletionSubmitting] = useState(false);
   const [completionTarget, setCompletionTarget] = useState<{ enrollmentId: string; courseTitle: string } | null>(null);
+  const [courseSearchTerm, setCourseSearchTerm] = useState("");
+  const [courseFilter, setCourseFilter] = useState<"all" | "needs-review" | "active" | "completed">("all");
   const portal = location.pathname.startsWith("/admin") ? "admin" : "trainer";
   const learnersRouteBase = portal === "admin" ? "/admin/learners" : "/trainer/learners";
   const assessmentReviewRouteBase = portal === "admin" ? "/admin/assessment-reviews" : "/trainer/assessment-reviews";
+  const moduleReviewRouteBase = portal === "admin" ? "/admin/module-reviews" : "/trainer/module-reviews";
 
   const completedCourses = learnerProgress.filter((item) => item.enrollment.status === "completed").length;
   const releasedCertificates = learnerProgress.filter((item) => item.certificateReleased).length;
   const averageProgress = learnerProgress.length > 0
     ? Math.round(learnerProgress.reduce((sum, item) => sum + item.enrollment.progress, 0) / learnerProgress.length)
     : 0;
+
+  const filteredLearnerProgress = useMemo(() => {
+    const normalizedQuery = courseSearchTerm.trim().toLowerCase();
+
+    return learnerProgress.filter((item) => {
+      const needsReview =
+        item.pendingReviews.some((review) => review.reviewStatus !== "approved")
+        || item.modules.some((moduleItem) =>
+          getPracticeQuizModuleReviewSummary({
+            module: moduleItem.module,
+            responses: moduleItem.essayResponses,
+          }).pendingEssayReviewCount > 0,
+        );
+      const isCompleted = item.enrollment.status === "completed" || item.enrollment.completionApprovalStatus === "approved";
+
+      if (courseFilter === "needs-review" && !needsReview) {
+        return false;
+      }
+
+      if (courseFilter === "active" && isCompleted) {
+        return false;
+      }
+
+      if (courseFilter === "completed" && !isCompleted) {
+        return false;
+      }
+
+      if (!normalizedQuery) {
+        return true;
+      }
+
+      const searchableText = [
+        item.course?.title,
+        item.course?.category,
+        ...item.modules.map((moduleItem) => moduleItem.module.title),
+        ...item.modules.flatMap((moduleItem) => moduleItem.assessments.map((assessment) => assessment.assessmentTitle)),
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+
+      return searchableText.includes(normalizedQuery);
+    });
+  }, [courseFilter, courseSearchTerm, learnerProgress]);
 
   const loadPage = async () => {
     if (!learnerId || !user) {
@@ -297,7 +354,6 @@ const LearnerProgressPage = () => {
             blockedByModuleIds: moduleEntry.blockedByModuleIds,
             assessments: (detail?.assessments || []).filter((assessment) => assessment.moduleId === moduleEntry.module.id),
           }));
-
           return {
             enrollment,
             course,
@@ -308,6 +364,38 @@ const LearnerProgressPage = () => {
           } satisfies LearnerCourseProgress;
         })
         .sort((left, right) => new Date(right.enrollment.enrolledAt).getTime() - new Date(left.enrollment.enrolledAt).getTime());
+
+      const submissionsByEnrollmentModule = new Map<string, Submission[]>();
+      const allSubmissions = await Promise.all(
+        learnerEnrollments.map((enrollment) => submissionService.getEnrollmentSubmissions(enrollment.id)),
+      );
+      const essayResponsesByEnrollmentModule = new Map<string, PracticeQuizEssayResponse[]>();
+      const allEssayResponses = await Promise.all(
+        learnerEnrollments.map((enrollment) => practiceQuizEssayReviewService.getEnrollmentResponses(enrollment.id)),
+      );
+
+      allSubmissions.flat().forEach((submission) => {
+        const enrollmentModuleKey = `${submission.enrollment_id}:${submission.module_id || ""}`;
+        const existing = submissionsByEnrollmentModule.get(enrollmentModuleKey) || [];
+        existing.push(submission);
+        submissionsByEnrollmentModule.set(enrollmentModuleKey, existing);
+      });
+
+      allEssayResponses.flat().forEach((response) => {
+        const enrollmentModuleKey = `${response.enrollment_id}:${response.module_id}`;
+        const existing = essayResponsesByEnrollmentModule.get(enrollmentModuleKey) || [];
+        existing.push(response);
+        essayResponsesByEnrollmentModule.set(enrollmentModuleKey, existing);
+      });
+
+      const progressRowsWithSubmissions = progressRows.map((item) => ({
+        ...item,
+        modules: item.modules.map((moduleItem) => ({
+          ...moduleItem,
+          submissions: submissionsByEnrollmentModule.get(`${item.enrollment.id}:${moduleItem.module.id}`) || [],
+          essayResponses: essayResponsesByEnrollmentModule.get(`${item.enrollment.id}:${moduleItem.module.id}`) || [],
+        })),
+      }));
 
       let nextInsight: LearnerSessionInsight | null = null;
       for (const summary of trainerSessionSummaries) {
@@ -344,16 +432,19 @@ const LearnerProgressPage = () => {
       }
 
       setLearner({ ...learnerProfile, enrollments: learnerEnrollments });
-      setLearnerProgress(progressRows);
+      setLearnerProgress(progressRowsWithSubmissions);
       setSelectedLearnerSessionSummaries(Object.fromEntries(trainerSessionSummaries.map((summary) => [summary.courseId, summary])));
       setSelectedLearnerRecentSessions(
         recentSessions.map((session) => ({
           id: session.id,
+          courseId: session.courseId,
+          moduleId: session.moduleId,
           courseTitle: courseLookup.get(session.courseId)?.title || null,
           moduleTitle: (modulesByCourse.get(session.courseId) || []).find((module) => module.id === session.moduleId)?.title || null,
           lastSeenAt: session.lastSeenAt,
           durationSeconds: session.durationSeconds,
           sessionStatus: session.sessionStatus,
+          practiceQuizSummary: moduleSessionService.getPracticeQuizSummaryFromMetadata(session.metadata),
         })),
       );
       setLearnerSessionInsight(nextInsight);
@@ -376,6 +467,29 @@ const LearnerProgressPage = () => {
 
   const refreshPage = async () => {
     await loadPage();
+  };
+
+  const handleViewSubmission = async (filePath?: string | null) => {
+    try {
+      const accessUrl = await createSubmissionAccessUrl(filePath);
+      if (!accessUrl) {
+        throw new Error("No file available.");
+      }
+
+      window.open(accessUrl, "_blank", "noopener,noreferrer");
+    } catch (error) {
+      console.error("Error opening submission:", error);
+      toast.error("Failed to open learner file");
+    }
+  };
+
+  const handleDownloadSubmission = async (filePath?: string | null) => {
+    try {
+      await downloadSubmissionFile(filePath, getSubmissionAttachmentName(filePath));
+    } catch (error) {
+      console.error("Error downloading submission:", error);
+      toast.error("Failed to download learner file");
+    }
   };
 
   const handleOpenReview = async (reviewItem: AssessmentReviewQueueItem) => {
@@ -631,6 +745,27 @@ const LearnerProgressPage = () => {
                           </div>
                         </div>
                         <p className="mt-2 text-xs text-muted-foreground">Last opened {formatRelativeActivity(session.lastSeenAt)}</p>
+                        {session.practiceQuizSummary ? (
+                          <div className="mt-3 rounded-lg border border-dashed bg-muted/20 p-3 text-sm">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <FileQuestion className="h-4 w-4 text-muted-foreground" />
+                              <p className="font-medium">Practice quiz snapshot</p>
+                              <Badge variant="outline">
+                                {session.practiceQuizSummary.earnedPoints} / {session.practiceQuizSummary.totalPoints} pts
+                              </Badge>
+                              <Badge variant="secondary">
+                                {session.practiceQuizSummary.percentageScore !== null ? `${session.practiceQuizSummary.percentageScore}%` : "No auto-score"}
+                              </Badge>
+                            </div>
+                            <p className="mt-2 text-xs text-muted-foreground">
+                              Auto-scored {session.practiceQuizSummary.correctQuestions} / {session.practiceQuizSummary.submittedQuestions}
+                              {session.practiceQuizSummary.essayQuestionCount > 0
+                                ? ` • Essay reflections ${session.practiceQuizSummary.essayAnsweredCount} / ${session.practiceQuizSummary.essayQuestionCount}`
+                                : ""}
+                              {` • Updated ${formatRelativeActivity(session.practiceQuizSummary.updatedAt)}`}
+                            </p>
+                          </div>
+                        ) : null}
                       </div>
                     ))
                   ) : (
@@ -644,7 +779,7 @@ const LearnerProgressPage = () => {
                   <CardTitle className="text-base">Course Overview</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-3">
-                  {learnerProgress.map((item) => (
+                  {filteredLearnerProgress.map((item) => (
                     <div key={item.enrollment.id} className="rounded-lg border p-3 text-sm">
                       <div className="flex flex-wrap items-start justify-between gap-2">
                         <div>
@@ -662,7 +797,35 @@ const LearnerProgressPage = () => {
             </div>
 
             <div className="space-y-4">
-              {learnerProgress.map((item) => (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Review Workspace</CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                    <div className="relative w-full lg:max-w-md">
+                      <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                      <Input
+                        value={courseSearchTerm}
+                        onChange={(event) => setCourseSearchTerm(event.target.value)}
+                        placeholder="Search courses, modules, or assessments"
+                        className="pl-9"
+                      />
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Button variant={courseFilter === "all" ? "default" : "outline"} size="sm" onClick={() => setCourseFilter("all")}>All</Button>
+                      <Button variant={courseFilter === "needs-review" ? "default" : "outline"} size="sm" onClick={() => setCourseFilter("needs-review")}>Needs Review</Button>
+                      <Button variant={courseFilter === "active" ? "default" : "outline"} size="sm" onClick={() => setCourseFilter("active")}>Active</Button>
+                      <Button variant={courseFilter === "completed" ? "default" : "outline"} size="sm" onClick={() => setCourseFilter("completed")}>Completed</Button>
+                    </div>
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    Assessment reviews stay on the dedicated assessment review page. Module reviews now open a dedicated workspace for formative practice-quiz essays.
+                  </p>
+                </CardContent>
+              </Card>
+
+              {filteredLearnerProgress.map((item) => (
                 <Card key={item.enrollment.id}>
                   <CardHeader>
                     <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
@@ -806,6 +969,15 @@ const LearnerProgressPage = () => {
                         const actionKey = `${item.enrollment.id}:${moduleItem.module.id}`;
                         const moduleReviews = item.pendingReviews.filter((review) => review.moduleId === moduleItem.module.id);
                         const hasPendingManualScore = moduleItem.assessments.some((assessment) => assessment.requiresManualReview && assessment.score === undefined);
+                        const latestModuleSession = selectedLearnerRecentSessions.find(
+                          (session) => session.courseId === item.enrollment.courseId && session.moduleId === moduleItem.module.id,
+                        );
+                        const modulePracticeReview = getPracticeQuizModuleReviewSummary({
+                          module: moduleItem.module,
+                          responses: moduleItem.essayResponses,
+                          latestPracticeQuizSummary: latestModuleSession?.practiceQuizSummary || moduleItem.practiceQuizSnapshot?.summary || null,
+                        });
+                        const showModuleReviewLink = modulePracticeReview.essayQuestionCount > 0;
 
                         return (
                           <AccordionItem key={moduleItem.module.id} value={moduleItem.module.id} className="rounded-lg border px-4">
@@ -871,6 +1043,82 @@ const LearnerProgressPage = () => {
                                       >
                                         Review Assessment
                                       </Button>
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : null}
+
+                              {showModuleReviewLink ? (
+                                <div className="space-y-3">
+                                  <div className="rounded-2xl border bg-muted/20 p-4 text-sm">
+                                    <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                                      <div>
+                                        <p className="font-medium">Module review workspace</p>
+                                        <p className="mt-1 text-muted-foreground">
+                                          Practice-quiz essay reviews live on a separate page so module feedback stays distinct from graded assessment reviews.
+                                        </p>
+                                      </div>
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        onClick={() => navigate(`${moduleReviewRouteBase}/${item.enrollment.id}/${moduleItem.module.id}?learnerId=${learnerId}`)}
+                                      >
+                                        Open Module Review
+                                      </Button>
+                                    </div>
+                                    <div className="mt-4 grid gap-3 md:grid-cols-4">
+                                      <div className="rounded-lg border bg-background p-3">
+                                        <p className="text-muted-foreground">Essay coverage</p>
+                                        <p className="mt-1 font-medium">{modulePracticeReview.essayAnsweredCount} / {modulePracticeReview.essayQuestionCount}</p>
+                                      </div>
+                                      <div className="rounded-lg border bg-background p-3">
+                                        <p className="text-muted-foreground">Manual scoring</p>
+                                        <p className="mt-1 font-medium">{modulePracticeReview.essayReviewedCount} reviewed</p>
+                                      </div>
+                                      <div className="rounded-lg border bg-background p-3">
+                                        <p className="text-muted-foreground">Essay points</p>
+                                        <p className="mt-1 font-medium">{modulePracticeReview.essayAwardedPoints} / {modulePracticeReview.essayTotalPoints}</p>
+                                      </div>
+                                      <div className="rounded-lg border bg-background p-3">
+                                        <p className="text-muted-foreground">Combined formative score</p>
+                                        <p className="mt-1 font-medium">
+                                          {modulePracticeReview.combinedEarnedPoints != null
+                                            ? `${modulePracticeReview.combinedEarnedPoints} / ${modulePracticeReview.combinedTotalPoints}`
+                                            : "Awaiting objective auto-score"}
+                                        </p>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              ) : null}
+
+                              {moduleItem.submissions.length > 0 ? (
+                                <div className="space-y-2">
+                                  <p className="text-sm font-medium">Learner uploads</p>
+                                  {moduleItem.submissions.map((submission) => (
+                                    <div key={submission.id} className="rounded-lg border p-3 text-sm">
+                                      <div className="flex flex-wrap items-start justify-between gap-2">
+                                        <div>
+                                          <p className="font-medium">{submission.title}</p>
+                                          <p className="text-xs text-muted-foreground">
+                                            Submitted {new Date(submission.submitted_at).toLocaleString()} • {submission.status.replace(/_/g, " ")}
+                                          </p>
+                                        </div>
+                                        <Badge variant="outline">{submission.submission_type}</Badge>
+                                      </div>
+                                      {submission.description ? (
+                                        <p className="mt-2 text-xs text-muted-foreground">{submission.description}</p>
+                                      ) : null}
+                                      <div className="mt-3 flex flex-wrap gap-2">
+                                        <Button variant="outline" size="sm" onClick={() => void handleViewSubmission(submission.file_path)}>
+                                          <ExternalLink className="mr-2 h-4 w-4" />
+                                          View File
+                                        </Button>
+                                        <Button variant="outline" size="sm" onClick={() => void handleDownloadSubmission(submission.file_path)}>
+                                          <Download className="mr-2 h-4 w-4" />
+                                          Download File
+                                        </Button>
+                                      </div>
                                     </div>
                                   ))}
                                 </div>

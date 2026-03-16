@@ -1,8 +1,10 @@
+import { useEffect, useRef, type MouseEvent } from "react";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import CodeBlockLowlight from "@tiptap/extension-code-block-lowlight";
 import Image from "@tiptap/extension-image";
 import Link from "@tiptap/extension-link";
+import Underline from "@tiptap/extension-underline";
 import { createLowlight } from "lowlight";
 import javascript from "highlight.js/lib/languages/javascript";
 import typescript from "highlight.js/lib/languages/typescript";
@@ -48,6 +50,7 @@ import { Button } from "@/components/ui/button";
 import {
   Bold,
   Italic,
+  Underline as UnderlineIcon,
   List,
   ListOrdered,
   Code,
@@ -71,6 +74,13 @@ interface RichTextEditorProps {
 }
 
 export const RichTextEditor = ({ content, onChange, placeholder, className }: RichTextEditorProps) => {
+  const onChangeRef = useRef(onChange);
+  const isApplyingExternalContentRef = useRef(false);
+
+  useEffect(() => {
+    onChangeRef.current = onChange;
+  }, [onChange]);
+
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
@@ -90,25 +100,54 @@ export const RichTextEditor = ({ content, onChange, placeholder, className }: Ri
           class: "text-primary underline",
         },
       }),
+      Underline,
     ],
     content,
     onUpdate: ({ editor }) => {
-      onChange(editor.getHTML());
+      if (isApplyingExternalContentRef.current) {
+        return;
+      }
+
+      const html = editor.getHTML();
+      onChangeRef.current(html === "<p></p>" ? "" : html);
     },
     editorProps: {
       attributes: {
         class: cn(
           "prose prose-sm sm:prose-base lg:prose-lg xl:prose-2xl mx-auto focus:outline-none min-h-[300px] p-4",
           "prose-headings:font-semibold",
+          "prose-ul:my-4 prose-ul:list-disc prose-ul:pl-6",
+          "prose-ol:my-4 prose-ol:list-decimal prose-ol:pl-6",
+          "prose-li:my-1 prose-li:leading-7",
           "prose-code:bg-muted prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:text-sm",
           "prose-pre:bg-muted prose-pre:p-4 prose-pre:rounded-lg",
           "prose-img:rounded-lg prose-img:shadow-md",
+          "[&_ul_ul]:my-2 [&_ul_ul]:list-[circle] [&_ul_ul]:pl-6",
+          "[&_ol_ol]:my-2 [&_ol_ol]:list-[lower-alpha] [&_ol_ol]:pl-6",
+          "[&_ol_ul]:my-2 [&_ol_ul]:list-disc [&_ol_ul]:pl-6",
+          "[&_ul_ol]:my-2 [&_ul_ol]:list-decimal [&_ul_ol]:pl-6",
+          "[&_p:empty]:block [&_p:empty]:h-6",
           className
         ),
         "data-placeholder": placeholder || "Start typing your content here... e.g., Introduction to JavaScript",
       },
     },
   });
+
+  useEffect(() => {
+    if (!editor || editor.isDestroyed) {
+      return;
+    }
+
+    const nextContent = content?.trim() ? content : "<p></p>";
+    if (editor.getHTML() !== nextContent) {
+      isApplyingExternalContentRef.current = true;
+      editor.commands.setContent(nextContent, false);
+      queueMicrotask(() => {
+        isApplyingExternalContentRef.current = false;
+      });
+    }
+  }, [content, editor]);
 
   if (!editor) {
     return null;
@@ -128,13 +167,23 @@ export const RichTextEditor = ({ content, onChange, placeholder, className }: Ri
     }
   };
 
+  const preventToolbarMouseDown = (event: MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+  };
+
+  const runToolbarCommand = (command: () => boolean) => (event: MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    command();
+  };
+
   return (
     <div className={cn("border rounded-lg overflow-hidden w-full min-w-0", className)}>
       {/* Toolbar */}
       <div className="border-b bg-muted/50 p-2 flex flex-wrap items-center gap-1">
         <Toggle
           pressed={editor.isActive("heading", { level: 1 })}
-          onPressedChange={() => editor.chain().focus().toggleHeading({ level: 1 }).run()}
+          onMouseDown={preventToolbarMouseDown}
+          onClick={runToolbarCommand(() => editor.chain().focus().toggleHeading({ level: 1 }).run())}
           size="sm"
           aria-label="Heading 1"
         >
@@ -142,7 +191,8 @@ export const RichTextEditor = ({ content, onChange, placeholder, className }: Ri
         </Toggle>
         <Toggle
           pressed={editor.isActive("heading", { level: 2 })}
-          onPressedChange={() => editor.chain().focus().toggleHeading({ level: 2 }).run()}
+          onMouseDown={preventToolbarMouseDown}
+          onClick={runToolbarCommand(() => editor.chain().focus().toggleHeading({ level: 2 }).run())}
           size="sm"
           aria-label="Heading 2"
         >
@@ -151,7 +201,8 @@ export const RichTextEditor = ({ content, onChange, placeholder, className }: Ri
         <Separator orientation="vertical" className="h-6" />
         <Toggle
           pressed={editor.isActive("bold")}
-          onPressedChange={() => editor.chain().focus().toggleBold().run()}
+          onMouseDown={preventToolbarMouseDown}
+          onClick={runToolbarCommand(() => editor.chain().focus().toggleBold().run())}
           size="sm"
           aria-label="Bold"
         >
@@ -159,15 +210,26 @@ export const RichTextEditor = ({ content, onChange, placeholder, className }: Ri
         </Toggle>
         <Toggle
           pressed={editor.isActive("italic")}
-          onPressedChange={() => editor.chain().focus().toggleItalic().run()}
+          onMouseDown={preventToolbarMouseDown}
+          onClick={runToolbarCommand(() => editor.chain().focus().toggleItalic().run())}
           size="sm"
           aria-label="Italic"
         >
           <Italic className="w-4 h-4" />
         </Toggle>
         <Toggle
+          pressed={editor.isActive("underline")}
+          onMouseDown={preventToolbarMouseDown}
+          onClick={runToolbarCommand(() => editor.chain().focus().toggleUnderline().run())}
+          size="sm"
+          aria-label="Underline"
+        >
+          <UnderlineIcon className="w-4 h-4" />
+        </Toggle>
+        <Toggle
           pressed={editor.isActive("code")}
-          onPressedChange={() => editor.chain().focus().toggleCode().run()}
+          onMouseDown={preventToolbarMouseDown}
+          onClick={runToolbarCommand(() => editor.chain().focus().toggleCode().run())}
           size="sm"
           aria-label="Inline Code"
         >
@@ -176,7 +238,8 @@ export const RichTextEditor = ({ content, onChange, placeholder, className }: Ri
         <Separator orientation="vertical" className="h-6" />
         <Toggle
           pressed={editor.isActive("bulletList")}
-          onPressedChange={() => editor.chain().focus().toggleBulletList().run()}
+          onMouseDown={preventToolbarMouseDown}
+          onClick={runToolbarCommand(() => editor.chain().focus().toggleBulletList().run())}
           size="sm"
           aria-label="Bullet List"
         >
@@ -184,7 +247,8 @@ export const RichTextEditor = ({ content, onChange, placeholder, className }: Ri
         </Toggle>
         <Toggle
           pressed={editor.isActive("orderedList")}
-          onPressedChange={() => editor.chain().focus().toggleOrderedList().run()}
+          onMouseDown={preventToolbarMouseDown}
+          onClick={runToolbarCommand(() => editor.chain().focus().toggleOrderedList().run())}
           size="sm"
           aria-label="Ordered List"
         >
@@ -192,7 +256,8 @@ export const RichTextEditor = ({ content, onChange, placeholder, className }: Ri
         </Toggle>
         <Toggle
           pressed={editor.isActive("blockquote")}
-          onPressedChange={() => editor.chain().focus().toggleBlockquote().run()}
+          onMouseDown={preventToolbarMouseDown}
+          onClick={runToolbarCommand(() => editor.chain().focus().toggleBlockquote().run())}
           size="sm"
           aria-label="Quote"
         >
@@ -203,17 +268,24 @@ export const RichTextEditor = ({ content, onChange, placeholder, className }: Ri
           type="button"
           variant="ghost"
           size="sm"
-          onClick={() => editor.chain().focus().toggleCodeBlock().run()}
+          onMouseDown={preventToolbarMouseDown}
+          onClick={runToolbarCommand(() => editor.chain().focus().toggleCodeBlock().run())}
           className={editor.isActive("codeBlock") ? "bg-muted" : ""}
         >
           <Code className="w-4 h-4 mr-1" />
           Code Block
         </Button>
-        <Button type="button" variant="ghost" size="sm" onClick={addImage}>
+        <Button type="button" variant="ghost" size="sm" onMouseDown={preventToolbarMouseDown} onClick={runToolbarCommand(() => {
+          addImage();
+          return true;
+        })}>
           <ImageIcon className="w-4 h-4 mr-1" />
           Image
         </Button>
-        <Button type="button" variant="ghost" size="sm" onClick={addLink}>
+        <Button type="button" variant="ghost" size="sm" onMouseDown={preventToolbarMouseDown} onClick={runToolbarCommand(() => {
+          addLink();
+          return true;
+        })}>
           <LinkIcon className="w-4 h-4 mr-1" />
           Link
         </Button>
@@ -222,7 +294,8 @@ export const RichTextEditor = ({ content, onChange, placeholder, className }: Ri
           type="button"
           variant="ghost"
           size="sm"
-          onClick={() => editor.chain().focus().undo().run()}
+          onMouseDown={preventToolbarMouseDown}
+          onClick={runToolbarCommand(() => editor.chain().focus().undo().run())}
           disabled={!editor.can().undo()}
         >
           <Undo className="w-4 h-4" />
@@ -231,7 +304,8 @@ export const RichTextEditor = ({ content, onChange, placeholder, className }: Ri
           type="button"
           variant="ghost"
           size="sm"
-          onClick={() => editor.chain().focus().redo().run()}
+          onMouseDown={preventToolbarMouseDown}
+          onClick={runToolbarCommand(() => editor.chain().focus().redo().run())}
           disabled={!editor.can().redo()}
         >
           <Redo className="w-4 h-4" />

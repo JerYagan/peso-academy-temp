@@ -64,6 +64,19 @@ export interface AdminRecentSessionSummary {
   latestSessionStatus: ModuleSessionStatus;
 }
 
+export interface PracticeQuizSessionSummary {
+  totalQuestions: number;
+  scoredQuestions: number;
+  submittedQuestions: number;
+  correctQuestions: number;
+  totalPoints: number;
+  earnedPoints: number;
+  percentageScore: number | null;
+  essayQuestionCount: number;
+  essayAnsweredCount: number;
+  updatedAt: string;
+}
+
 type StartSessionInput = {
   userId: string;
   enrollmentId: string;
@@ -99,6 +112,65 @@ type SessionRow = {
 
 export const MODULE_SESSION_HEARTBEAT_MS = 60 * 1000;
 export const MODULE_SESSION_STALE_MINUTES = 15;
+const PRACTICE_QUIZ_SUMMARY_METADATA_KEY = "practiceQuizSummary";
+
+const parseOptionalNumber = (value: unknown): number | null => {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  return null;
+};
+
+const normalizePracticeQuizSummary = (value: unknown): PracticeQuizSessionSummary | null => {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const source = value as Record<string, unknown>;
+  const updatedAt = typeof source.updatedAt === "string" && source.updatedAt.trim() ? source.updatedAt : null;
+  const totalQuestions = parseOptionalNumber(source.totalQuestions);
+  const scoredQuestions = parseOptionalNumber(source.scoredQuestions);
+  const submittedQuestions = parseOptionalNumber(source.submittedQuestions);
+  const correctQuestions = parseOptionalNumber(source.correctQuestions);
+  const totalPoints = parseOptionalNumber(source.totalPoints);
+  const earnedPoints = parseOptionalNumber(source.earnedPoints);
+  const percentageScore = source.percentageScore === null ? null : parseOptionalNumber(source.percentageScore);
+  const essayQuestionCount = parseOptionalNumber(source.essayQuestionCount);
+  const essayAnsweredCount = parseOptionalNumber(source.essayAnsweredCount);
+
+  if (
+    !updatedAt
+    || totalQuestions === null
+    || scoredQuestions === null
+    || submittedQuestions === null
+    || correctQuestions === null
+    || totalPoints === null
+    || earnedPoints === null
+    || essayQuestionCount === null
+    || essayAnsweredCount === null
+  ) {
+    return null;
+  }
+
+  return {
+    totalQuestions,
+    scoredQuestions,
+    submittedQuestions,
+    correctQuestions,
+    totalPoints,
+    earnedPoints,
+    percentageScore,
+    essayQuestionCount,
+    essayAnsweredCount,
+    updatedAt,
+  };
+};
 
 const isTransientModuleSessionError = (error: unknown) => {
   const message = [
@@ -374,6 +446,25 @@ const summarizeAdminRecentSessions = async (sessions: ModuleSession[]): Promise<
 };
 
 export const moduleSessionService = {
+  getPracticeQuizSummaryFromMetadata: (metadata: Record<string, unknown> | null | undefined) => {
+    if (!metadata) {
+      return null;
+    }
+
+    return normalizePracticeQuizSummary(metadata[PRACTICE_QUIZ_SUMMARY_METADATA_KEY]);
+  },
+
+  withPracticeQuizSummaryMetadata: (
+    metadata: Record<string, unknown> | null | undefined,
+    summary: Omit<PracticeQuizSessionSummary, "updatedAt">
+  ): Record<string, unknown> => ({
+    ...(metadata || {}),
+    [PRACTICE_QUIZ_SUMMARY_METADATA_KEY]: {
+      ...summary,
+      updatedAt: new Date().toISOString(),
+    },
+  }),
+
   startSession: async ({
     userId,
     enrollmentId,
@@ -473,6 +564,7 @@ export const moduleSessionService = {
     sessionId: string,
     durationSeconds: number,
     resumePositionSeconds?: number,
+    metadata?: Record<string, unknown>,
   ): Promise<void> => {
     if (!supabase) {
       return;
@@ -485,6 +577,10 @@ export const moduleSessionService = {
 
     if (typeof resumePositionSeconds === "number") {
       payload.resume_position_seconds = Math.max(0, Math.floor(resumePositionSeconds));
+    }
+
+    if (metadata) {
+      payload.metadata = metadata;
     }
 
     const { data, error } = await supabase
@@ -506,6 +602,7 @@ export const moduleSessionService = {
     durationSeconds: number,
     status: Exclude<ModuleSessionStatus, "active">,
     resumePositionSeconds?: number,
+    metadata?: Record<string, unknown>,
   ): Promise<void> => {
     if (!supabase) {
       return;
@@ -521,6 +618,10 @@ export const moduleSessionService = {
 
     if (typeof resumePositionSeconds === "number") {
       payload.resume_position_seconds = Math.max(0, Math.floor(resumePositionSeconds));
+    }
+
+    if (metadata) {
+      payload.metadata = metadata;
     }
 
     const { data, error } = await supabase

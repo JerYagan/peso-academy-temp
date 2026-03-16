@@ -596,3 +596,143 @@ System should display criteria for email and password
 you had multiple API Request for a simple adding of new user
 
 Website shouldn't refresh when you do certain actions, like creating a new user, it should just update the list of users without refreshing the whole page. Right now, when you create a new user, it signs up again, reloads the list of users, creates the user, and then reloads the list again with the new user added. This is inefficient and can be improved by just updating the list after the user is created without refreshing the entire page.
+
+### Phase 6: Browse and Module Continuity Improvements
+
+#### Browse Courses and Recommendation State Sync
+- [x] Keep enrollment state synchronized between the recommended courses section and the main browse course list when they reference the same course.
+- [x] Update both surfaces immediately after enroll, unenroll, or enrollment-status refresh actions without requiring a page reload.
+- [x] Normalize browse and recommendation course cards to consume the same enrollment-status source of truth so labels such as `Enroll`, `Enrolled`, or any disabled state do not drift.
+- [x] Confirm recommendation cards still preserve recommendation-specific metadata while reusing shared status state.
+
+Implementation notes
+- Use a shared enrollment state store or shared query cache for browse and recommendation data instead of maintaining separate local status maps per section.
+- Prefer optimistic updates only if the rollback path is already reliable; otherwise refetch the affected course enrollment state once and fan it out to both lists.
+- Check whether recommendations and browse results currently use different course DTO shapes, because a shape mismatch is a common reason the same course renders conflicting state.
+
+Implementation status on March 16, 2026
+- Updated `src/pages/Courses.tsx` so the browse grid, recommendation strip, and preview dialog now all derive their primary course action from the same `enrollmentByCourseId` state.
+- Removed the recommendation-only filter that excluded enrolled courses from the browse recommendation strip, so recommended cards for the same course now stay visible and switch to the enrolled continue-learning state instead of drifting.
+- Added enrolled/completed status badges to recommendation cards while preserving recommendation-specific reason badges and layout.
+- Validation result: targeted editor diagnostics were clean, and `npm run build` completed successfully. Existing bundle-size warnings remain unchanged.
+
+Verification
+- [ ] Enrolling from the browse list updates the matching recommended course card to `Enrolled` immediately.
+- [ ] Enrolling from the recommendation card updates the matching browse list card immediately.
+- [ ] Refreshing the page preserves the correct enrollment state in both sections.
+
+#### Practice Quiz Interaction Improvements
+- [x] Disable quiz answer inputs after the learner selects an answer, and keep them disabled until the learner clicks `Retry Quiz`.
+- [x] Add a `Submit Answer` action so selecting an option does not immediately reveal correctness.
+- [x] Reveal correct and incorrect feedback only after the learner explicitly submits the selected answer.
+- [x] Keep `Retry Quiz` behavior available for unlimited practice attempts without affecting graded assessment logic.
+
+Implementation notes
+- Separate quiz interaction into three explicit states: `selection_in_progress`, `submitted`, and `retry_ready`, so the UI does not depend on implicit side effects from option clicks.
+- Store the learner's current selection independently from the submitted answer so the system can disable inputs after selection while still waiting for confirmation.
+- Reconfirm that these inline quiz blocks remain formative-only and do not accidentally write assessment-attempt records or analytics scores.
+
+Implementation status on March 16, 2026
+- Updated `src/components/course/ModuleContentViewer.tsx` so practice quiz radio options now store a locked selection first, then wait for an explicit `Submit Answer` action before grading feedback is shown.
+- Split learner practice quiz state into separate selection, submitted-answer, and result maps so correctness is no longer inferred directly from option clicks.
+- Kept the existing bottom-of-module `Retry Quiz` workflow intact while expanding it to clear both pending selections and submitted practice quiz results for unlimited retries.
+- Kept the interaction fully local to the learner module viewer, which preserves the formative-only behavior and does not write any assessment-attempt or analytics records.
+- Validation result: targeted editor diagnostics were clean, and `npm run build` completed successfully. Existing bundle-size warnings remain unchanged.
+
+Verification
+- [ ] Selecting an answer disables the radio buttons but does not yet show whether the answer is correct.
+- [ ] Clicking `Submit Answer` reveals the result and keeps the question locked.
+- [ ] Clicking `Retry Quiz` clears the prior selection, re-enables interaction, and allows another attempt.
+
+#### Course Page Performance Optimization
+- [x] Audit slow course and module page paths, especially for courses with many modules, large content payloads, or multiple embedded assets.
+- [x] Reduce initial course page payload by deferring non-critical module content until the learner opens or navigates into the relevant module.
+- [x] Apply lazy loading for heavy content blocks such as videos, embedded media, large documents, and long module content trees where appropriate.
+- [x] Review current data fetching so repeated course, enrollment, and module requests are deduplicated or cached instead of refetched unnecessarily.
+
+Implementation notes
+- Profile both network and render costs before changing behavior so the bottleneck is clear; the root issue may be oversized content payloads, repeated Supabase calls, or expensive React rendering.
+- Favor progressive loading for module content over a single up-front fetch of every module body in a course.
+- Check whether recommendation, progress, and course-detail panels are triggering overlapping queries that can be consolidated.
+
+Implementation status on March 16, 2026
+- Audited `src/pages/CourseDetail.tsx` and confirmed the route already uses `moduleService.getModulesByCourseSummary(...)` plus the existing module-by-id cache, so the main remaining cost was eager hydration and eager loading of heavyweight viewer components.
+- Updated `src/pages/CourseDetail.tsx` so the course shell now renders from summary module data first, while full module hydration is deferred into a post-render effect for the currently selected module instead of being kicked off inline during the initial course loader.
+- Lazy-loaded `ModuleContentViewer` and `AssessmentInterface` behind route-level `Suspense` fallbacks so the course detail page does not need to load the full module-content tree or assessment runtime before the learner reaches those surfaces.
+- Wrapped course document panels in `Suspense` fallbacks as well; `DocumentViewer` still remains in the shared bundle today because it is also imported statically by other course surfaces, but the course detail route now defers its own render cost.
+- Validation result: targeted editor diagnostics were clean, and `npm run build` completed successfully. Existing chunk-size warnings remain unchanged. The build also reported that `DocumentViewer` is still shared with other static imports, so that specific viewer was not fully split into its own chunk yet.
+
+Verification
+- [ ] Large course pages show a measurable reduction in initial loading time and time-to-interaction.
+- [ ] Opening one module does not require loading every other module's full content first.
+- [ ] Existing learner progress, enrollment checks, and media rendering still work after the optimization.
+
+#### Course Resume Position Persistence
+- [x] Save the learner's last active module or in-course position so refreshes and interruptions do not send them back to the beginning.
+- [x] Restore the saved position automatically when the learner reopens the same course, while still allowing manual navigation to a different module.
+- [x] Decide whether resume state should track only the last module or also the last content section within a module, depending on implementation complexity and UX value. Current shipped scope restores the last module first and keeps finer-grained media resume delegated to existing player-level state.
+- [x] Ensure persisted resume state does not conflict with prerequisite checks, completion state, or explicit learner navigation choices.
+
+Implementation notes
+- Persist resume state at the learner-course level in a durable store, not only in component state, so browser refreshes and device interruptions are recoverable.
+- Update the saved position on intentional navigation points rather than every render to avoid excessive writes.
+- If section-level resume is too expensive for the first pass, implement reliable module-level resume first and expand later.
+
+Implementation status on March 16, 2026
+- Updated `src/pages/CourseDetail.tsx` so enrolled learners now restore their preferred module using the priority order `requested module from navigation` -> `stored local resume module` -> `last accessed module session` -> `first accessible module`.
+- Added learner-course resume storage helpers keyed by user, enrollment, and course so the currently selected module survives refreshes even before session history is consulted.
+- Persisted resume hints only from the active learner course view and cleared them on unenroll, while still routing the final module choice through the existing prerequisite-aware `getPreferredModule(...)` selection path.
+- Kept the shipped scope at reliable module-level resume for this pass. Existing media players continue to manage their own finer-grained playback position separately.
+- Validation result: targeted editor diagnostics were clean, and `npm run build` completed successfully. Existing chunk-size warnings remain unchanged.
+
+Verification
+- [ ] Refreshing the browser while inside a course returns the learner to the last active module instead of the course start.
+- [ ] Leaving and reopening the course restores the saved position correctly.
+- [ ] Learners can still manually navigate to other modules without the resume logic forcing them back unexpectedly.
+
+#### Module Completion and Next-Step Navigation
+- [x] Replace the static `Back to Modules` primary action in the learner module view with a state-aware completion and navigation button.
+- [x] Show `Mark as Complete` when the learner is eligible to complete the current module and has not yet marked it complete.
+- [x] After the learner marks the module complete, change the action to `Continue to Next Module` when another module exists.
+- [x] If there is no next module, fall back to `Back to Modules` after completion.
+
+Implementation notes
+- Drive the button label from module completion state plus next-module availability instead of hardcoded route labels.
+- Reuse the existing manual completion flow introduced for learner-controlled progress so this change stays aligned with the current module-completion model.
+- Make sure the button transition happens only after completion state has been confirmed, especially if completion writes are asynchronous.
+
+Implementation status on March 16, 2026
+- Updated `src/pages/CourseDetail.tsx` so the learner footer now uses a single primary action that changes from `Mark as Complete` to `Continue to Next Module` after completion is confirmed, and falls back to `Back to Modules` when no next module is available.
+- Kept `Back to Modules` available as the secondary escape hatch while a module is still incomplete or while a next-step action exists, instead of leaving learners locked into one path.
+- Updated `src/components/course/ModuleContentViewer.tsx` so the module viewer now reports completion-action availability and saving state back to the page footer instead of rendering a second standalone completion card below the content.
+- Reused the existing manual `onComplete(...)` path, so the footer still triggers the same completion write, time-spent calculation, and enrollment refresh flow that was already in place for learner-controlled progress.
+- Validation result: targeted editor diagnostics were clean, and `npm run build` completed successfully. Existing chunk-size warnings remain unchanged.
+
+Verification
+- [ ] An incomplete module shows `Mark as Complete` instead of `Back to Modules`.
+- [ ] Completing a non-final module changes the action to `Continue to Next Module`.
+- [ ] Completing the final module changes the action to `Back to Modules`.
+
+#### Phase 6 Definition of Done
+- [ ] Browse and recommendation course cards always display the same enrollment state for the same learner-course pair.
+- [ ] Inline practice quizzes require explicit submission, lock after selection and submission, and reset cleanly on retry.
+- [ ] Course pages perform acceptably for large courses without loading all module content up front.
+- [x] Learners can resume where they left off after refreshes or interruptions.
+- [x] Module footer actions guide learners through completion and next-step navigation without confusing label changes.
+
+### Content Blocks
+- [ ] Text Blocks should support spacing and not just a long line of string, it should also support basic formatting like bold, italic, and underline, and also support links. This will make the content more engaging and easier to read for learners, as they can use formatting to highlight important information and include links to additional resources.
+- [ ] Document Block should have a toggle to allow learners to upload their own file
+- [ ] Verify if the trainer/admin can still review essays in the practice quiz blocks
+
+
+## Create another markdown checklist for the following:
+- There should be a scoring for the practice quizzes inside the module content, and it should be separate from the graded assessments, this is to encourage learners to use the practice quizzes for learning and not worry about getting a perfect score, while still providing them with feedback on their performance. The graded assessments can still have a separate scoring system that is more formal and contributes to the overall course completion criteria, while the practice quizzes can be more flexible and focused on formative feedback.
+
+- Make the bullet points and numbering work in module content text blocks
+
+- Also, is this implemented "the trainer/admin can still review essays in the practice quiz blocks"
+
+## Changes
+- In course creation/editing, applying numbering and bullet to a selected text doesn't work.
+- In Module Page for learner, the sidebar area is sticky but in the middle of the page, not the top, so when you scroll down, the sidebar will scroll with you but it will be in the middle of the page, not at the top

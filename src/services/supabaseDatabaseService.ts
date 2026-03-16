@@ -11,6 +11,7 @@ import {
   Module,
   Program,
   EnrollmentProgressDetail,
+  PracticeQuizCompletionSnapshot,
 } from "@/types";
 import { User, normalizeUserRole } from "@/types/auth";
 import { notificationHelpers, notificationService } from "@/services/notificationService";
@@ -57,6 +58,112 @@ type CacheEntry<T> = {
   expiresAt: number;
 };
 
+const parseOptionalPracticeQuizNumber = (value: unknown): number | null => {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  return null;
+};
+
+const normalizePracticeQuizCompletionSnapshot = (value: unknown): PracticeQuizCompletionSnapshot | undefined => {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+
+  const source = value as Record<string, unknown>;
+  const summarySource = source.summary;
+
+  if (!summarySource || typeof summarySource !== "object") {
+    return undefined;
+  }
+
+  const summaryRecord = summarySource as Record<string, unknown>;
+  const updatedAt = typeof summaryRecord.updatedAt === "string" && summaryRecord.updatedAt.trim()
+    ? summaryRecord.updatedAt
+    : null;
+  const totalQuestions = parseOptionalPracticeQuizNumber(summaryRecord.totalQuestions);
+  const scoredQuestions = parseOptionalPracticeQuizNumber(summaryRecord.scoredQuestions);
+  const submittedQuestions = parseOptionalPracticeQuizNumber(summaryRecord.submittedQuestions);
+  const correctQuestions = parseOptionalPracticeQuizNumber(summaryRecord.correctQuestions);
+  const totalPoints = parseOptionalPracticeQuizNumber(summaryRecord.totalPoints);
+  const earnedPoints = parseOptionalPracticeQuizNumber(summaryRecord.earnedPoints);
+  const percentageScore = summaryRecord.percentageScore === null ? null : parseOptionalPracticeQuizNumber(summaryRecord.percentageScore);
+  const essayQuestionCount = parseOptionalPracticeQuizNumber(summaryRecord.essayQuestionCount);
+  const essayAnsweredCount = parseOptionalPracticeQuizNumber(summaryRecord.essayAnsweredCount);
+
+  if (
+    !updatedAt
+    || totalQuestions === null
+    || scoredQuestions === null
+    || submittedQuestions === null
+    || correctQuestions === null
+    || totalPoints === null
+    || earnedPoints === null
+    || essayQuestionCount === null
+    || essayAnsweredCount === null
+  ) {
+    return undefined;
+  }
+
+  const selections = source.selections && typeof source.selections === "object"
+    ? Object.fromEntries(
+        Object.entries(source.selections as Record<string, unknown>).filter(([, selection]) => typeof selection === "string"),
+      )
+    : {};
+  const submittedAnswers = source.submittedAnswers && typeof source.submittedAnswers === "object"
+    ? Object.fromEntries(
+        Object.entries(source.submittedAnswers as Record<string, unknown>).filter(([, selection]) => typeof selection === "string"),
+      )
+    : {};
+  const essayResponses = Array.isArray(source.essayResponses)
+    ? source.essayResponses.flatMap((entry) => {
+        if (!entry || typeof entry !== "object") {
+          return [];
+        }
+
+        const response = entry as Record<string, unknown>;
+        if (typeof response.blockId !== "string" || typeof response.responseText !== "string") {
+          return [];
+        }
+
+        return [{
+          blockId: response.blockId,
+          responseId: typeof response.responseId === "string" ? response.responseId : undefined,
+          responseText: response.responseText,
+          updatedAt: typeof response.updatedAt === "string" ? response.updatedAt : undefined,
+        }];
+      })
+    : [];
+  const completedAt = typeof source.completedAt === "string" && source.completedAt.trim()
+    ? source.completedAt
+    : updatedAt;
+
+  return {
+    summary: {
+      totalQuestions,
+      scoredQuestions,
+      submittedQuestions,
+      correctQuestions,
+      totalPoints,
+      earnedPoints,
+      percentageScore,
+      essayQuestionCount,
+      essayAnsweredCount,
+      updatedAt,
+    },
+    selections,
+    submittedAnswers,
+    essayResponses,
+    completedAt,
+  };
+};
+
 const REQUEST_CACHE_TTL_MS = 60_000;
 const COURSE_SELECT_FIELDS = [
   "id",
@@ -87,9 +194,16 @@ const COURSE_SELECT_FIELDS = [
 const MODULE_SUMMARY_SELECT_FIELDS = "id, course_id, title, description, order, materials, prerequisites, skill_tags, topic_tags, module_thumbnail, module_document, created_at, updated_at, status";
 const MODULE_FULL_SELECT_FIELDS = `${MODULE_SUMMARY_SELECT_FIELDS}, content`;
 
-const unsupportedCourseReadColumns = new Set<string>();
+const unsupportedCourseReadColumns = new Set<string>([
+  "instructor",
+  "industry_tags",
+  "career_paths",
+]);
 const unsupportedModuleReadColumns = new Set<string>();
-const unsupportedAssessmentReadColumns = new Set<string>();
+const unsupportedModuleCompletionReadColumns = new Set<string>();
+const unsupportedAssessmentReadColumns = new Set<string>([
+  "derived_from_module_quiz",
+]);
 
 let courseListCache: CacheEntry<Course[]> | null = null;
 let pendingCourseListRequest: Promise<Course[]> | null = null;
@@ -626,6 +740,7 @@ const mapCourseRecord = (
 
 const unsupportedCourseColumns = new Set<string>();
 const unsupportedModuleColumns = new Set<string>();
+const unsupportedModuleCompletionColumns = new Set<string>();
 
 const normalizeMissingColumnName = (columnName: string | null | undefined): string | null => {
   const normalized = String(columnName || "")
@@ -756,6 +871,33 @@ const getMissingAssessmentColumn = (error: unknown): string | null => {
   return null;
 };
 
+const getMissingModuleCompletionColumn = (error: unknown): string | null => {
+  const message = typeof error === "object" && error !== null && "message" in error
+    ? String((error as { message?: string }).message || "")
+    : "";
+  const details = typeof error === "object" && error !== null && "details" in error
+    ? String((error as { details?: string }).details || "")
+    : "";
+  const haystack = `${message} ${details}`;
+
+  const schemaCacheMatch = haystack.match(/'([^']+)' column of 'module_completions'/i);
+  if (schemaCacheMatch?.[1]) {
+    return normalizeMissingColumnName(schemaCacheMatch[1]);
+  }
+
+  const postgresMatch = haystack.match(/column\s+"([^"]+)"\s+does not exist/i);
+  if (postgresMatch?.[1]) {
+    return normalizeMissingColumnName(postgresMatch[1]);
+  }
+
+  const unquotedPostgresMatch = haystack.match(/column\s+([a-zA-Z0-9_.]+)\s+does not exist/i);
+  if (unquotedPostgresMatch?.[1]) {
+    return normalizeMissingColumnName(unquotedPostgresMatch[1]);
+  }
+
+  return null;
+};
+
 const executeModuleReadWithFallback = async <T>(
   execute: (selectClause: string) => Promise<{ data: T | null; error: any }>,
   selectClause: string,
@@ -804,6 +946,30 @@ const executeAssessmentReadWithFallback = async <T>(
   return execute("*");
 };
 
+const executeModuleCompletionReadWithFallback = async <T>(
+  execute: (selectClause: string) => Promise<{ data: T | null; error: any }>,
+  selectClause: string,
+): Promise<{ data: T | null; error: any }> => {
+  let nextSelect = buildSelectWithFallback(selectClause, unsupportedModuleCompletionReadColumns);
+
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const result = await execute(nextSelect);
+    if (!result.error) {
+      return result;
+    }
+
+    const missingColumn = getMissingModuleCompletionColumn(result.error);
+    if (!missingColumn) {
+      return result;
+    }
+
+    unsupportedModuleCompletionReadColumns.add(missingColumn);
+    nextSelect = buildSelectWithFallback(selectClause, unsupportedModuleCompletionReadColumns);
+  }
+
+  return execute("*");
+};
+
 const sanitizeCourseWritePayload = (payload: Record<string, unknown>) => {
   const nextPayload = { ...payload };
 
@@ -818,6 +984,16 @@ const sanitizeModuleWritePayload = (payload: Record<string, unknown>) => {
   const nextPayload = { ...payload };
 
   for (const column of unsupportedModuleColumns) {
+    delete nextPayload[column];
+  }
+
+  return nextPayload;
+};
+
+const sanitizeModuleCompletionWritePayload = (payload: Record<string, unknown>) => {
+  const nextPayload = { ...payload };
+
+  for (const column of unsupportedModuleCompletionColumns) {
     delete nextPayload[column];
   }
 
@@ -866,6 +1042,30 @@ const executeModuleWriteWithFallback = async <T>(
     }
 
     unsupportedModuleColumns.add(missingColumn);
+    delete nextPayload[missingColumn];
+  }
+
+  return execute(nextPayload);
+};
+
+const executeModuleCompletionWriteWithFallback = async <T>(
+  execute: (payload: Record<string, unknown>) => Promise<{ data: T | null; error: any }>,
+  payload: Record<string, unknown>,
+): Promise<{ data: T | null; error: any }> => {
+  let nextPayload = sanitizeModuleCompletionWritePayload(payload);
+
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const result = await execute(nextPayload);
+    if (!result.error) {
+      return result;
+    }
+
+    const missingColumn = getMissingModuleCompletionColumn(result.error);
+    if (!missingColumn || !(missingColumn in nextPayload)) {
+      return result;
+    }
+
+    unsupportedModuleCompletionColumns.add(missingColumn);
     delete nextPayload[missingColumn];
   }
 
@@ -1409,7 +1609,7 @@ export const moduleService = {
   /**
    * Get a single module by ID
    */
-  getModule: async (id: string): Promise<Module | null> => {
+  getModule: async (id: string, options?: { signal?: AbortSignal }): Promise<Module | null> => {
     if (!supabase) {
       console.warn("Supabase not initialized");
       return null;
@@ -1420,18 +1620,25 @@ export const moduleService = {
       return cachedModule;
     }
 
-    const pendingRequest = pendingModuleRequests.get(id);
+    const pendingRequest = !options?.signal ? pendingModuleRequests.get(id) : null;
     if (pendingRequest) {
       return pendingRequest;
     }
 
     const request = (async () => {
       const { data, error } = await executeModuleReadWithFallback(
-        (selectClause) => supabase
-          .from("modules")
-          .select(selectClause)
-          .eq("id", id)
-          .single(),
+        (selectClause) => {
+          let query = supabase
+            .from("modules")
+            .select(selectClause)
+            .eq("id", id);
+
+          if (options?.signal) {
+            query = query.abortSignal(options.signal);
+          }
+
+          return query.single();
+        },
         MODULE_FULL_SELECT_FIELDS,
       );
 
@@ -1447,12 +1654,16 @@ export const moduleService = {
       return mappedModule;
     })();
 
-    pendingModuleRequests.set(id, request);
+    if (!options?.signal) {
+      pendingModuleRequests.set(id, request);
+    }
 
     try {
       return await request;
     } finally {
-      pendingModuleRequests.delete(id);
+      if (!options?.signal) {
+        pendingModuleRequests.delete(id);
+      }
     }
   },
 
@@ -1615,7 +1826,8 @@ export const moduleCompletionService = {
   markModuleComplete: async (
     enrollmentId: string,
     moduleId: string,
-    timeSpent?: number
+    timeSpent?: number,
+    practiceQuizSnapshot?: PracticeQuizCompletionSnapshot,
   ): Promise<void> => {
     if (!supabase) {
       throw new Error("Supabase not initialized");
@@ -1635,13 +1847,17 @@ export const moduleCompletionService = {
           ? Math.max(existing.time_spent || 0, timeSpent)
           : existing.time_spent;
 
-      const { error: updateError } = await supabase
-        .from("module_completions")
-        .update({
+      const { error: updateError } = await executeModuleCompletionWriteWithFallback(
+        (payload) => supabase
+          .from("module_completions")
+          .update(payload)
+          .eq("id", existing.id),
+        {
           time_spent: nextTimeSpent,
           completed_at: existing.completed_at || new Date().toISOString(),
-        })
-        .eq("id", existing.id);
+          ...(practiceQuizSnapshot ? { practice_quiz_snapshot: practiceQuizSnapshot } : {}),
+        },
+      );
 
       if (updateError) {
         handleSupabaseError(updateError);
@@ -1675,12 +1891,16 @@ export const moduleCompletionService = {
     }
 
     // Insert new completion
-    const { error } = await supabase.from("module_completions").insert({
-      enrollment_id: enrollmentId,
-      module_id: moduleId,
-      completed_at: new Date().toISOString(),
-      time_spent: timeSpent || null,
-    });
+    const { error } = await executeModuleCompletionWriteWithFallback(
+      (payload) => supabase.from("module_completions").insert(payload),
+      {
+        enrollment_id: enrollmentId,
+        module_id: moduleId,
+        completed_at: new Date().toISOString(),
+        practice_quiz_snapshot: practiceQuizSnapshot || null,
+        time_spent: timeSpent || null,
+      },
+    );
 
     if (error) {
       handleSupabaseError(error);
@@ -2849,10 +3069,13 @@ export const enrollmentService = {
 
     const moduleIds = modules.map((module) => module.id);
     const [{ data: completionRows, error: completionError }, { data: assessmentRows, error: assessmentError }] = await Promise.all([
-      supabase
-        .from("module_completions")
-        .select("module_id, completed_at, time_spent")
-        .eq("enrollment_id", enrollmentId),
+      executeModuleCompletionReadWithFallback(
+        (selectClause) => supabase
+          .from("module_completions")
+          .select(selectClause)
+          .eq("enrollment_id", enrollmentId),
+        "module_id, completed_at, time_spent, practice_quiz_snapshot",
+      ),
       moduleIds.length > 0 || enrollment.courseId
         ? executeAssessmentReadWithFallback(
             (selectClause) => supabase
@@ -2912,11 +3135,12 @@ export const enrollmentService = {
       throw answerError;
     }
 
-    const completionMap = new Map<string, { completedAt?: string; timeSpent?: number }>();
+    const completionMap = new Map<string, { completedAt?: string; timeSpent?: number; practiceQuizSnapshot?: PracticeQuizCompletionSnapshot }>();
     for (const row of completionRows || []) {
       completionMap.set(row.module_id, {
         completedAt: row.completed_at || undefined,
         timeSpent: row.time_spent || undefined,
+        practiceQuizSnapshot: normalizePracticeQuizCompletionSnapshot((row as { practice_quiz_snapshot?: unknown }).practice_quiz_snapshot),
       });
     }
 
@@ -2958,6 +3182,7 @@ export const enrollmentService = {
           completed: Boolean(completion),
           completedAt: completion?.completedAt,
           timeSpent: completion?.timeSpent,
+          practiceQuizSnapshot: completion?.practiceQuizSnapshot,
           blockedByModuleIds: getBlockingModules(module, modules, completedModuleIds).map((candidate) => candidate.id),
         };
       }),

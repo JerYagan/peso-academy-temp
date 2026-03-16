@@ -519,6 +519,7 @@ export interface Database {
           enrollment_id: string
           module_id: string
           completed_at?: string | null
+          practice_quiz_snapshot?: Json | null
           time_spent?: number | null
         }
         Insert: {
@@ -526,6 +527,7 @@ export interface Database {
           enrollment_id: string
           module_id: string
           completed_at?: string | null
+          practice_quiz_snapshot?: Json | null
           time_spent?: number | null
         }
         Update: {
@@ -533,6 +535,7 @@ export interface Database {
           enrollment_id?: string
           module_id?: string
           completed_at?: string | null
+          practice_quiz_snapshot?: Json | null
           time_spent?: number | null
         }
       }
@@ -556,6 +559,38 @@ export interface Database {
           updated_at: string
         }
         Insert: {
+      module_state_snapshots: {
+        Row: {
+          id: string
+          user_id: string
+          enrollment_id: string
+          course_id: string
+          module_id: string
+          practice_quiz_draft_snapshot?: Json | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          enrollment_id: string
+          course_id: string
+          module_id: string
+          practice_quiz_draft_snapshot?: Json | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          enrollment_id?: string
+          course_id?: string
+          module_id?: string
+          practice_quiz_draft_snapshot?: Json | null
+          created_at?: string
+          updated_at?: string
+        }
+      }
           id?: string
           user_id: string
           enrollment_id: string
@@ -588,6 +623,82 @@ export interface Database {
           entry_source?: string | null
           resume_position_seconds?: number | null
           metadata?: Json | null
+          created_at?: string
+          updated_at?: string
+        }
+      }
+      practice_quiz_essay_responses: {
+        Row: {
+          id: string
+          enrollment_id: string
+          course_id: string
+          module_id: string
+          user_id: string
+          block_id: string
+          prompt_title?: string | null
+          prompt_text: string
+          guidance_text?: string | null
+          response_text: string
+          submitted_at: string
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          enrollment_id: string
+          course_id: string
+          module_id: string
+          user_id: string
+          block_id: string
+          prompt_title?: string | null
+          prompt_text: string
+          guidance_text?: string | null
+          response_text?: string
+          submitted_at?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          enrollment_id?: string
+          course_id?: string
+          module_id?: string
+          user_id?: string
+          block_id?: string
+          prompt_title?: string | null
+          prompt_text?: string
+          guidance_text?: string | null
+          response_text?: string
+          submitted_at?: string
+          created_at?: string
+          updated_at?: string
+        }
+      }
+      practice_quiz_essay_feedback: {
+        Row: {
+          id: string
+          response_id: string
+          feedback_text: string
+          reviewed_by?: string | null
+          reviewed_at: string
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          response_id: string
+          feedback_text?: string
+          reviewed_by?: string | null
+          reviewed_at?: string
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          response_id?: string
+          feedback_text?: string
+          reviewed_by?: string | null
+          reviewed_at?: string
           created_at?: string
           updated_at?: string
         }

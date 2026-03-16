@@ -466,8 +466,8 @@ const Courses = () => {
   }, [collaborativeSignals, courses, enrollments, performanceSummary, sessionAggregates, user]);
 
   const browseRecommendations = useMemo(
-    () => recommendedCourses.filter(({ course }) => !enrollmentByCourseId[course.id]).slice(0, 3),
-    [enrollmentByCourseId, recommendedCourses],
+    () => recommendedCourses.slice(0, 3),
+    [recommendedCourses],
   );
 
   const displayedCourses = useMemo(() => {
@@ -523,10 +523,56 @@ const Courses = () => {
         label: copy.dashboardPage.browseLabel,
       };
 
-  const renderCourseCard = (course: Course) => {
+  const renderCourseEnrollmentAction = (
+    course: Course,
+    sourceSurface: "course_catalog" | "browse_recommendations" = "course_catalog",
+    className = "h-12 w-full rounded-xl text-base font-semibold",
+    onAction?: () => void,
+  ) => {
     const enrollment = enrollmentByCourseId[course.id];
     const isEnrolled = !!enrollment;
     const isEnrolling = enrolling === course.id;
+
+    if (isEnrolled) {
+      return (
+        <Button asChild className={className}>
+          <Link
+            to={`/courses/${course.id}`}
+            state={{ entrySource: "courses_continue_learning" }}
+            onClick={onAction}
+          >
+            {copy.actions.continueLearning}
+          </Link>
+        </Button>
+      );
+    }
+
+    return (
+      <Button
+        onClick={() => {
+          handleEnrollClick(course, sourceSurface);
+          onAction?.();
+        }}
+        className={className}
+        disabled={isEnrolling || verificationBlocked}
+      >
+        {verificationBlocked ? (
+          blockedEnrollLabel
+        ) : isEnrolling ? (
+          <>
+            <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            {copy.actions.enrolling}
+          </>
+        ) : (
+          copy.actions.enrollNow
+        )}
+      </Button>
+    );
+  };
+
+  const renderCourseCard = (course: Course) => {
+    const enrollment = enrollmentByCourseId[course.id];
+    const isEnrolled = !!enrollment;
     const visual = getCourseVisual(course);
     const VisualIcon = visual.icon;
 
@@ -595,30 +641,7 @@ const Courses = () => {
           </div>
 
           <div className="mt-auto pt-5">
-            {isEnrolled ? (
-              <Button asChild className="h-12 w-full rounded-xl text-base font-semibold">
-                <Link to={`/courses/${course.id}`} state={{ entrySource: "courses_continue_learning" }}>
-                  {copy.actions.continueLearning}
-                </Link>
-              </Button>
-            ) : (
-              <Button
-                  onClick={() => handleEnrollClick(course)}
-                className="h-12 w-full rounded-xl text-base font-semibold"
-                disabled={isEnrolling || verificationBlocked}
-              >
-                {verificationBlocked ? (
-                  blockedEnrollLabel
-                ) : isEnrolling ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    {copy.actions.enrolling}
-                  </>
-                ) : (
-                  copy.actions.enrollNow
-                )}
-              </Button>
-            )}
+            {renderCourseEnrollmentAction(course)}
           </div>
         </div>
       </article>
@@ -699,36 +722,11 @@ const Courses = () => {
               >
                 {copy.actions.close}
               </Button>
-              {enrollmentByCourseId[previewCourse.id] ? (
-                <Button asChild className="w-full sm:w-auto">
-                  <Link
-                    to={`/courses/${previewCourse.id}`}
-                    state={{ entrySource: "courses_continue_learning" }}
-                    onClick={() => setPreviewCourse(null)}
-                  >
-                    {copy.actions.continueLearning}
-                  </Link>
-                </Button>
-              ) : (
-                <Button
-                  className="w-full sm:w-auto"
-                  disabled={enrolling === previewCourse.id || verificationBlocked}
-                  onClick={() => {
-                    handleEnrollClick(previewCourse, "course_catalog");
-                    setPreviewCourse(null);
-                  }}
-                >
-                  {verificationBlocked ? (
-                    blockedEnrollLabel
-                  ) : enrolling === previewCourse.id ? (
-                    <>
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                      {copy.actions.enrolling}
-                    </>
-                  ) : (
-                    copy.actions.enrollNow
-                  )}
-                </Button>
+              {renderCourseEnrollmentAction(
+                previewCourse,
+                "course_catalog",
+                "w-full sm:w-auto",
+                () => setPreviewCourse(null),
               )}
             </DialogFooter>
           </>
@@ -826,6 +824,11 @@ const Courses = () => {
 
         <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
           {browseRecommendations.map(({ course, reasons }) => (
+            (() => {
+              const enrollment = enrollmentByCourseId[course.id];
+              const isEnrolled = !!enrollment;
+
+              return (
             <article
               key={course.id}
               className="flex h-full flex-col overflow-hidden rounded-[1.6rem] border border-border bg-background/95 shadow-[0_18px_50px_-30px_rgba(30,41,59,0.35)]"
@@ -847,6 +850,11 @@ const Courses = () => {
                     <Badge className="rounded-full bg-primary px-3 py-1 text-[11px] font-semibold text-primary-foreground hover:bg-primary">
                       Recommended
                     </Badge>
+                    {isEnrolled ? (
+                      <Badge variant="secondary" className="rounded-full px-3 py-1 text-[11px] font-semibold">
+                        {enrollment?.status === "completed" ? copy.dashboardPage.filters.completed : copy.dashboardPage.filters.enrolled}
+                      </Badge>
+                    ) : null}
                   </div>
                 </div>
               </button>
@@ -866,16 +874,12 @@ const Courses = () => {
                 </div>
 
                 <div className="mt-auto pt-5">
-                  <Button
-                    onClick={() => handleEnrollClick(course, "browse_recommendations")}
-                    className="h-12 w-full rounded-xl text-base font-semibold"
-                    disabled={enrolling === course.id || verificationBlocked}
-                  >
-                    {verificationBlocked ? blockedEnrollLabel : enrolling === course.id ? copy.actions.enrolling : copy.actions.enrollNow}
-                  </Button>
+                  {renderCourseEnrollmentAction(course, "browse_recommendations")}
                 </div>
               </div>
             </article>
+              );
+            })()
           ))}
         </div>
       </section>
