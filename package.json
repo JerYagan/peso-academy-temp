@@ -13,6 +13,7 @@
     "preview": "vite preview",
     "seed:users": "tsx scripts/create-test-users.ts",
     "seed:courses": "tsx scripts/seed-course-content.ts",
+    "seed:course-modules": "tsx scripts/seed-existing-course-modules.ts",
     "seed:analytics": "tsx scripts/seed-analytics-demo.ts",
     "audit:derived-assessments": "tsx scripts/audit-derived-assessments.ts",
     "convert:derived-assessments": "tsx scripts/audit-derived-assessments.ts --apply-conversion",

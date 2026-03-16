@@ -6,9 +6,24 @@ import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/contexts/AuthContext";
 import { progressTrackingService } from "@/services/progressTrackingService";
 import { resolveCourseMaterialAccessUrl } from "@/lib/courseAssets";
+import { buildEmbedVideoUrl, getVideoProvider, isHostedVideoFile } from "@/lib/videoEmbeds";
 
-// Type assertion for ReactPlayer to handle type definition issues
-const TypedReactPlayer = ReactPlayer as React.ComponentType<any>;
+type TypedReactPlayerProps = React.ComponentProps<typeof ReactPlayer>;
+
+const TypedReactPlayer = ReactPlayer as React.ComponentType<TypedReactPlayerProps>;
+const PLAYER_CONFIG: TypedReactPlayerProps["config"] = {
+  youtube: {
+    playerVars: {
+      modestbranding: 1,
+      rel: 0,
+    },
+  },
+  vimeo: {
+    controls: true,
+    dnt: true,
+    responsive: true,
+  },
+};
 
 interface VideoPlayerProps {
   url: string;
@@ -18,12 +33,11 @@ interface VideoPlayerProps {
   onPlaybackPositionChange?: (seconds: number) => void;
 }
 
-const isHostedVideoFile = (value: string) => /\.(mp4|webm|ogg|mov|m4v)(\?|#|$)/i.test(value);
-
 const VideoPlayer = ({ url, title, enrollmentId, moduleId, onPlaybackPositionChange }: VideoPlayerProps) => {
   const { user } = useAuth();
   const [isReady, setIsReady] = useState(false);
   const [resolvedUrl, setResolvedUrl] = useState("");
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
   const [duration, setDuration] = useState(0);
   // eslint-disable-next-line @typescript-eslint/no-explicit-any -- ReactPlayer ref type is complex
@@ -32,6 +46,38 @@ const VideoPlayer = ({ url, title, enrollmentId, moduleId, onPlaybackPositionCha
   const timeTrackingInterval = useRef<NodeJS.Timeout | null>(null);
   const sessionStartTime = useRef<number>(Date.now());
   const lastTrackedTime = useRef<number>(0);
+
+  const handlePlaybackPositionUpdate = useCallback((seconds: number) => {
+    if (!Number.isFinite(seconds) || seconds < 0) {
+      return;
+    }
+
+    setProgress(seconds);
+    onPlaybackPositionChange?.(seconds);
+  }, [onPlaybackPositionChange]);
+
+  const handleDurationUpdate = useCallback((nextDuration: number) => {
+    if (!Number.isFinite(nextDuration) || nextDuration <= 0) {
+      return;
+    }
+
+    setDuration(nextDuration);
+  }, []);
+
+  const seekPlayerTo = useCallback((seconds: number) => {
+    if (!playerRef.current || !Number.isFinite(seconds) || seconds <= 0) {
+      return;
+    }
+
+    if (typeof playerRef.current.seekTo === "function") {
+      playerRef.current.seekTo(seconds);
+      return;
+    }
+
+    if ("currentTime" in playerRef.current) {
+      playerRef.current.currentTime = seconds;
+    }
+  }, []);
 
   const loadVideoProgress = useCallback(async () => {
     if (!supabase || !enrollmentId || !moduleId || !user) return;
@@ -83,6 +129,7 @@ const VideoPlayer = ({ url, title, enrollmentId, moduleId, onPlaybackPositionCha
 
     const resolveUrl = async () => {
       setIsReady(false);
+      setLoadError(null);
       setResolvedUrl("");
       const nextUrl = await resolveCourseMaterialAccessUrl(url);
       if (!isActive) {
@@ -159,38 +206,42 @@ const VideoPlayer = ({ url, title, enrollmentId, moduleId, onPlaybackPositionCha
     }
   }, [enrollmentId, moduleId, user]);
 
-  const handleProgress = (state: { played: number; playedSeconds: number; loaded: number; loadedSeconds: number }) => {
-    setProgress(state.playedSeconds);
-    onPlaybackPositionChange?.(state.playedSeconds);
-  };
-
-  const handleDuration = (duration: number) => {
-    setDuration(duration);
-  };
-
-  const handleSeek = (seconds: number) => {
-    if (playerRef.current) {
-      playerRef.current.seekTo(seconds);
-    }
-    onPlaybackPositionChange?.(seconds);
-  };
-
   const handleNativeLoadedMetadata = (event: React.SyntheticEvent<HTMLVideoElement>) => {
     setIsReady(true);
-    const nextDuration = event.currentTarget.duration;
-    if (Number.isFinite(nextDuration)) {
-      setDuration(nextDuration);
-    }
+    handleDurationUpdate(event.currentTarget.duration);
     if (progress > 0) {
       event.currentTarget.currentTime = progress;
-      onPlaybackPositionChange?.(progress);
+      handlePlaybackPositionUpdate(progress);
     }
   };
 
   const handleNativeTimeUpdate = (event: React.SyntheticEvent<HTMLVideoElement>) => {
-    setProgress(event.currentTarget.currentTime);
-    onPlaybackPositionChange?.(event.currentTarget.currentTime);
+    handlePlaybackPositionUpdate(event.currentTarget.currentTime);
   };
+
+  const handleReactPlayerReady = useCallback(() => {
+    setIsReady(true);
+    if (progress > 0) {
+      seekPlayerTo(progress);
+    }
+  }, [progress, seekPlayerTo]);
+
+  const handleReactPlayerTimeUpdate = useCallback((event: React.SyntheticEvent<Element>) => {
+    const mediaElement = event.currentTarget as HTMLMediaElement | null;
+    const nextTime = mediaElement?.currentTime ?? (playerRef.current && "currentTime" in playerRef.current ? playerRef.current.currentTime : NaN);
+    handlePlaybackPositionUpdate(nextTime);
+  }, [handlePlaybackPositionUpdate]);
+
+  const handleReactPlayerDurationChange = useCallback((event: React.SyntheticEvent<Element>) => {
+    const mediaElement = event.currentTarget as HTMLMediaElement | null;
+    const nextDuration = mediaElement?.duration ?? (playerRef.current && "duration" in playerRef.current ? playerRef.current.duration : NaN);
+    handleDurationUpdate(nextDuration);
+  }, [handleDurationUpdate]);
+
+  const handleExternalPlayerError = useCallback(() => {
+    setLoadError("Unable to load this video.");
+    setIsReady(true);
+  }, []);
 
   // Check if URL is valid
   if (!url || url.trim() === "") {
@@ -211,16 +262,23 @@ const VideoPlayer = ({ url, title, enrollmentId, moduleId, onPlaybackPositionCha
     );
   }
 
+  const provider = getVideoProvider(resolvedUrl);
+  const loomEmbedUrl = provider === "loom" ? buildEmbedVideoUrl(resolvedUrl) : null;
+
   return (
     <div className="w-full">
       <div className="relative w-full" style={{ paddingTop: "56.25%" }}> {/* 16:9 aspect ratio */}
         <div className="absolute top-0 left-0 w-full h-full bg-black rounded-lg overflow-hidden">
-          {!isReady && (
+          {!isReady && !loadError && (
             <div className="absolute inset-0 flex items-center justify-center bg-muted">
               <Loader2 className="w-8 h-8 animate-spin text-muted-foreground" />
             </div>
           )}
-          {isHostedVideoFile(resolvedUrl) ? (
+          {loadError ? (
+            <div className="flex h-full items-center justify-center bg-muted px-4 text-center text-sm text-muted-foreground">
+              {loadError}
+            </div>
+          ) : isHostedVideoFile(resolvedUrl) ? (
             <video
               src={resolvedUrl}
               controls
@@ -232,37 +290,28 @@ const VideoPlayer = ({ url, title, enrollmentId, moduleId, onPlaybackPositionCha
             >
               Your browser does not support the video tag.
             </video>
+          ) : loomEmbedUrl ? (
+            <iframe
+              src={loomEmbedUrl}
+              title={title || "Loom video"}
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
+              allowFullScreen
+              className="h-full w-full border-0"
+              onLoad={() => setIsReady(true)}
+            />
           ) : (
             <TypedReactPlayer
               ref={playerRef}
-              url={resolvedUrl}
+              src={resolvedUrl}
               width="100%"
               height="100%"
               controls
-              playing={false}
-              onReady={() => {
-                setIsReady(true);
-                if (progress > 0 && duration > 0) {
-                  handleSeek(progress);
-                }
-              }}
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any -- ReactPlayer onProgress type
-              onProgress={handleProgress as any}
-              onDuration={handleDuration}
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any -- ReactPlayer config types are incomplete
-              config={{
-                youtube: {
-                  playerVars: {
-                    modestbranding: 1,
-                    rel: 0,
-                  },
-                },
-                vimeo: {
-                  playerOptions: {
-                    responsive: true,
-                  },
-                },
-              } as any}
+              playsInline
+              onReady={handleReactPlayerReady}
+              onTimeUpdate={handleReactPlayerTimeUpdate}
+              onDurationChange={handleReactPlayerDurationChange}
+              onError={handleExternalPlayerError}
+              config={PLAYER_CONFIG}
             />
           )}
         </div>

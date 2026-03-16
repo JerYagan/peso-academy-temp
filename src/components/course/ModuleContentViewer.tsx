@@ -14,6 +14,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { parseModuleContentBlocks } from "@/lib/contentBlocks";
+import { isSupportedCourseVideoUrl } from "@/lib/videoEmbeds";
 import { moduleViewerStateService } from "@/services/moduleViewerStateService";
 import { practiceQuizEssayReviewService } from "@/services/practiceQuizEssayReviewService";
 import { toast } from "sonner";
@@ -1710,7 +1711,7 @@ const ModuleContentViewer = ({
       requiredUploadBlocks: parsedContentBlocks.filter((block) => block.type === "document" && block.allowLearnerUpload),
       videoMaterials: module.materials.filter((material) => {
         const url = typeof material === "string" ? material : String(material);
-        return url.includes("youtube.com") || url.includes("youtu.be") || url.includes("vimeo.com") || Boolean(url.match(/\.(mp4|webm|ogg)$/i));
+        return isSupportedCourseVideoUrl(url);
       }),
       documentMaterials: module.materials.filter((material) => {
         const url = typeof material === "string" ? material : String(material);
@@ -1721,7 +1722,7 @@ const ModuleContentViewer = ({
         return url.includes("assignment") || url.includes("submit");
       }),
     };
-  }, [isPreviewMode, module.content, module.materials, module.id, module.module_document, module.updated_at]);
+  }, [isPreviewMode, module.content, module.materials]);
 
   const practiceQuizProgressStorageKey = useMemo(
     () => (!isPreviewMode && user?.id ? buildPracticeQuizProgressStorageKey(user.id, enrollment.id, module.id) : null),
