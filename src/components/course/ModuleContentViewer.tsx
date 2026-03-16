@@ -14,6 +14,7 @@ import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { parseModuleContentBlocks } from "@/lib/contentBlocks";
+import { calculatePracticeQuizSummary, finalizeObjectivePracticeQuizAnswers } from "@/lib/practiceQuizProgress";
 import { isSupportedCourseVideoUrl } from "@/lib/videoEmbeds";
 import { moduleViewerStateService } from "@/services/moduleViewerStateService";
 import { practiceQuizEssayReviewService } from "@/services/practiceQuizEssayReviewService";
@@ -1855,57 +1856,10 @@ const ModuleContentViewer = ({
     window.localStorage.setItem(practiceQuizProgressStorageKey, JSON.stringify(snapshot));
   }, [objectivePracticeQuizBlockIds, practiceQuizProgressStorageKey, quizSelections, quizSubmittedAnswers]);
 
-  const practiceQuizSummary = useMemo(() => {
-    let totalQuestions = 0;
-    let scoredQuestions = 0;
-    let submittedQuestions = 0;
-    let correctQuestions = 0;
-    let totalPoints = 0;
-    let earnedPoints = 0;
-    let essayQuestionCount = 0;
-    let essayAnsweredCount = 0;
-
-    for (const block of practiceQuizBlocks) {
-      totalQuestions += 1;
-
-      const blockId = block.id;
-      const points = Math.max(1, Number(block.points) || 1);
-      const isEssayQuestion = block.questionType === "essay";
-
-      if (isEssayQuestion) {
-        essayQuestionCount += 1;
-        if ((quizSelections[blockId] || "").trim()) {
-          essayAnsweredCount += 1;
-        }
-        continue;
-      }
-
-      scoredQuestions += 1;
-      totalPoints += points;
-
-      if (quizSubmittedAnswers[blockId] !== undefined) {
-        submittedQuestions += 1;
-        if (quizResults[blockId]) {
-          correctQuestions += 1;
-          earnedPoints += points;
-        }
-      }
-    }
-
-    const percentageScore = totalPoints > 0 ? Math.round((earnedPoints / totalPoints) * 100) : null;
-
-    return {
-      totalQuestions,
-      scoredQuestions,
-      submittedQuestions,
-      correctQuestions,
-      totalPoints,
-      earnedPoints,
-      percentageScore,
-      essayQuestionCount,
-      essayAnsweredCount,
-    };
-  }, [practiceQuizBlocks, quizResults, quizSelections, quizSubmittedAnswers]);
+  const practiceQuizSummary = useMemo(
+    () => calculatePracticeQuizSummary(practiceQuizBlocks, quizSelections, quizSubmittedAnswers),
+    [practiceQuizBlocks, quizSelections, quizSubmittedAnswers],
+  );
 
   useEffect(() => {
     sessionMetadataRef.current = moduleSessionService.withPracticeQuizSummaryMetadata(
@@ -2016,18 +1970,23 @@ const ModuleContentViewer = ({
     return allSaved;
   }, [practiceQuizEssayBlocks, quizSelections, savePracticeQuizEssayResponse]);
 
-  const buildPracticeQuizCompletionSnapshot = useCallback((): PracticeQuizCompletionSnapshot => {
+  const buildPracticeQuizCompletionSnapshot = useCallback((options?: { submittedAnswers?: Record<string, string> }): PracticeQuizCompletionSnapshot => {
     const updatedAt = new Date().toISOString();
     const objectiveSelections = Object.fromEntries(
       Object.entries(quizSelections).filter(([blockId]) => objectivePracticeQuizBlockIds.has(blockId)),
     );
-    const objectiveSubmittedAnswers = Object.fromEntries(
-      Object.entries(quizSubmittedAnswers).filter(([blockId]) => objectivePracticeQuizBlockIds.has(blockId)),
-    );
+    const objectiveSubmittedAnswers = options?.submittedAnswers
+      ? Object.fromEntries(
+          Object.entries(options.submittedAnswers).filter(([blockId]) => objectivePracticeQuizBlockIds.has(blockId)),
+        )
+      : Object.fromEntries(
+          Object.entries(quizSubmittedAnswers).filter(([blockId]) => objectivePracticeQuizBlockIds.has(blockId)),
+        );
+    const completionSummary = calculatePracticeQuizSummary(practiceQuizBlocks, quizSelections, objectiveSubmittedAnswers);
 
     return {
       summary: {
-        ...practiceQuizSummary,
+        ...completionSummary,
         updatedAt,
       },
       selections: objectiveSelections,
@@ -2046,20 +2005,26 @@ const ModuleContentViewer = ({
         .filter((response) => response.responseText.trim().length > 0),
       completedAt: updatedAt,
     };
-  }, [objectivePracticeQuizBlockIds, practiceQuizEssayBlocks, practiceQuizSummary, quizSelections, quizSubmittedAnswers]);
+  }, [objectivePracticeQuizBlockIds, practiceQuizBlocks, practiceQuizEssayBlocks, quizSelections, quizSubmittedAnswers]);
 
-  const buildPracticeQuizDraftSnapshot = useCallback((): PracticeQuizDraftSnapshot => {
+  const buildPracticeQuizDraftSnapshot = useCallback((options?: { submittedAnswers?: Record<string, string> }): PracticeQuizDraftSnapshot => {
     const updatedAt = new Date().toISOString();
+    const objectiveSubmittedAnswers = options?.submittedAnswers
+      ? Object.fromEntries(
+          Object.entries(options.submittedAnswers).filter(([blockId]) => objectivePracticeQuizBlockIds.has(blockId)),
+        )
+      : Object.fromEntries(
+          Object.entries(quizSubmittedAnswers).filter(([blockId]) => objectivePracticeQuizBlockIds.has(blockId)),
+        );
+    const draftSummary = calculatePracticeQuizSummary(practiceQuizBlocks, quizSelections, objectiveSubmittedAnswers);
 
     return {
       summary: {
-        ...practiceQuizSummary,
+        ...draftSummary,
         updatedAt,
       },
       selections: { ...quizSelections },
-      submittedAnswers: Object.fromEntries(
-        Object.entries(quizSubmittedAnswers).filter(([blockId]) => objectivePracticeQuizBlockIds.has(blockId)),
-      ),
+      submittedAnswers: objectiveSubmittedAnswers,
       essayResponses: practiceQuizEssayBlocks
         .filter((block) => Boolean(block.id))
         .map((block) => {
@@ -2074,7 +2039,7 @@ const ModuleContentViewer = ({
         .filter((response) => response.responseText.trim().length > 0),
       updatedAt,
     };
-  }, [objectivePracticeQuizBlockIds, practiceQuizEssayBlocks, practiceQuizSummary, quizSelections, quizSubmittedAnswers]);
+  }, [objectivePracticeQuizBlockIds, practiceQuizBlocks, practiceQuizEssayBlocks, quizSelections, quizSubmittedAnswers]);
 
   useEffect(() => {
     if (isPreviewMode || !user?.id) {
@@ -2255,6 +2220,45 @@ const ModuleContentViewer = ({
         return;
       }
 
+      const finalizedObjectiveSubmittedAnswers = finalizeObjectivePracticeQuizAnswers(
+        objectivePracticeQuizBlocks,
+        quizSelections,
+        quizSubmittedAnswers,
+      );
+      const practiceQuizSnapshot = buildPracticeQuizCompletionSnapshot({
+        submittedAnswers: finalizedObjectiveSubmittedAnswers,
+      });
+
+      if (Object.keys(finalizedObjectiveSubmittedAnswers).length > 0) {
+        setQuizSubmittedAnswers(finalizedObjectiveSubmittedAnswers);
+      }
+
+      sessionMetadataRef.current = moduleSessionService.withPracticeQuizSummaryMetadata(
+        sessionMetadataRef.current,
+        practiceQuizSnapshot.summary,
+      );
+
+      if (practiceQuizDraftSaveTimerRef.current) {
+        window.clearTimeout(practiceQuizDraftSaveTimerRef.current);
+        practiceQuizDraftSaveTimerRef.current = null;
+      }
+
+      if (!isPreviewMode && user?.id) {
+        try {
+          await moduleViewerStateService.savePracticeQuizDraftSnapshot({
+            userId: user.id,
+            enrollmentId: enrollment.id,
+            courseId: enrollment.courseId,
+            moduleId: module.id,
+            snapshot: buildPracticeQuizDraftSnapshot({
+              submittedAnswers: finalizedObjectiveSubmittedAnswers,
+            }),
+          });
+        } catch (error) {
+          console.error("Error saving practice quiz draft snapshot during completion:", error);
+        }
+      }
+
       await flushActiveSession();
 
       const persistedTimeSpent = timeSpentRef.current;
@@ -2264,12 +2268,12 @@ const ModuleContentViewer = ({
         : Math.ceil(liveTimeSpent / 60);
 
       await onComplete(totalMinutes > 0 ? totalMinutes : undefined, {
-        practiceQuizSnapshot: buildPracticeQuizCompletionSnapshot(),
+        practiceQuizSnapshot,
       });
     } finally {
       setCompletingModule(false);
     }
-  }, [buildPracticeQuizCompletionSnapshot, completionBlockedReason, completingModule, flushActiveSession, flushPracticeQuizEssayResponses, isCompleted, onComplete]);
+  }, [buildPracticeQuizCompletionSnapshot, buildPracticeQuizDraftSnapshot, completionBlockedReason, completingModule, enrollment.courseId, enrollment.id, flushActiveSession, flushPracticeQuizEssayResponses, isCompleted, isPreviewMode, module.id, objectivePracticeQuizBlocks, onComplete, quizSelections, quizSubmittedAnswers, user?.id]);
 
   const handleRetryAllPracticeQuizzes = useCallback(() => {
     setQuizSelections({});

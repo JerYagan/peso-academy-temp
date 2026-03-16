@@ -232,21 +232,6 @@ const mapAssessmentRow = (data: any): Assessment => ({
   updatedAt: data.updated_at,
 });
 
-const mapAssessmentQuestionRow = (row: any): AssessmentQuestion => ({
-  id: row.id,
-  assessmentId: row.assessment_id,
-  question: row.question,
-  questionType: row.question_type,
-  options: row.options ? (Array.isArray(row.options) ? row.options : JSON.parse(row.options)) : undefined,
-  correctAnswer: row.correct_answer || undefined,
-  points: row.points,
-  order: row.order,
-  explanation: row.explanation || undefined,
-  sourceQuestionKey: row.source_question_key || undefined,
-  isActive: row.is_active ?? true,
-  derivedFromModuleQuiz: row.derived_from_module_quiz ?? false,
-});
-
 const mapAssessmentAttemptRow = (row: any): AssessmentAttempt => ({
   id: row.id,
   assessmentId: row.assessment_id,
@@ -298,6 +283,56 @@ const normalizeStoredCorrectAnswer = (
   return trimmed;
 };
 
+const dedupeNormalizedOptions = (options: string[]) => {
+  const seen = new Set<string>();
+
+  return options.filter((option) => {
+    if (!option || seen.has(option)) {
+      return false;
+    }
+
+    seen.add(option);
+    return true;
+  });
+};
+
+export const normalizeAssessmentQuestionOptions = (
+  questionType: AssessmentQuestion["questionType"],
+  options?: string[],
+) => {
+  if (questionType === "essay") {
+    return [];
+  }
+
+  if (questionType === "true_false") {
+    return [...TRUE_FALSE_QUIZ_OPTIONS];
+  }
+
+  return dedupeNormalizedOptions((options || []).map((option) => option.trim()).filter(Boolean));
+};
+
+const mapAssessmentQuestionRow = (row: any): AssessmentQuestion => {
+  const parsedOptions = row.options
+    ? (Array.isArray(row.options) ? row.options : JSON.parse(row.options))
+    : undefined;
+  const normalizedOptions = normalizeAssessmentQuestionOptions(row.question_type, parsedOptions);
+
+  return {
+    id: row.id,
+    assessmentId: row.assessment_id,
+    question: row.question,
+    questionType: row.question_type,
+    options: normalizedOptions,
+    correctAnswer: normalizeStoredCorrectAnswer(row.correct_answer || undefined, normalizedOptions) || undefined,
+    points: row.points,
+    order: row.order,
+    explanation: row.explanation || undefined,
+    sourceQuestionKey: row.source_question_key || undefined,
+    isActive: row.is_active ?? true,
+    derivedFromModuleQuiz: row.derived_from_module_quiz ?? false,
+  };
+};
+
 const requiresManualReview = (questionType: AssessmentQuestion["questionType"] | ContentBlock["questionType"] | undefined) => {
   return questionType !== undefined && MANUAL_REVIEW_QUESTION_TYPES.has(questionType as AssessmentQuestion["questionType"]);
 };
@@ -319,17 +354,7 @@ const toDerivedQuestionPayload = (block: ContentBlock, index: number) => ({
 const normalizeQuestionOptions = (
   questionType: AssessmentQuestion["questionType"],
   options?: string[],
-) => {
-  if (questionType === "essay") {
-    return [];
-  }
-
-  if (questionType === "true_false") {
-    return [...TRUE_FALSE_QUIZ_OPTIONS];
-  }
-
-  return (options || []).map((option) => option.trim()).filter(Boolean);
-};
+) => normalizeAssessmentQuestionOptions(questionType, options);
 
 const normalizeQuestionCorrectAnswer = (
   questionType: AssessmentQuestion["questionType"],

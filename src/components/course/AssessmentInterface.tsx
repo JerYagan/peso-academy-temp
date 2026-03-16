@@ -355,21 +355,6 @@ const AssessmentInterface = ({
     return deterministicShuffle(questions, `${attempt.id}:question-order`);
   }, [questions, attempt?.id]);
 
-  const getPresentedOptions = useCallback(
-    (question: AssessmentQuestion) => {
-      const baseOptions = question.questionType === "true_false"
-        ? ["True", "False"]
-        : question.options || [];
-
-      if (!attempt?.id || baseOptions.length <= 1) {
-        return baseOptions;
-      }
-
-      return deterministicShuffle(baseOptions, `${attempt.id}:${question.id}:option-order`);
-    },
-    [attempt?.id],
-  );
-
   const handleSubmit = async () => {
     if (!attempt || !assessment) return;
 
@@ -583,7 +568,7 @@ const AssessmentInterface = ({
             Submitted assessments remain in a submitted state until a trainer or admin reviews and approves the result.
           </p>
           <p className="mt-2 text-sm text-muted-foreground">
-            Question order and answer choices are shuffled for each attempt. Copy, paste, and similar browser shortcuts are limited to discourage casual sharing, but client-side controls are not a full security boundary.
+            Question order is shuffled for each attempt, but answer choices stay in their authored order. Copy, paste, and similar browser shortcuts are limited to discourage casual sharing, but client-side controls are not a full security boundary.
           </p>
           {essayAttemptPolicy && (
             <p className="mt-2 text-sm text-muted-foreground">
@@ -618,8 +603,8 @@ const AssessmentInterface = ({
                   value={answers[question.id] || ""}
                   onValueChange={(value) => handleAnswerChange(question.id, value)}
                 >
-                  {getPresentedOptions(question).map((option, optIndex) => (
-                    <div key={optIndex} className="flex items-center space-x-2">
+                  {question.options.map((option, optIndex) => (
+                    <div key={`${question.id}-${option}-${optIndex}`} className="flex items-center space-x-2">
                       <RadioGroupItem value={option} id={`${question.id}-${optIndex}`} />
                       <Label
                         htmlFor={`${question.id}-${optIndex}`}
@@ -637,7 +622,7 @@ const AssessmentInterface = ({
                   value={answers[question.id] || ""}
                   onValueChange={(value) => handleAnswerChange(question.id, value)}
                 >
-                  {getPresentedOptions(question).map((option, optIndex) => (
+                  {(question.options || ["True", "False"]).map((option, optIndex) => (
                     <div key={option} className="flex items-center space-x-2">
                       <RadioGroupItem value={option} id={`${question.id}-tf-${optIndex}`} />
                       <Label htmlFor={`${question.id}-tf-${optIndex}`} className="cursor-pointer flex-1">

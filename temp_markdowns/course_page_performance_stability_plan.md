@@ -88,3 +88,4 @@
 
 
 - video embedding (youtube, vimeo, loom) doesn't work, it doesn't play any video and just shows a blank box. This is a critical issue that needs to be fixed as soon as possible. The video content is essential for the course and without it, learners will miss out on important information and engagement. Please prioritize this bug and provide a fix to ensure that all video content is accessible and functional for our learners.
+
