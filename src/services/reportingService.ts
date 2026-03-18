@@ -456,6 +456,7 @@ export interface TrainerRecommendationCourseInsight {
   accepts: number;
   enrollments: number;
   completions: number;
+  acceptanceProbability: number;
   ctr: number;
   acceptRate: number;
   enrollmentConversionRate: number;
@@ -471,6 +472,7 @@ export interface TrainerRecommendationAnalytics {
   totalRecommendationCompletions: number;
   averageCtr: number;
   averageAcceptRate: number;
+  averageAcceptanceProbability: number;
   recommendedEnrollmentCompletionRate: number;
   topRecommendedCourses: TrainerRecommendationCourseInsight[];
   mostAcceptedCourses: TrainerRecommendationCourseInsight[];
@@ -579,6 +581,157 @@ const LEADERBOARD_TIEBREAKER_RULES = [
 const clampPercentage = (value: number) => Math.max(0, Math.min(100, Number.isFinite(value) ? value : 0));
 
 const toRoundedTenth = (value: number) => Number(value.toFixed(1));
+
+type RecommendationAnalyticsRow = {
+  course_id: string;
+  impression_count?: number | null;
+  click_count?: number | null;
+  accept_count?: number | null;
+  enrollment_count?: number | null;
+  completion_count?: number | null;
+  acceptance_probability?: number | null;
+};
+
+interface SharedRecommendationCourseInsight {
+  courseId: string;
+  courseTitle: string;
+  recommendationsDelivered: number;
+  impressions: number;
+  clicks: number;
+  accepts: number;
+  enrollments: number;
+  completions: number;
+  acceptanceProbability: number;
+  ctr: number;
+  acceptRate: number;
+  enrollmentConversionRate: number;
+  completionRate: number;
+}
+
+interface SharedRecommendationAnalytics {
+  totalRecommendationsDelivered: number;
+  totalImpressions: number;
+  totalClicks: number;
+  totalAccepts: number;
+  totalRecommendationEnrollments: number;
+  totalRecommendationCompletions: number;
+  averageCtr: number;
+  averageAcceptRate: number;
+  averageAcceptanceProbability: number;
+  recommendedEnrollmentCompletionRate: number;
+  topRecommendedCourses: SharedRecommendationCourseInsight[];
+  mostAcceptedCourses: SharedRecommendationCourseInsight[];
+}
+
+const buildRecommendationAnalytics = (
+  recommendationRows: RecommendationAnalyticsRow[],
+  resolveCourseTitle: (courseId: string) => string,
+): SharedRecommendationAnalytics => {
+  const recommendationCourseMap = new Map<string, SharedRecommendationCourseInsight & {
+    acceptanceProbabilitySum: number;
+    acceptanceProbabilityCount: number;
+  }>();
+
+  for (const row of recommendationRows) {
+    const existing = recommendationCourseMap.get(row.course_id) || {
+      courseId: row.course_id,
+      courseTitle: resolveCourseTitle(row.course_id),
+      recommendationsDelivered: 0,
+      impressions: 0,
+      clicks: 0,
+      accepts: 0,
+      enrollments: 0,
+      completions: 0,
+      acceptanceProbability: 0,
+      ctr: 0,
+      acceptRate: 0,
+      enrollmentConversionRate: 0,
+      completionRate: 0,
+      acceptanceProbabilitySum: 0,
+      acceptanceProbabilityCount: 0,
+    };
+
+    existing.recommendationsDelivered += 1;
+    existing.impressions += Number(row.impression_count || 0);
+    existing.clicks += Number(row.click_count || 0);
+    existing.accepts += Number(row.accept_count || 0);
+    existing.enrollments += Number(row.enrollment_count || 0);
+    existing.completions += Number(row.completion_count || 0);
+    existing.acceptanceProbabilitySum += Number(row.acceptance_probability || 0);
+    existing.acceptanceProbabilityCount += 1;
+    recommendationCourseMap.set(row.course_id, existing);
+  }
+
+  const recommendationCourseInsights = Array.from(recommendationCourseMap.values()).map((course) => ({
+    courseId: course.courseId,
+    courseTitle: course.courseTitle,
+    recommendationsDelivered: course.recommendationsDelivered,
+    impressions: course.impressions,
+    clicks: course.clicks,
+    accepts: course.accepts,
+    enrollments: course.enrollments,
+    completions: course.completions,
+    acceptanceProbability:
+      course.acceptanceProbabilityCount > 0
+        ? Number((course.acceptanceProbabilitySum / course.acceptanceProbabilityCount).toFixed(1))
+        : 0,
+    ctr: course.impressions > 0 ? Number(((course.clicks / course.impressions) * 100).toFixed(1)) : 0,
+    acceptRate: course.clicks > 0 ? Number(((course.accepts / course.clicks) * 100).toFixed(1)) : 0,
+    enrollmentConversionRate: course.clicks > 0 ? Number(((course.enrollments / course.clicks) * 100).toFixed(1)) : 0,
+    completionRate: course.enrollments > 0 ? Number(((course.completions / course.enrollments) * 100).toFixed(1)) : 0,
+  }));
+
+  const totalRecommendationsDelivered = recommendationCourseInsights.reduce((sum, course) => sum + course.recommendationsDelivered, 0);
+  const totalRecommendationImpressions = recommendationCourseInsights.reduce((sum, course) => sum + course.impressions, 0);
+  const totalRecommendationClicks = recommendationCourseInsights.reduce((sum, course) => sum + course.clicks, 0);
+  const totalRecommendationAccepts = recommendationCourseInsights.reduce((sum, course) => sum + course.accepts, 0);
+  const totalRecommendationEnrollments = recommendationCourseInsights.reduce((sum, course) => sum + course.enrollments, 0);
+  const totalRecommendationCompletions = recommendationCourseInsights.reduce((sum, course) => sum + course.completions, 0);
+  const averageAcceptanceProbability = recommendationCourseInsights.length > 0
+    ? Number((recommendationCourseInsights.reduce((sum, course) => sum + course.acceptanceProbability, 0) / recommendationCourseInsights.length).toFixed(1))
+    : 0;
+
+  return {
+    totalRecommendationsDelivered,
+    totalImpressions: totalRecommendationImpressions,
+    totalClicks: totalRecommendationClicks,
+    totalAccepts: totalRecommendationAccepts,
+    totalRecommendationEnrollments,
+    totalRecommendationCompletions,
+    averageCtr: totalRecommendationImpressions > 0 ? Number(((totalRecommendationClicks / totalRecommendationImpressions) * 100).toFixed(1)) : 0,
+    averageAcceptRate: totalRecommendationClicks > 0 ? Number(((totalRecommendationAccepts / totalRecommendationClicks) * 100).toFixed(1)) : 0,
+    averageAcceptanceProbability,
+    recommendedEnrollmentCompletionRate:
+      totalRecommendationEnrollments > 0
+        ? Number(((totalRecommendationCompletions / totalRecommendationEnrollments) * 100).toFixed(1))
+        : 0,
+    topRecommendedCourses: [...recommendationCourseInsights]
+      .sort((left, right) => {
+        if (right.recommendationsDelivered !== left.recommendationsDelivered) {
+          return right.recommendationsDelivered - left.recommendationsDelivered;
+        }
+        if (right.impressions !== left.impressions) {
+          return right.impressions - left.impressions;
+        }
+        return right.acceptanceProbability - left.acceptanceProbability;
+      })
+      .slice(0, 5),
+    mostAcceptedCourses: [...recommendationCourseInsights]
+      .sort((left, right) => {
+        if (right.accepts !== left.accepts) {
+          return right.accepts - left.accepts;
+        }
+        if (right.enrollments !== left.enrollments) {
+          return right.enrollments - left.enrollments;
+        }
+        if (right.acceptanceProbability !== left.acceptanceProbability) {
+          return right.acceptanceProbability - left.acceptanceProbability;
+        }
+        return right.ctr - left.ctr;
+      })
+      .slice(0, 5),
+  };
+};
 
 const buildWeightedFactorScore = (
   rawScore: number,
@@ -3917,63 +4070,10 @@ export const reportingService = {
         riskLevel: (row.risk_level || "low") as "low" | "medium" | "high",
       }));
 
-      const recommendationCourseMap = new Map<string, AdminRecommendationCourseInsight & { acceptanceProbabilitySum: number; acceptanceProbabilityCount: number }>();
-      for (const row of recommendationRows) {
-        const existing = recommendationCourseMap.get(row.course_id) || {
-          courseId: row.course_id,
-          courseTitle: courseTitleMap.get(row.course_id) || "Unknown Course",
-          recommendationsDelivered: 0,
-          impressions: 0,
-          clicks: 0,
-          accepts: 0,
-          enrollments: 0,
-          completions: 0,
-          acceptanceProbability: 0,
-          ctr: 0,
-          acceptRate: 0,
-          completionRate: 0,
-          acceptanceProbabilitySum: 0,
-          acceptanceProbabilityCount: 0,
-        };
-
-        existing.recommendationsDelivered += 1;
-        existing.impressions += Number(row.impression_count || 0);
-        existing.clicks += Number(row.click_count || 0);
-        existing.accepts += Number(row.accept_count || 0);
-        existing.enrollments += Number(row.enrollment_count || 0);
-        existing.completions += Number(row.completion_count || 0);
-        existing.acceptanceProbabilitySum += Number(row.acceptance_probability || 0);
-        existing.acceptanceProbabilityCount += 1;
-        recommendationCourseMap.set(row.course_id, existing);
-      }
-
-      const recommendationCourseInsights = Array.from(recommendationCourseMap.values()).map((course) => ({
-        courseId: course.courseId,
-        courseTitle: course.courseTitle,
-        recommendationsDelivered: course.recommendationsDelivered,
-        impressions: course.impressions,
-        clicks: course.clicks,
-        accepts: course.accepts,
-        enrollments: course.enrollments,
-        completions: course.completions,
-        acceptanceProbability:
-          course.acceptanceProbabilityCount > 0
-            ? Number((course.acceptanceProbabilitySum / course.acceptanceProbabilityCount).toFixed(1))
-            : 0,
-        ctr: course.impressions > 0 ? Number(((course.clicks / course.impressions) * 100).toFixed(1)) : 0,
-        acceptRate: course.clicks > 0 ? Number(((course.accepts / course.clicks) * 100).toFixed(1)) : 0,
-        completionRate: course.enrollments > 0 ? Number(((course.completions / course.enrollments) * 100).toFixed(1)) : 0,
-      }));
-
-      const totalRecommendationsDelivered = recommendationCourseInsights.reduce((sum, course) => sum + course.recommendationsDelivered, 0);
-      const totalRecommendationImpressions = recommendationCourseInsights.reduce((sum, course) => sum + course.impressions, 0);
-      const totalRecommendationClicks = recommendationCourseInsights.reduce((sum, course) => sum + course.clicks, 0);
-      const totalRecommendationAccepts = recommendationCourseInsights.reduce((sum, course) => sum + course.accepts, 0);
-      const totalRecommendationEnrollments = recommendationCourseInsights.reduce((sum, course) => sum + course.enrollments, 0);
-      const totalRecommendationCompletions = recommendationCourseInsights.reduce((sum, course) => sum + course.completions, 0);
-      const averageAcceptanceProbability = recommendationCourseInsights.length > 0
-        ? Number((recommendationCourseInsights.reduce((sum, course) => sum + course.acceptanceProbability, 0) / recommendationCourseInsights.length).toFixed(1))
-        : 0;
+      const recommendationAnalytics = buildRecommendationAnalytics(
+        recommendationRows as RecommendationAnalyticsRow[],
+        (courseId) => courseTitleMap.get(courseId) || "Unknown Course",
+      );
 
       const predictiveOverview = {
         highRiskCourses: Array.from(latestCourseRiskByCourseId.values()).filter((row) => row.risk_level === "high").length,
@@ -3988,42 +4088,7 @@ export const reportingService = {
           latestDisengagementByUserId.size > 0
             ? Number((Array.from(latestDisengagementByUserId.values()).reduce((sum, row) => sum + Number(row.disengagement_score || 0), 0) / latestDisengagementByUserId.size).toFixed(1))
             : 0,
-        averageAcceptanceProbability,
-      };
-
-      const recommendationAnalytics = {
-        totalRecommendationsDelivered,
-        totalImpressions: totalRecommendationImpressions,
-        totalClicks: totalRecommendationClicks,
-        totalAccepts: totalRecommendationAccepts,
-        totalRecommendationEnrollments,
-        totalRecommendationCompletions,
-        averageCtr: totalRecommendationImpressions > 0 ? Number(((totalRecommendationClicks / totalRecommendationImpressions) * 100).toFixed(1)) : 0,
-        averageAcceptRate: totalRecommendationClicks > 0 ? Number(((totalRecommendationAccepts / totalRecommendationClicks) * 100).toFixed(1)) : 0,
-        averageAcceptanceProbability,
-        recommendedEnrollmentCompletionRate:
-          totalRecommendationEnrollments > 0
-            ? Number(((totalRecommendationCompletions / totalRecommendationEnrollments) * 100).toFixed(1))
-            : 0,
-        topRecommendedCourses: [...recommendationCourseInsights]
-          .sort((left, right) => {
-            if (right.recommendationsDelivered !== left.recommendationsDelivered) {
-              return right.recommendationsDelivered - left.recommendationsDelivered;
-            }
-            return right.impressions - left.impressions;
-          })
-          .slice(0, 5),
-        mostAcceptedCourses: [...recommendationCourseInsights]
-          .sort((left, right) => {
-            if (right.accepts !== left.accepts) {
-              return right.accepts - left.accepts;
-            }
-            if (right.enrollments !== left.enrollments) {
-              return right.enrollments - left.enrollments;
-            }
-            return right.acceptanceProbability - left.acceptanceProbability;
-          })
-          .slice(0, 5),
+        averageAcceptanceProbability: recommendationAnalytics.averageAcceptanceProbability,
       };
 
       return {
@@ -4596,47 +4661,10 @@ export const reportingService = {
         .filter((score): score is number => score !== null && !Number.isNaN(score));
       const totalLearningHours = Array.from(courseStats.values()).reduce((sum, stats) => sum + stats.sessionMinutes, 0) / 60;
       const averageLearningHoursPerCourse = visibleCourses.length > 0 ? Number((totalLearningHours / visibleCourses.length).toFixed(1)) : 0;
-      const recommendationCourseStats = new Map<string, TrainerRecommendationCourseInsight>();
-
-      for (const recommendation of recommendationRows) {
-        const existing = recommendationCourseStats.get(recommendation.course_id) || {
-          courseId: recommendation.course_id,
-          courseTitle: courseMap.get(recommendation.course_id)?.title || "Untitled course",
-          recommendationsDelivered: 0,
-          impressions: 0,
-          clicks: 0,
-          accepts: 0,
-          enrollments: 0,
-          completions: 0,
-          ctr: 0,
-          acceptRate: 0,
-          enrollmentConversionRate: 0,
-          completionRate: 0,
-        };
-
-        existing.recommendationsDelivered += 1;
-        existing.impressions += Number(recommendation.impression_count || 0);
-        existing.clicks += Number(recommendation.click_count || 0);
-        existing.accepts += Number(recommendation.accept_count || 0);
-        existing.enrollments += Number(recommendation.enrollment_count || 0);
-        existing.completions += Number(recommendation.completion_count || 0);
-        recommendationCourseStats.set(recommendation.course_id, existing);
-      }
-
-      const recommendationCourseInsights = Array.from(recommendationCourseStats.values()).map((course) => ({
-        ...course,
-        ctr: course.impressions > 0 ? Number(((course.clicks / course.impressions) * 100).toFixed(1)) : 0,
-        acceptRate: course.clicks > 0 ? Number(((course.accepts / course.clicks) * 100).toFixed(1)) : 0,
-        enrollmentConversionRate: course.clicks > 0 ? Number(((course.enrollments / course.clicks) * 100).toFixed(1)) : 0,
-        completionRate: course.enrollments > 0 ? Number(((course.completions / course.enrollments) * 100).toFixed(1)) : 0,
-      }));
-
-      const totalRecommendationImpressions = recommendationCourseInsights.reduce((sum, course) => sum + course.impressions, 0);
-      const totalRecommendationClicks = recommendationCourseInsights.reduce((sum, course) => sum + course.clicks, 0);
-      const totalRecommendationAccepts = recommendationCourseInsights.reduce((sum, course) => sum + course.accepts, 0);
-      const totalRecommendationEnrollments = recommendationCourseInsights.reduce((sum, course) => sum + course.enrollments, 0);
-      const totalRecommendationCompletions = recommendationCourseInsights.reduce((sum, course) => sum + course.completions, 0);
-      const totalRecommendationsDelivered = recommendationCourseInsights.reduce((sum, course) => sum + course.recommendationsDelivered, 0);
+      const recommendationAnalytics = buildRecommendationAnalytics(
+        recommendationRows as RecommendationAnalyticsRow[],
+        (courseId) => courseMap.get(courseId)?.title || "Untitled course",
+      );
 
       return {
         showingAllCoursesFallback,
@@ -4669,39 +4697,7 @@ export const reportingService = {
         })),
         courseInsights: courseInsights.slice(0, 6),
         moduleInsights,
-        recommendationAnalytics: {
-          totalRecommendationsDelivered,
-          totalImpressions: totalRecommendationImpressions,
-          totalClicks: totalRecommendationClicks,
-          totalAccepts: totalRecommendationAccepts,
-          totalRecommendationEnrollments,
-          totalRecommendationCompletions,
-          averageCtr: totalRecommendationImpressions > 0 ? Number(((totalRecommendationClicks / totalRecommendationImpressions) * 100).toFixed(1)) : 0,
-          averageAcceptRate: totalRecommendationClicks > 0 ? Number(((totalRecommendationAccepts / totalRecommendationClicks) * 100).toFixed(1)) : 0,
-          recommendedEnrollmentCompletionRate:
-            totalRecommendationEnrollments > 0
-              ? Number(((totalRecommendationCompletions / totalRecommendationEnrollments) * 100).toFixed(1))
-              : 0,
-          topRecommendedCourses: [...recommendationCourseInsights]
-            .sort((left, right) => {
-              if (right.recommendationsDelivered !== left.recommendationsDelivered) {
-                return right.recommendationsDelivered - left.recommendationsDelivered;
-              }
-              return right.impressions - left.impressions;
-            })
-            .slice(0, 5),
-          mostAcceptedCourses: [...recommendationCourseInsights]
-            .sort((left, right) => {
-              if (right.accepts !== left.accepts) {
-                return right.accepts - left.accepts;
-              }
-              if (right.enrollments !== left.enrollments) {
-                return right.enrollments - left.enrollments;
-              }
-              return right.ctr - left.ctr;
-            })
-            .slice(0, 5),
-        },
+        recommendationAnalytics,
       };
     } catch (error) {
       console.error("Error getting trainer dashboard analytics:", error);

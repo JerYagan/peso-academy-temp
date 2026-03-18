@@ -264,6 +264,8 @@ const Profile = () => {
         pageTitle: "Profile",
         pageSubtitle: "Pamahalaan ang iyong learner information, panatilihing updated ang demographic details, at suriin ang iyong training activity sa iisang lugar.",
         editProfile: "I-edit ang Profile",
+          browseCourses: "Mag-browse ng Courses",
+          viewProgress: "Tingnan ang Progress",
         nextProfileAction: "Susunod na aksyon sa profile",
         profileLabel: "Profile",
         signalsLabel: "Signals",
@@ -363,6 +365,8 @@ const Profile = () => {
         pageTitle: "Profile",
         pageSubtitle: "Maintain your learner information, keep your demographic details current, and review your training activity in one place.",
         editProfile: "Edit Profile",
+          browseCourses: "Browse Courses",
+          viewProgress: "View Progress",
         nextProfileAction: "Next profile action",
         profileLabel: "Profile",
         signalsLabel: "Signals",
@@ -1359,123 +1363,7 @@ const Profile = () => {
               </Card>
             ) : null}
 
-            {isLearner ? (
-              <div className="grid gap-6 md:grid-cols-2">
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-xl">{copy.trainingSnapshot}</CardTitle>
-                    <CardDescription>{copy.trainingSnapshotBody}</CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    {loadingData ? (
-                      <div className="grid gap-3 sm:grid-cols-2">
-                        {Array.from({ length: 6 }).map((_, index) => (
-                          <div key={index} className="space-y-3 rounded-2xl border border-border/60 bg-background/60 p-4">
-                            <Skeleton className="h-4 w-32" />
-                            <Skeleton className="h-8 w-20" />
-                            <Skeleton className="h-4 w-24" />
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <>
-                        <div className="grid gap-3 sm:grid-cols-2">
-                          <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
-                            <div className="flex items-center justify-between">
-                              <p className="text-sm text-muted-foreground">{copy.enrolledCourses}</p>
-                              <BookOpen className="h-4 w-4 text-primary" />
-                            </div>
-                            <p className="mt-3 text-3xl font-semibold">{enrollments.length}</p>
-                          </div>
-                          <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
-                            <div className="flex items-center justify-between">
-                              <p className="text-sm text-muted-foreground">{copy.certificates}</p>
-                              <Award className="h-4 w-4 text-amber-500" />
-                            </div>
-                            <p className="mt-3 text-3xl font-semibold">{certificates.length}</p>
-                          </div>
-                          <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
-                            <div className="flex items-center justify-between">
-                              <p className="text-sm text-muted-foreground">{copy.completed}</p>
-                              <BadgeCheck className="h-4 w-4 text-emerald-500" />
-                            </div>
-                            <p className="mt-3 text-3xl font-semibold">{completedEnrollments}</p>
-                          </div>
-                          <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
-                            <div className="flex items-center justify-between">
-                              <p className="text-sm text-muted-foreground">{copy.inProgress}</p>
-                              <GraduationCap className="h-4 w-4 text-sky-500" />
-                            </div>
-                            <p className="mt-3 text-3xl font-semibold">{inProgressEnrollments}</p>
-                          </div>
-                          <div className="rounded-2xl border border-border/60 bg-background/60 p-4 sm:col-span-2">
-                            <div className="flex items-center justify-between">
-                              <p className="text-sm text-muted-foreground">{copy.totalLearningTime}</p>
-                              <Clock3 className="h-4 w-4 text-primary" />
-                            </div>
-                            <p className="mt-3 text-3xl font-semibold">{formatLearningTime(totalLearningMinutes)}</p>
-                          </div>
-                        </div>
-
-                        <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
-                          <div className="mb-2 flex items-center justify-between text-sm">
-                            <span className="text-muted-foreground">{copy.completionRate}</span>
-                            <span className="font-medium">{completionRate}%</span>
-                          </div>
-                          <div className="h-2 rounded-full bg-muted">
-                            <div className="h-2 rounded-full bg-emerald-500 transition-all" style={{ width: `${completionRate}%` }} />
-                          </div>
-                        </div>
-                      </>
-                    )}
-                  </CardContent>
-                </Card>
-
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="text-xl">{language === "tl" ? "Account Summary" : "Account Summary"}</CardTitle>
-                    <CardDescription>
-                      {language === "tl" ? "Mabilisang detalye na nakakabit sa kasalukuyan mong learner account." : "Quick details tied to your current learner account."}
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="space-y-3">
-                    <div className="flex items-center gap-3 rounded-2xl border border-border/60 bg-background/60 p-4">
-                      <Mail className="h-4 w-4 text-primary" />
-                      <div>
-                        <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">{language === "tl" ? "Primary email" : "Primary email"}</p>
-                        <p className="mt-1 text-sm font-medium">{user.email}</p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-3 rounded-2xl border border-border/60 bg-background/60 p-4">
-                      <Phone className="h-4 w-4 text-primary" />
-                      <div>
-                        <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">{language === "tl" ? "Contact number" : "Contact number"}</p>
-                        <p className="mt-1 text-sm font-medium">{user.phone || copy.notProvided}</p>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-3 rounded-2xl border border-border/60 bg-background/60 p-4">
-                      <MapPin className="h-4 w-4 text-primary" />
-                      <div>
-                        <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">{language === "tl" ? "Primary location" : "Primary location"}</p>
-                        <p className="mt-1 text-sm font-medium">{user.cityMunicipality || user.province || copy.notProvided}</p>
-                      </div>
-                    </div>
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
-                        <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">{copy.signalsLabel}</p>
-                        <p className="mt-2 text-2xl font-semibold">{recommendationSignalCoverage}%</p>
-                        <p className="mt-1 text-xs text-muted-foreground">{copy.recommendationCoverageBody}</p>
-                      </div>
-                      <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
-                        <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">{copy.readinessLabel}</p>
-                        <p className="mt-2 text-2xl font-semibold">{predictiveReadiness}%</p>
-                        <p className="mt-1 text-xs text-muted-foreground">{copy.predictiveReadinessBody}</p>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
-            ) : (
+            {!isLearner ? (
               <Card>
                 <CardHeader>
                   <CardTitle className="text-xl">Account Summary</CardTitle>
@@ -1505,9 +1393,127 @@ const Profile = () => {
                   </div>
                 </CardContent>
               </Card>
-            )}
+            ) : null}
           </div>
         </div>
+
+        {isLearner ? (
+          <div className="mt-6 space-y-6">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-xl">{copy.trainingSnapshot}</CardTitle>
+                <CardDescription>{copy.trainingSnapshotBody}</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {loadingData ? (
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                    {Array.from({ length: 6 }).map((_, index) => (
+                      <div key={index} className="space-y-3 rounded-2xl border border-border/60 bg-background/60 p-4">
+                        <Skeleton className="h-4 w-32" />
+                        <Skeleton className="h-8 w-20" />
+                        <Skeleton className="h-4 w-24" />
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <>
+                    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+                      <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
+                        <div className="flex items-center justify-between">
+                          <p className="text-sm text-muted-foreground">{copy.enrolledCourses}</p>
+                          <BookOpen className="h-4 w-4 text-primary" />
+                        </div>
+                        <p className="mt-3 text-3xl font-semibold">{enrollments.length}</p>
+                      </div>
+                      <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
+                        <div className="flex items-center justify-between">
+                          <p className="text-sm text-muted-foreground">{copy.certificates}</p>
+                          <Award className="h-4 w-4 text-amber-500" />
+                        </div>
+                        <p className="mt-3 text-3xl font-semibold">{certificates.length}</p>
+                      </div>
+                      <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
+                        <div className="flex items-center justify-between">
+                          <p className="text-sm text-muted-foreground">{copy.completed}</p>
+                          <BadgeCheck className="h-4 w-4 text-emerald-500" />
+                        </div>
+                        <p className="mt-3 text-3xl font-semibold">{completedEnrollments}</p>
+                      </div>
+                      <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
+                        <div className="flex items-center justify-between">
+                          <p className="text-sm text-muted-foreground">{copy.inProgress}</p>
+                          <GraduationCap className="h-4 w-4 text-sky-500" />
+                        </div>
+                        <p className="mt-3 text-3xl font-semibold">{inProgressEnrollments}</p>
+                      </div>
+                      <div className="rounded-2xl border border-border/60 bg-background/60 p-4 sm:col-span-2 xl:col-span-1">
+                        <div className="flex items-center justify-between">
+                          <p className="text-sm text-muted-foreground">{copy.totalLearningTime}</p>
+                          <Clock3 className="h-4 w-4 text-primary" />
+                        </div>
+                        <p className="mt-3 text-3xl font-semibold">{formatLearningTime(totalLearningMinutes)}</p>
+                      </div>
+                    </div>
+
+                    <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
+                      <div className="mb-2 flex items-center justify-between text-sm">
+                        <span className="text-muted-foreground">{copy.completionRate}</span>
+                        <span className="font-medium">{completionRate}%</span>
+                      </div>
+                      <div className="h-2 rounded-full bg-muted">
+                        <div className="h-2 rounded-full bg-emerald-500 transition-all" style={{ width: `${completionRate}%` }} />
+                      </div>
+                    </div>
+                  </>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-xl">{language === "tl" ? "Account Summary" : "Account Summary"}</CardTitle>
+                <CardDescription>
+                  {language === "tl" ? "Mabilisang detalye na nakakabit sa kasalukuyan mong learner account." : "Quick details tied to your current learner account."}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+                <div className="flex items-center gap-3 rounded-2xl border border-border/60 bg-background/60 p-4 xl:col-span-2">
+                  <Mail className="h-4 w-4 text-primary" />
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">{language === "tl" ? "Primary email" : "Primary email"}</p>
+                    <p className="mt-1 text-sm font-medium">{user.email}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 rounded-2xl border border-border/60 bg-background/60 p-4">
+                  <Phone className="h-4 w-4 text-primary" />
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">{language === "tl" ? "Contact number" : "Contact number"}</p>
+                    <p className="mt-1 text-sm font-medium">{user.phone || copy.notProvided}</p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 rounded-2xl border border-border/60 bg-background/60 p-4">
+                  <MapPin className="h-4 w-4 text-primary" />
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">{language === "tl" ? "Primary location" : "Primary location"}</p>
+                    <p className="mt-1 text-sm font-medium">{user.cityMunicipality || user.province || copy.notProvided}</p>
+                  </div>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2 md:col-span-2 xl:col-span-2">
+                  <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
+                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">{copy.signalsLabel}</p>
+                    <p className="mt-2 text-2xl font-semibold">{recommendationSignalCoverage}%</p>
+                    <p className="mt-1 text-xs text-muted-foreground">{copy.recommendationCoverageBody}</p>
+                  </div>
+                  <div className="rounded-2xl border border-border/60 bg-background/60 p-4">
+                    <p className="text-xs uppercase tracking-[0.16em] text-muted-foreground">{copy.readinessLabel}</p>
+                    <p className="mt-2 text-2xl font-semibold">{predictiveReadiness}%</p>
+                    <p className="mt-1 text-xs text-muted-foreground">{copy.predictiveReadinessBody}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        ) : null}
       </div>
     </DashboardLayout>
   );

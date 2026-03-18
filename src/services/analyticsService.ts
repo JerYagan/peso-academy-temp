@@ -18,6 +18,19 @@ export interface PersistedLearnerRecommendation {
   modelVersion: string;
 }
 
+const mapPersistedRecommendationRow = (row: any): PersistedLearnerRecommendation => ({
+  id: row.id,
+  userId: row.user_id,
+  courseId: row.course_id,
+  sourceSurface: row.source_surface,
+  rank: row.rank,
+  score: Number(row.score || 0),
+  acceptanceProbability: Number(row.acceptance_probability || 0),
+  reasons: Array.isArray(row.reasons) ? row.reasons : [],
+  generatedAt: row.generated_at,
+  modelVersion: row.model_version,
+});
+
 type AnalyticsEventInput = {
   eventName: string;
   userId?: string;
@@ -115,6 +128,29 @@ export const analyticsService = {
   getSessionId: getAnalyticsSessionId,
 
   resolveRecommendationId: resolvePersistedRecommendationId,
+
+  getPersistedRecommendations: async (
+    userId: string,
+    sourceSurface: string,
+  ): Promise<PersistedLearnerRecommendation[]> => {
+    if (!supabase) {
+      return [];
+    }
+
+    const { data, error } = await supabase
+      .from("learner_recommendations")
+      .select("id, user_id, course_id, source_surface, rank, score, acceptance_probability, reasons, generated_at, model_version")
+      .eq("user_id", userId)
+      .eq("source_surface", sourceSurface)
+      .order("rank", { ascending: true });
+
+    if (error) {
+      handleSupabaseError(error);
+      return [];
+    }
+
+    return ((data || []) as any[]).map(mapPersistedRecommendationRow);
+  },
 
   trackEvent: async ({
     eventName,
@@ -229,18 +265,7 @@ export const analyticsService = {
     }
 
     const persistedRecommendations = (data || [])
-      .map((row: any) => ({
-        id: row.id,
-        userId: row.user_id,
-        courseId: row.course_id,
-        sourceSurface: row.source_surface,
-        rank: row.rank,
-        score: Number(row.score || 0),
-        acceptanceProbability: Number(row.acceptance_probability || 0),
-        reasons: Array.isArray(row.reasons) ? row.reasons : [],
-        generatedAt: row.generated_at,
-        modelVersion: row.model_version,
-      }))
+      .map(mapPersistedRecommendationRow)
       .sort((left, right) => left.rank - right.rank);
 
     await Promise.all(

@@ -27,6 +27,10 @@ import { toast } from "sonner";
 import { User } from "@/types/auth";
 import { formatDistanceToNow, startOfMonth, endOfMonth, isWithinInterval } from "date-fns";
 import {
+  analyticsService,
+  type PersistedLearnerRecommendation,
+} from "@/services/analyticsService";
+import {
   buildLearnerCareerPathRecommendations,
   buildLearnerCourseRecommendations,
   reportingService,
@@ -63,6 +67,7 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
   const [lastAccessedModule, setLastAccessedModule] = useState<EnrichedModuleSession | null>(null);
   const [sessionAggregates, setSessionAggregates] = useState<ModuleSessionAggregate[]>([]);
   const [collaborativeSignals, setCollaborativeSignals] = useState<Record<string, CollaborativeRecommendationSignal>>({});
+  const [persistedDashboardRecommendations, setPersistedDashboardRecommendations] = useState<PersistedLearnerRecommendation[]>([]);
   const [loadingCourses, setLoadingCourses] = useState(true);
   const [loadingPerformance, setLoadingPerformance] = useState(true);
   const [loadingSessionHistory, setLoadingSessionHistory] = useState(true);
@@ -459,6 +464,18 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
     return buildLearnerCareerPathRecommendations(user, allCourses, allEnrollments, performanceSummary, 3);
   }, [allCourses, allEnrollments, performanceSummary, user]);
 
+  const hydratedDashboardRecommendations = useMemo(
+    () => analyticsService.hydrateRecommendationCards(recommendedCourses, persistedDashboardRecommendations),
+    [persistedDashboardRecommendations, recommendedCourses],
+  );
+
+  const persistedDashboardCards = useMemo(
+    () => hydratedDashboardRecommendations
+      .map((recommendation) => recommendation.persisted)
+      .filter((recommendation): recommendation is PersistedLearnerRecommendation => Boolean(recommendation)),
+    [hydratedDashboardRecommendations],
+  );
+
   const hasRecommendationContext = hasOnboardingSignals || hasLearningHistory;
 
   const recommendationHeadline = (() => {
@@ -496,6 +513,47 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
 
     return copy.discoverBody;
   })();
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadPersistedRecommendations = async () => {
+      const nextRecommendations = await analyticsService.getPersistedRecommendations(
+        user.id,
+        "dashboard_recommendations",
+      );
+
+      if (!cancelled) {
+        setPersistedDashboardRecommendations(nextRecommendations);
+      }
+    };
+
+    void loadPersistedRecommendations();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user.id]);
+
+  useEffect(() => {
+    if (persistedDashboardCards.length === 0) {
+      return;
+    }
+
+    void analyticsService.logRecommendationImpressions(
+      user.id,
+      persistedDashboardCards,
+      "dashboard_recommendations",
+    );
+  }, [persistedDashboardCards, user.id]);
+
+  const handleDashboardRecommendationClick = (recommendation?: PersistedLearnerRecommendation) => {
+    if (!recommendation) {
+      return;
+    }
+
+    void analyticsService.logRecommendationClick(user.id, recommendation, "dashboard_recommendations");
+  };
 
   const progressIndicators = useMemo(() => {
     if (!performanceSummary) {
@@ -678,8 +736,8 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
         </div>
 
         <div className="grid gap-4 lg:grid-cols-3">
-          {recommendedCourses.map(({ course, reasons }) => (
-            <Card key={course.id} className="overflow-hidden border-border/80 bg-background/95 shadow-[0_18px_40px_-30px_rgba(15,23,42,0.4)]">
+          {hydratedDashboardRecommendations.map(({ course, reasons, persisted }) => (
+            <Card key={course.id} className="flex h-full flex-col overflow-hidden border-border/80 bg-background/95 shadow-[0_18px_40px_-30px_rgba(15,23,42,0.4)]">
               <CardHeader className="space-y-3">
                 <div className="flex items-center justify-between gap-2">
                   <Badge className="rounded-full bg-primary px-3 py-1 text-[11px] font-semibold text-primary-foreground hover:bg-primary">
@@ -697,7 +755,7 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
                   <CardDescription className="mt-2 line-clamp-3">{course.description}</CardDescription>
                 </div>
               </CardHeader>
-              <CardContent className="space-y-4">
+              <CardContent className="flex flex-1 flex-col space-y-4">
                 <div className="space-y-2 text-sm text-muted-foreground">
                   <div className="flex items-center gap-2">
                     <Clock3 className="h-4 w-4" />
@@ -721,12 +779,27 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
                   ))}
                 </div>
 
-                <div className="flex gap-3">
+                <div className="mt-auto flex gap-3 pt-2">
                   <Button className="flex-1" asChild>
-                    <Link to="/courses">{copy.browseCourses}</Link>
+                    <Link
+                      to={`/courses/${course.id}`}
+                      state={{
+                        entrySource: "dashboard_recommendation_primary",
+                        originatingRecommendationId: persisted?.id,
+                        sourceSurface: "dashboard_recommendations",
+                      }}
+                      onClick={() => handleDashboardRecommendationClick(persisted)}
+                    >
+                      {copy.preview}
+                    </Link>
                   </Button>
-                  <Button variant="outline" asChild>
-                    <Link to={`/courses/${course.id}`}>{copy.preview}</Link>
+                  <Button variant="outline" className="flex-1" asChild>
+                    <Link
+                      to="/courses"
+                      state={{ entrySource: "dashboard_recommendations" }}
+                    >
+                      {copy.browseCourses}
+                    </Link>
                   </Button>
                 </div>
               </CardContent>
@@ -1142,6 +1215,8 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
           </div>
 
           <TabsContent value="continue" className="space-y-6">
+            {renderRecommendedCourses()}
+
             <Card>
               <CardHeader className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                 <div>
@@ -1349,7 +1424,7 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
                                   </Link>
                                 </Button>
                               )}
-                              <Button variant="outline" asChild>
+                              <Button variant="outline" className="flex-1" asChild>
                                 <Link to="/progress">{copy.viewProgress}</Link>
                               </Button>
                             </div>
@@ -1396,6 +1471,8 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
           </TabsContent>
 
           <TabsContent value="review" className="space-y-6">
+            {renderPerformanceSummary()}
+
             <Card>
               <CardHeader>
                 <CardTitle>{copy.reviewActionsTitle}</CardTitle>

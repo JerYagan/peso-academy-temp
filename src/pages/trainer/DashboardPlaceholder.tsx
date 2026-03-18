@@ -8,7 +8,6 @@ import {
   Clock3,
   GraduationCap,
   Loader2,
-  MousePointerClick,
   RefreshCw,
   ShieldAlert,
   Target,
@@ -118,8 +117,8 @@ const TrainerDashboardPlaceholder = () => {
   const topCourseInsights = analytics?.courseInsights.slice(0, 5) || [];
   const recommendationCourseData = analytics?.recommendationAnalytics.topRecommendedCourses.slice(0, 5).map((course) => ({
     name: course.courseTitle.length > 18 ? `${course.courseTitle.slice(0, 18)}...` : course.courseTitle,
-    ctr: course.ctr,
     acceptRate: course.acceptRate,
+    acceptanceProbability: course.acceptanceProbability,
   })) || [];
   const recommendationWinners = analytics?.recommendationAnalytics.mostAcceptedCourses.slice(0, 5) || [];
   const atRiskSignalCards = analytics ? [
@@ -700,19 +699,6 @@ const TrainerDashboardPlaceholder = () => {
                   <Card>
                     <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-3">
                       <div>
-                        <CardTitle className="text-sm font-medium text-muted-foreground">Recommendation Click Through Rate</CardTitle>
-                        <div className="mt-2 text-3xl font-semibold tracking-tight">{analytics.recommendationAnalytics.averageCtr}%</div>
-                      </div>
-                      <MousePointerClick className="h-5 w-5 text-primary" />
-                    </CardHeader>
-                    <CardContent>
-                      <p className="text-sm text-muted-foreground">Click-through rate from recommendation impression to learner click.</p>
-                    </CardContent>
-                  </Card>
-
-                  <Card>
-                    <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-3">
-                      <div>
                         <CardTitle className="text-sm font-medium text-muted-foreground">Acceptance rate</CardTitle>
                         <div className="mt-2 text-3xl font-semibold tracking-tight">{analytics.recommendationAnalytics.averageAcceptRate}%</div>
                       </div>
@@ -720,6 +706,19 @@ const TrainerDashboardPlaceholder = () => {
                     </CardHeader>
                     <CardContent>
                       <p className="text-sm text-muted-foreground">Share of clicks that turned into recommendation accepts.</p>
+                    </CardContent>
+                  </Card>
+
+                  <Card>
+                    <CardHeader className="flex flex-row items-start justify-between space-y-0 pb-3">
+                      <div>
+                        <CardTitle className="text-sm font-medium text-muted-foreground">Avg acceptance probability</CardTitle>
+                        <div className="mt-2 text-3xl font-semibold tracking-tight">{analytics.recommendationAnalytics.averageAcceptanceProbability}%</div>
+                      </div>
+                      <Brain className="h-5 w-5 text-primary" />
+                    </CardHeader>
+                    <CardContent>
+                      <p className="text-sm text-muted-foreground">Predicted acceptance across the same surfaced recommendation rows used in admin analytics.</p>
                     </CardContent>
                   </Card>
 
@@ -737,25 +736,31 @@ const TrainerDashboardPlaceholder = () => {
                   </Card>
                 </div>
 
+                <Card className="border-amber-200 bg-amber-50/70">
+                  <CardContent className="p-4 text-sm text-amber-900">
+                    If click-through and accept rate stay at 0, it usually means learners have not yet generated tracked recommendation impressions or clicks on persisted recommendation cards. The dashboard now logs those interactions from learner recommendation surfaces, so these rates should move once new traffic comes through.
+                  </CardContent>
+                </Card>
+
                 <div className="grid gap-4 xl:grid-cols-[1fr_1fr]">
                   <Card>
                     <CardHeader>
                       <CardTitle>Recommendation performance</CardTitle>
-                      <CardDescription>Top recommended courses by click-through and acceptance quality.</CardDescription>
+                      <CardDescription>Acceptance probability, recommendation response, and downstream outcomes across the same recommendation rows shown in admin analytics.</CardDescription>
                     </CardHeader>
                     <CardContent>
                       {recommendationCourseData.length > 0 ? (
                         <div className="h-80 w-full">
                           <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={recommendationCourseData}>
+                            <LineChart data={recommendationCourseData}>
                               <CartesianGrid strokeDasharray="3 3" vertical={false} />
                               <XAxis dataKey="name" tickLine={false} axisLine={false} />
                               <YAxis tickLine={false} axisLine={false} domain={[0, 100]} />
                               <Tooltip />
                               <Legend />
-                              <Bar dataKey="ctr" name="Click Through Rate" fill={chartPalette.accent} radius={[6, 6, 0, 0]} />
-                              <Bar dataKey="acceptRate" name="Accept rate" fill={chartPalette.primary} radius={[6, 6, 0, 0]} />
-                            </BarChart>
+                              <Line type="monotone" dataKey="acceptRate" name="Accept rate" stroke={chartPalette.primary} strokeWidth={3} dot={{ r: 4 }} />
+                              <Line type="monotone" dataKey="acceptanceProbability" name="Predicted acceptance" stroke={chartPalette.warm} strokeWidth={3} dot={{ r: 4 }} />
+                            </LineChart>
                           </ResponsiveContainer>
                         </div>
                       ) : (
@@ -784,8 +789,8 @@ const TrainerDashboardPlaceholder = () => {
                             </div>
                             <div className="mt-4 grid gap-3 sm:grid-cols-3">
                               <div>
-                                <p className="text-xs text-muted-foreground">Click Through Rate</p>
-                                <p className="mt-1 text-lg font-semibold">{course.ctr}%</p>
+                                <p className="text-xs text-muted-foreground">Predicted acceptance</p>
+                                <p className="mt-1 text-lg font-semibold">{course.acceptanceProbability}%</p>
                               </div>
                               <div>
                                 <p className="text-xs text-muted-foreground">Enroll conversion</p>

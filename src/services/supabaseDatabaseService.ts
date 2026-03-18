@@ -3684,6 +3684,14 @@ export const userService = {
       throw error || new Error("Failed to update trainee verification");
     }
 
+    if (verificationStatus === "verified") {
+      try {
+        await notificationHelpers.notifyAccountVerified(traineeId);
+      } catch (notificationError) {
+        console.error("Failed to notify learner about verification approval:", notificationError);
+      }
+    }
+
     return {
       id: data.id,
       email: data.email,

@@ -1,0 +1,305 @@
+# Course: Community Engagement and Development Excellence
+
+- Category: Community Development
+- Level: Intermediate
+- Duration: 16 hours
+- Skill tags: Community Engagement, Stakeholder Communication, Program Planning, Facilitation, Monitoring and Evaluation
+- Topic tags: Community Development, Public Service, Inclusive Participation, Project Implementation
+- Industry tags: Public Service, Nonprofit, Local Governance, Social Development
+- Career paths: Community Development Worker, Program Coordinator, NGO Field Officer, Local Government Project Assistant
+- Thumbnail: https://picsum.photos/seed/community-engagement-development-course/1200/675
+- Course summary: A practice-oriented course that develops the knowledge and field habits needed to build trust with communities, assess local needs, plan responsive programs, mobilize stakeholders, and sustain community-led development initiatives.
+- Intended learner outcome: Learners should be able to facilitate respectful community engagement processes, convert local needs into realistic action plans, and track development results using inclusive and ethical practices.
+
+## Course Overview
+
+This course equips learners with the practical tools needed to work effectively with community members, barangay leaders, partner organizations, and frontline service teams. It emphasizes participatory planning, transparent communication, conflict-aware facilitation, and accountable project follow-through.
+
+By the end of the course, learners should be able to:
+- Explain the principles of meaningful and ethical community engagement.
+- Conduct basic stakeholder and needs analysis for local development work.
+- Design small-scale community initiatives with clear roles, timelines, and outputs.
+- Use feedback and monitoring data to improve program delivery and strengthen community ownership.
+
+## Module 1: Foundations of Community Engagement
+- Description: Establishes the core principles, values, and field behaviors that support respectful and effective engagement with communities.
+- Duration: 4 hours
+- Thumbnail: https://picsum.photos/seed/community-engagement-m1/1200/675
+- Skill tags: Community Engagement, Facilitation, Ethical Practice
+- Topic tags: Community Development, Public Service, Inclusive Participation
+- Learning objectives:
+  - Define community engagement and distinguish it from one-way information sharing.
+  - Describe the importance of trust, inclusion, and accountability in development work.
+  - Identify behaviors that strengthen or weaken community participation.
+- Content blocks:
+  - text:
+    - title: What meaningful engagement looks like
+    - body: Community engagement is strongest when people are treated as partners rather than passive recipients. Effective practitioners listen before proposing solutions, acknowledge local knowledge, and create space for groups whose voices are often missed such as youth, women, older persons, and persons with disabilities.
+  - video:
+    - title: Introduction to community engagement principles
+    - url: https://www.youtube.com/watch?v=ScMzIvxBSi4
+    - body: Use this video to introduce the idea that sustainable development depends on participation, trust, and shared ownership.
+  - image:
+    - title: Community dialogue circle
+    - url: https://picsum.photos/seed/community-engagement-m1-image/1200/675
+    - alt_text: Community members and facilitators seated in a dialogue circle
+    - caption: A visual reminder that development work starts with listening, shared understanding, and visible inclusion.
+  - learning_material:
+    - title: Reference reading on communication and participation
+    - url: https://edu.gcfglobal.org/en/
+    - body: Supplemental material on clear communication, collaboration, and learner-friendly facilitation habits.
+  - quiz:
+    - title: Quiz 1 - Foundations of engagement
+    - questions:
+      - multiple_choice:
+        - question: Which action best reflects meaningful community engagement?
+        - options:
+          - Finalizing the project plan before consulting residents
+          - Asking local leaders only and excluding other groups
+          - Involving community members in identifying issues and shaping responses
+          - Sharing project updates only after the budget is spent
+        - correct_answer: Involving community members in identifying issues and shaping responses
+        - points: 1
+        - explanation: Meaningful engagement requires participation in decision-making, not just information delivery.
+      - true_false:
+        - question: Trust is built faster when facilitators make promises they are not yet sure they can fulfill.
+        - correct_answer: False
+        - points: 1
+        - explanation: Unrealistic promises damage credibility and weaken long-term cooperation.
+      - short_answer:
+        - question: Name one group that is often underrepresented in community consultations and explain why they should be included.
+        - expected_focus: Recognition of marginalized groups and the value of inclusive participation.
+        - points: 3
+
+## Module 2: Stakeholder Mapping and Community Needs Assessment
+- Description: Guides learners in identifying key actors, collecting relevant information, and analyzing what a community needs before proposing interventions.
+- Duration: 4 hours
+- Thumbnail: https://picsum.photos/seed/community-engagement-m2/1200/675
+- Skill tags: Stakeholder Analysis, Data Gathering, Community Consultation
+- Topic tags: Needs Assessment, Local Governance, Program Planning
+- Learning objectives:
+  - Identify primary, secondary, and institutional stakeholders in a development initiative.
+  - Compare common methods for gathering community insights such as interviews, focus groups, and observation.
+  - Prioritize needs based on evidence, urgency, and local feasibility.
+- Content blocks:
+  - text:
+    - title: Mapping stakeholders before acting
+    - body: Development initiatives often fail when planners focus only on visible officials and overlook informal influencers, frontline workers, local organizations, and affected households. A simple stakeholder map helps teams understand who is affected, who has influence, and who should be involved at each stage of planning and implementation.
+  - video:
+    - title: Community needs assessment basics
+    - url: https://www.youtube.com/watch?v=aqz-KE-bpKQ
+    - body: Use this video as a discussion starter on observation, interview preparation, and evidence-based prioritization.
+  - image:
+    - title: Stakeholder mapping board
+    - url: https://picsum.photos/seed/community-engagement-m2-image/1200/675
+    - alt_text: A stakeholder map with community actors, influence levels, and partnership roles
+    - caption: Stakeholder mapping helps project teams see who must be informed, consulted, involved, or empowered.
+  - learning_material:
+    - title: Reference guide for planning and productivity
+    - url: https://www.atlassian.com/work-management/productivity
+    - body: Supplemental reading on organizing collaborative work, clarifying responsibilities, and aligning actions with goals.
+  - quiz:
+    - title: Quiz 2 - Stakeholders and needs
+    - questions:
+      - multiple_choice:
+        - question: What is the main purpose of a stakeholder map?
+        - options:
+          - To replace field interviews completely
+          - To identify who is affected, influential, and necessary to engage
+          - To estimate the final project budget only
+          - To choose the project logo and campaign materials
+        - correct_answer: To identify who is affected, influential, and necessary to engage
+        - points: 1
+        - explanation: Stakeholder mapping clarifies relationships, influence, and engagement priorities.
+      - true_false:
+        - question: A needs assessment should rely only on assumptions from the project team if time is limited.
+        - correct_answer: False
+        - points: 1
+        - explanation: Even a simple needs assessment should include direct evidence from the community.
+      - short_answer:
+        - question: Give one reason why household interviews and focus group discussions can produce different insights.
+        - expected_focus: Differences in setting, comfort level, group dynamics, or depth of responses.
+        - points: 3
+
+## Module 3: Participatory Program Design and Resource Mobilization
+- Description: Shows learners how to convert assessment findings into realistic activities, timelines, resource plans, and shared commitments with community partners.
+- Duration: 4 hours
+- Thumbnail: https://picsum.photos/seed/community-engagement-m3/1200/675
+- Skill tags: Program Design, Resource Mobilization, Coordination
+- Topic tags: Project Implementation, Community Participation, Action Planning
+- Learning objectives:
+  - Write a simple community action plan with objectives, activities, roles, and timelines.
+  - Match local resources and partner contributions to project needs.
+  - Use participatory planning techniques to strengthen ownership and accountability.
+- Content blocks:
+  - text:
+    - title: Turning needs into an action plan
+    - body: Once priorities are clear, teams must translate them into manageable actions. A strong community action plan identifies the problem, states what success looks like, assigns responsibilities, sets realistic deadlines, and clarifies what support will come from community members, government offices, and partner organizations.
+  - video:
+    - title: Building practical action plans
+    - url: https://www.youtube.com/watch?v=HluANRwPyNo
+    - body: Use this video to prompt discussion about sequencing activities, defining responsibilities, and avoiding vague implementation plans.
+  - image:
+    - title: Community planning session wall chart
+    - url: https://picsum.photos/seed/community-engagement-m3-image/1200/675
+    - alt_text: A wall chart showing project tasks, timelines, and assigned community roles
+    - caption: Visible planning tools help community members understand commitments and monitor progress together.
+  - learning_material:
+    - title: Reference material on structured planning
+    - url: https://www.microsoft.com/en-us/microsoft-365/business-insights-ideas/resources
+    - body: Supplemental reading on turning ideas into organized work plans and tracking deliverables clearly.
+  - quiz:
+    - title: Quiz 3 - Action planning and mobilization
+    - questions:
+      - multiple_choice:
+        - question: Which element is essential in a community action plan?
+        - options:
+          - A list of activities without owners or deadlines
+          - Objectives, activities, assigned roles, and timelines
+          - A plan based only on outside donor preferences
+          - A budget with no link to community priorities
+        - correct_answer: Objectives, activities, assigned roles, and timelines
+        - points: 1
+        - explanation: An action plan must connect goals to responsibilities and timing.
+      - true_false:
+        - question: Community ownership usually improves when local stakeholders help define responsibilities and contributions.
+        - correct_answer: True
+        - points: 1
+        - explanation: Participation in planning increases buy-in and commitment during implementation.
+      - short_answer:
+        - question: Give one example of a local resource that can support a development project aside from direct funding.
+        - expected_focus: Volunteer time, meeting space, local expertise, communication channels, tools, or in-kind materials.
+        - points: 3
+
+## Module 4: Monitoring, Feedback, and Sustainable Community Development
+- Description: Develops the learner's ability to track progress, collect feedback, respond to issues, and strengthen long-term sustainability beyond initial project delivery.
+- Duration: 4 hours
+- Thumbnail: https://picsum.photos/seed/community-engagement-m4/1200/675
+- Skill tags: Monitoring and Evaluation, Feedback Management, Sustainability Planning
+- Topic tags: Program Improvement, Accountability, Community Ownership
+- Learning objectives:
+  - Identify simple indicators that show whether a community initiative is progressing.
+  - Use feedback loops to improve activities while implementation is ongoing.
+  - Describe practical strategies for sustaining gains after initial project support ends.
+- Content blocks:
+  - text:
+    - title: Monitoring progress without overcomplicating it
+    - body: Monitoring is not only about reports. It is about regularly checking whether activities are happening, whether participants are benefiting, and whether problems need correction. Simple indicators such as attendance, completion of planned activities, beneficiary satisfaction, and observed behavior change can guide better decisions when reviewed consistently.
+  - video:
+    - title: Feedback and sustainability in local programs
+    - url: https://www.youtube.com/watch?v=jNQXAC9IVRw
+    - body: Use this video to prompt reflection on how teams can learn from results, adjust quickly, and build long-term ownership.
+  - image:
+    - title: Progress review meeting
+    - url: https://picsum.photos/seed/community-engagement-m4-image/1200/675
+    - alt_text: A review meeting showing indicators, notes, and community feedback points
+    - caption: Monitoring works best when community members can see progress, raise concerns, and help shape improvements.
+  - learning_material:
+    - title: Reference reading on learning and communication
+    - url: https://developer.mozilla.org/en-US/docs/Learn
+    - body: Supplemental material that supports clear reporting, structured review, and practical knowledge-sharing habits.
+  - quiz:
+    - title: Quiz 4 - Monitoring and sustainability
+    - questions:
+      - multiple_choice:
+        - question: Which is the best example of a monitoring indicator?
+        - options:
+          - A general belief that the project is successful
+          - The number of community participants attending monthly sessions
+          - The project title used in presentation slides
+          - The color scheme of the printed campaign poster
+        - correct_answer: The number of community participants attending monthly sessions
+        - points: 1
+        - explanation: Indicators should be observable or measurable signs of progress.
+      - true_false:
+        - question: Feedback should ideally be collected only after a project fully ends.
+        - correct_answer: False
+        - points: 1
+        - explanation: Ongoing feedback allows teams to improve implementation while activities are still underway.
+      - short_answer:
+        - question: State one practical step that can help a community initiative continue after external support decreases.
+        - expected_focus: Training local leaders, setting up local committees, documenting processes, or transferring responsibilities gradually.
+        - points: 3
+
+## Final Assessment
+
+- Format: Mixed assessment
+- Total items: 10
+- Passing recommendation: 75%
+- Assessment instructions: Answer all items using principles covered in the modules. For short-answer and essay items, focus on practical and ethical responses grounded in inclusive community development practice.
+
+- multiple_choice:
+  - question: Which statement best describes community engagement excellence?
+  - options:
+    - Delivering services quickly without asking for local input
+    - Building partnerships where communities help define problems and solutions
+    - Prioritizing reports over relationships
+    - Using one standard intervention for all communities
+  - correct_answer: Building partnerships where communities help define problems and solutions
+  - points: 1
+  - explanation: Excellence in engagement is rooted in participation, respect, and shared decision-making.
+
+- multiple_choice:
+  - question: Which stakeholder is most likely to provide insight into everyday barriers faced by beneficiaries?
+  - options:
+    - A distant supplier with no field role
+    - Directly affected households and service users
+    - A printer producing advocacy materials
+    - A visitor attending only the launch event
+  - correct_answer: Directly affected households and service users
+  - points: 1
+  - explanation: Primary stakeholders experience the issue directly and are essential sources of field insight.
+
+- true_false:
+  - question: Excluding quieter groups from consultations can lead to incomplete or biased planning decisions.
+  - correct_answer: True
+  - points: 1
+  - explanation: Missing voices often means missing actual needs, constraints, and risks.
+
+- true_false:
+  - question: A project is sustainable if outside partners continue doing all of the work indefinitely.
+  - correct_answer: False
+  - points: 1
+  - explanation: Sustainability improves when local capacity and ownership increase over time.
+
+- short_answer:
+  - question: List two methods that can be used in a community needs assessment.
+  - expected_focus: Interviews, focus group discussions, surveys, observation, community meetings, or mapping exercises.
+  - points: 2
+
+- short_answer:
+  - question: Give one reason why assigning roles clearly in an action plan matters.
+  - expected_focus: Accountability, coordination, reduced duplication, or clearer follow-through.
+  - points: 2
+
+- multiple_choice:
+  - question: Which practice most improves trust during project implementation?
+  - options:
+    - Hiding delays until the project is complete
+    - Communicating updates honestly and explaining adjustments clearly
+    - Changing responsibilities without informing anyone
+    - Avoiding feedback to prevent complaints
+  - correct_answer: Communicating updates honestly and explaining adjustments clearly
+  - points: 1
+  - explanation: Transparency strengthens credibility and helps protect relationships during challenges.
+
+- multiple_choice:
+  - question: Which is the best example of an in-kind community contribution?
+  - options:
+    - A volunteer venue for meetings
+    - A delayed project report
+    - A blank attendance sheet
+    - An unconfirmed promise from an outside donor
+  - correct_answer: A volunteer venue for meetings
+  - points: 1
+  - explanation: In-kind support includes non-cash contributions such as space, labor, tools, or materials.
+
+- essay:
+  - question: A youth livelihood project has low attendance after the first month. Explain how you would gather feedback, identify likely causes, and adjust the implementation plan while maintaining trust with participants.
+  - expected_focus: Respectful consultation, data gathering, schedule or design adjustment, transparent communication, and shared problem-solving with participants.
+  - points: 5
+
+- essay:
+  - question: Describe how you would design a small community clean-up and waste segregation initiative from initial consultation to sustainability planning.
+  - expected_focus: Stakeholder engagement, needs assessment, action planning, role assignment, resource mobilization, monitoring indicators, and long-term ownership.
+  - points: 5

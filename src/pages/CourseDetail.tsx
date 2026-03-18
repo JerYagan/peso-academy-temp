@@ -514,7 +514,12 @@ const CourseDetail = () => {
   const previewKey = searchParams.get("previewKey");
   const isPreviewMode = Boolean(searchParams.get("preview") && previewKey);
   const previewEnrollmentId = `preview-enrollment-${id || "course"}`;
-  const locationState = location.state as { entrySource?: string; moduleId?: string } | null;
+  const locationState = location.state as {
+    entrySource?: string;
+    moduleId?: string;
+    originatingRecommendationId?: string;
+    sourceSurface?: string;
+  } | null;
   const moduleRequestSequenceRef = useRef(0);
   const courseLoadRequestSequenceRef = useRef(0);
   const modulesListRef = useRef<HTMLDivElement | null>(null);
@@ -540,6 +545,14 @@ const CourseDetail = () => {
     typeof locationState?.moduleId === "string" && locationState.moduleId.trim()
       ? locationState.moduleId
       : null;
+  const originatingRecommendationId =
+    typeof locationState?.originatingRecommendationId === "string" && locationState.originatingRecommendationId.trim()
+      ? locationState.originatingRecommendationId
+      : undefined;
+  const recommendationSourceSurface =
+    typeof locationState?.sourceSurface === "string" && locationState.sourceSurface.trim()
+      ? locationState.sourceSurface
+      : undefined;
   const userId = user?.id ?? null;
   const userRole = user?.role ?? null;
   const userTraineeType = user?.traineeType ?? null;
@@ -1169,7 +1182,10 @@ const CourseDetail = () => {
     setEnrolling(true);
     setEnrollmentRecovery(null);
     try {
-      await enrollmentService.enrollInCourse(user.id, id);
+      await enrollmentService.enrollInCourse(user.id, id, {
+        originatingRecommendationId,
+        sourceSurface: recommendationSourceSurface,
+      });
       toast.success("You are now enrolled!");
       await loadCourseData();
     } catch (error) {

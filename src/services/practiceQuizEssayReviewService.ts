@@ -1,4 +1,5 @@
 import { handleSupabaseError, supabase } from "@/lib/supabase";
+import { notificationHelpers } from "@/services/notificationService";
 import { PracticeQuizEssayResponse } from "@/types";
 
 const unsupportedPracticeQuizEssayFeedbackColumns = new Set<string>();
@@ -343,5 +344,42 @@ export const practiceQuizEssayReviewService = {
       handleSupabaseError(error);
       throw error;
     }
+
+    const { data: responseRow, error: responseError } = await supabase
+      .from("practice_quiz_essay_responses")
+      .select("id, user_id, course_id, module_id, enrollment_id")
+      .eq("id", input.responseId)
+      .maybeSingle();
+
+    if (responseError) {
+      handleSupabaseError(responseError);
+      throw responseError;
+    }
+
+    if (!responseRow) {
+      return;
+    }
+
+    const { data: courseRow, error: courseError } = await supabase
+      .from("courses")
+      .select("title")
+      .eq("id", responseRow.course_id)
+      .maybeSingle();
+
+    if (courseError) {
+      handleSupabaseError(courseError);
+      throw courseError;
+    }
+
+    await notificationHelpers.notifyPracticeQuizEssayFeedbackReceived(
+      responseRow.user_id,
+      courseRow?.title || "your course",
+      {
+        courseId: responseRow.course_id,
+        moduleId: responseRow.module_id,
+        enrollmentId: responseRow.enrollment_id,
+        responseId: responseRow.id,
+      },
+    );
   },
 };

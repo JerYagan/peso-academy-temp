@@ -1,0 +1,305 @@
+# Course: Advanced Web Development Engineering
+
+- Category: Information Technology
+- Level: Advanced
+- Duration: 20 hours
+- Skill tags: Web Architecture, Frontend Performance, API Security, CI/CD, Observability
+- Topic tags: Advanced Web Development, Full-Stack Engineering, Performance Optimization, Secure Deployment
+- Industry tags: Information Technology, Software Development, Digital Services, SaaS
+- Career paths: Frontend Developer, Full-Stack Developer, Web Application Engineer, Technical Lead
+- Thumbnail: https://picsum.photos/seed/advanced-web-development-course/1200/675
+- Course summary: A production-focused course that helps experienced learners design, optimize, secure, and deliver modern web applications using practical engineering patterns across the frontend, backend, and deployment lifecycle.
+- Intended learner outcome: Learners should be able to architect scalable web applications, improve runtime performance, secure application interfaces, and deliver reliable releases using modern automation and monitoring practices.
+
+## Course Overview
+
+This course is designed for learners who already understand the basics of HTML, CSS, JavaScript, frontend frameworks, and backend APIs. It focuses on what separates simple projects from production-ready systems: maintainable architecture, measurable performance, secure API design, resilient deployment workflows, and operational visibility.
+
+By the end of the course, learners should be able to:
+- Break large web applications into maintainable frontend and backend boundaries.
+- Diagnose and improve rendering, loading, and interaction performance.
+- Apply practical API security controls and reduce common backend risks.
+- Design a CI/CD and observability workflow that supports safe, frequent releases.
+
+## Module 1: Web Application Architecture and Scalable Frontend Systems
+- Description: Establishes the architectural thinking required to organize advanced web applications into clear layers, reusable components, and maintainable delivery boundaries.
+- Duration: 5 hours
+- Thumbnail: https://picsum.photos/seed/advanced-web-development-m1/1200/675
+- Skill tags: System Design, Component Architecture, State Management
+- Topic tags: Web Application Architecture, Frontend Systems, Scalability
+- Learning objectives:
+  - Explain the tradeoffs between monolithic frontend applications, modular architectures, and service-oriented integrations.
+  - Design a component structure that separates presentation, state, data fetching, and domain logic.
+  - Evaluate when to use client-side rendering, server-side rendering, or hybrid rendering strategies.
+- Content blocks:
+  - text:
+    - title: Designing for maintainability before scale becomes a problem
+    - body: Advanced web development begins with boundaries. Teams move faster when UI components are predictable, shared logic is centralized, state transitions are explicit, and backend communication is handled consistently. Instead of letting routing, rendering, data fetching, and business rules mix freely inside pages, mature systems isolate concerns so features can evolve without causing widespread regressions.
+  - video:
+    - title: Web application architecture overview
+    - url: https://www.youtube.com/watch?v=sDlCSIDwpDs
+    - body: Use this video to introduce architectural layers, scalability concerns, and the importance of designing web applications around clear technical responsibilities.
+  - image:
+    - title: Layered web application blueprint
+    - url: https://picsum.photos/seed/advanced-web-development-m1-image/1200/675
+    - alt_text: Diagram-inspired image representing layered frontend and backend web application architecture
+    - caption: A layered architecture helps teams reason about component ownership, state flow, data access, and future scaling decisions.
+  - learning_material:
+    - title: Reference material on modern web architecture
+    - url: https://web.dev/learn
+    - body: Supplemental reading on modern web platform capabilities, rendering strategies, architecture choices, and maintainable implementation patterns.
+  - quiz:
+    - title: Quiz 1 - Architecture and frontend systems
+    - questions:
+      - multiple_choice:
+        - question: Which architectural practice most improves long-term maintainability in a large web application?
+        - options:
+          - Keeping routing, API calls, and presentation logic in a single component for convenience
+          - Separating UI rendering, state logic, and data access into distinct responsibilities
+          - Avoiding shared conventions so each developer can organize code differently
+          - Rebuilding common components separately in each feature area
+        - correct_answer: Separating UI rendering, state logic, and data access into distinct responsibilities
+        - points: 1
+        - explanation: Clear boundaries reduce coupling and make features easier to debug, test, and extend.
+      - true_false:
+        - question: Server-side rendering and client-side rendering always solve the same problem in the same way.
+        - correct_answer: False
+        - points: 1
+        - explanation: They differ in performance characteristics, SEO behavior, hydration cost, and infrastructure requirements.
+      - short_answer:
+        - question: Give one reason a design system or shared component library becomes valuable in a growing frontend codebase.
+        - expected_focus: Reuse, consistency, accessibility, reduced duplication, easier maintenance, or faster development.
+        - points: 3
+
+## Module 2: Performance Engineering for Interactive Web Applications
+- Description: Teaches learners how to analyze and optimize loading, rendering, and runtime behavior so advanced web experiences remain fast under real user conditions.
+- Duration: 5 hours
+- Thumbnail: https://picsum.photos/seed/advanced-web-development-m2/1200/675
+- Skill tags: Performance Profiling, Rendering Optimization, Asset Delivery
+- Topic tags: Core Web Vitals, React Performance, Frontend Optimization
+- Learning objectives:
+  - Measure performance using meaningful signals such as bundle size, render frequency, interaction delay, and Core Web Vitals.
+  - Reduce unnecessary work through better state boundaries, code splitting, caching, and efficient rendering strategies.
+  - Explain how image delivery, script loading, and network behavior influence user experience.
+- Content blocks:
+  - text:
+    - title: Performance is an engineering discipline, not a final polish step
+    - body: Fast applications are designed, measured, and protected continuously. Mature teams track loading cost, identify avoidable re-renders, defer low-priority work, lazy-load heavy modules, compress and cache assets, and monitor real user signals after release. Performance work is most effective when developers connect interface behavior to actual browser work such as scripting, layout, painting, network transfer, and hydration.
+  - video:
+    - title: React performance optimization techniques
+    - url: https://www.youtube.com/watch?v=Qwb-Za6cBws
+    - body: Use this video as a practical starting point for discussing render behavior, component update patterns, and common optimization opportunities in modern frontend applications.
+  - image:
+    - title: Performance dashboard and optimization workflow
+    - url: https://picsum.photos/seed/advanced-web-development-m2-image/1200/675
+    - alt_text: Illustration representing performance dashboards, charts, and optimization checkpoints for a web application
+    - caption: Strong performance work combines profiling, measurement, prioritization, and verification after each optimization step.
+  - learning_material:
+    - title: Reference material on high-performance web experiences
+    - url: https://web.dev/performance/
+    - body: Supplemental reading on Core Web Vitals, rendering performance, code delivery, and browser-level techniques for faster applications.
+  - quiz:
+    - title: Quiz 2 - Performance engineering
+    - questions:
+      - multiple_choice:
+        - question: Which action is most likely to reduce initial JavaScript cost for users?
+        - options:
+          - Loading every route and feature bundle during the first page request
+          - Using code splitting so only required code is loaded initially
+          - Moving CSS into larger files without compression
+          - Rendering additional hidden components for future use
+        - correct_answer: Using code splitting so only required code is loaded initially
+        - points: 1
+        - explanation: Code splitting reduces the amount of JavaScript the browser must download, parse, and execute on first load.
+      - true_false:
+        - question: A component that re-renders often is automatically a performance problem even if the work is trivial.
+        - correct_answer: False
+        - points: 1
+        - explanation: Re-render frequency matters, but cost and user impact determine whether it is a meaningful issue.
+      - short_answer:
+        - question: Name one metric or browser signal you would monitor to verify whether a user-facing performance improvement actually worked.
+        - expected_focus: LCP, INP, CLS, TTFB, bundle size, render timing, interaction latency, or cache hit behavior.
+        - points: 3
+
+## Module 3: Secure Backend APIs, Authentication, and Data Integrity
+- Description: Develops the learner's ability to protect modern web applications through practical API security, safer authentication flows, and disciplined validation of user-controlled input.
+- Duration: 5 hours
+- Thumbnail: https://picsum.photos/seed/advanced-web-development-m3/1200/675
+- Skill tags: API Security, Authentication, Input Validation
+- Topic tags: Backend Security, Access Control, Data Protection
+- Learning objectives:
+  - Identify common API risks including broken access control, insufficient validation, weak secrets handling, and abusive traffic patterns.
+  - Apply layered security controls such as authentication, authorization, validation, rate limiting, and audit logging.
+  - Explain why secure systems must validate both client behavior and server-side assumptions.
+- Content blocks:
+  - text:
+    - title: Secure systems assume the client can fail, break, or be abused
+    - body: Advanced web applications cannot rely on frontend checks alone. Backend services must verify identity, authorize each sensitive action, validate all inbound data, normalize inputs, log important events, and protect against replay, brute force, and excessive request volume. Security improves when teams treat trust as something earned per request rather than inherited from the interface.
+  - video:
+    - title: Node.js API security best practices
+    - url: https://www.youtube.com/watch?v=DYme1m4RiwI
+    - body: Use this video to discuss token handling, request validation, rate limiting, and production-minded API hardening practices.
+  - image:
+    - title: Secure API request flow
+    - url: https://picsum.photos/seed/advanced-web-development-m3-image/1200/675
+    - alt_text: Visual representation of a secure API request lifecycle with authentication, validation, and authorization checks
+    - caption: Secure request processing adds checkpoints for identity, permissions, validation, logging, and safe failure handling.
+  - learning_material:
+    - title: Reference material on API security risks
+    - url: https://owasp.org/API-Security/
+    - body: Supplemental reading on practical API security risks and the controls teams should apply to reduce exposure in production systems.
+  - quiz:
+    - title: Quiz 3 - API security and integrity
+    - questions:
+      - multiple_choice:
+        - question: Which control most directly reduces the risk of unauthorized users accessing another user's data?
+        - options:
+          - Increasing image compression on the frontend
+          - Enforcing server-side authorization checks for every protected resource
+          - Renaming database tables more clearly
+          - Disabling application logs in production
+        - correct_answer: Enforcing server-side authorization checks for every protected resource
+        - points: 1
+        - explanation: Broken access control is prevented by verifying permissions on the server for each sensitive operation.
+      - true_false:
+        - question: If the frontend form validates user input, the backend can safely skip validation for the same fields.
+        - correct_answer: False
+        - points: 1
+        - explanation: Backend validation remains essential because clients can be bypassed, modified, or automated.
+      - short_answer:
+        - question: State one reason rate limiting is useful in a production API.
+        - expected_focus: Preventing abuse, slowing brute-force attacks, protecting infrastructure, or preserving service availability.
+        - points: 3
+
+## Module 4: CI/CD, Deployment Reliability, and Observability
+- Description: Shows learners how to move advanced web applications safely from source control to production while monitoring reliability, regressions, and operational health after release.
+- Duration: 5 hours
+- Thumbnail: https://picsum.photos/seed/advanced-web-development-m4/1200/675
+- Skill tags: CI/CD, Deployment Strategy, Observability
+- Topic tags: Release Engineering, Monitoring, Operational Reliability
+- Learning objectives:
+  - Design a delivery pipeline that runs automated checks before code reaches production.
+  - Compare deployment strategies such as direct release, blue-green rollout, feature flags, and canary deployments.
+  - Use logs, metrics, traces, and alerts to detect and respond to production issues quickly.
+- Content blocks:
+  - text:
+    - title: Shipping reliably means building feedback into the release process
+    - body: Advanced teams do not treat deployment as the last step. They treat it as an observable workflow with automated validation, repeatable builds, environment-aware configuration, rollback options, and monitoring that confirms whether users are succeeding after a release. Reliable delivery combines test coverage, pipeline discipline, staged rollout patterns, and operational dashboards that make failures visible early.
+  - video:
+    - title: CI/CD with automated testing and deployment
+    - url: https://www.youtube.com/watch?v=YLtlz88zrLg
+    - body: Use this video to frame how automated pipelines, quality gates, and deployment steps reduce manual error and improve release confidence.
+  - image:
+    - title: Continuous delivery pipeline map
+    - url: https://picsum.photos/seed/advanced-web-development-m4-image/1200/675
+    - alt_text: Illustration of a continuous integration and deployment pipeline with testing, build, release, and monitoring stages
+    - caption: Delivery pipelines are strongest when validation, release, and operational feedback are treated as one continuous system.
+  - learning_material:
+    - title: Reference material on GitHub Actions workflows
+    - url: https://docs.github.com/en/actions
+    - body: Supplemental reading on workflow automation, build orchestration, deployment steps, environment protection, and release automation patterns.
+  - quiz:
+    - title: Quiz 4 - Delivery and observability
+    - questions:
+      - multiple_choice:
+        - question: What is the main purpose of running automated tests inside a CI pipeline?
+        - options:
+          - To delay releases regardless of code quality
+          - To detect regressions before changes are promoted to shared environments
+          - To replace all manual quality review permanently
+          - To remove the need for monitoring after deployment
+        - correct_answer: To detect regressions before changes are promoted to shared environments
+        - points: 1
+        - explanation: CI pipelines reduce release risk by catching defects before deployment progresses.
+      - true_false:
+        - question: Observability is only useful when the system is already down.
+        - correct_answer: False
+        - points: 1
+        - explanation: Observability helps teams detect degradation, investigate behavior, and prevent incidents from escalating.
+      - short_answer:
+        - question: Name one signal you would review after deployment to confirm the release did not harm users.
+        - expected_focus: Error rate, response time, Core Web Vitals, failed jobs, logs, conversion impact, uptime, or alert thresholds.
+        - points: 3
+
+## Final Assessment
+
+- Format: Mixed assessment
+- Total items: 10
+- Passing recommendation: 75%
+- Assessment instructions: Answer all items using principles from the modules. Focus on production-ready engineering decisions rather than purely theoretical definitions.
+
+- multiple_choice:
+  - question: Which statement best reflects an advanced web development mindset?
+  - options:
+    - Finishing the interface quickly and delaying architecture until failures happen
+    - Building features with clear architecture, measurable performance, secure defaults, and reliable delivery practices
+    - Prioritizing visual polish over maintainability and observability
+    - Treating deployment as a separate concern unrelated to product quality
+  - correct_answer: Building features with clear architecture, measurable performance, secure defaults, and reliable delivery practices
+  - points: 1
+  - explanation: Advanced practice connects implementation quality with maintainability, security, and operational reliability.
+
+- multiple_choice:
+  - question: Which architectural choice most helps a frontend codebase scale across multiple contributors?
+  - options:
+    - Storing business rules directly inside styling files
+    - Separating shared components, feature logic, and data access concerns
+    - Allowing each page to invent its own state conventions without guidance
+    - Avoiding reusable modules to reduce abstraction
+  - correct_answer: Separating shared components, feature logic, and data access concerns
+  - points: 1
+  - explanation: Clear separation of responsibilities reduces coupling and makes collaborative maintenance more predictable.
+
+- true_false:
+  - question: Code splitting can improve initial load performance when applied thoughtfully.
+  - correct_answer: True
+  - points: 1
+  - explanation: Loading only the code needed for the current route or interaction can reduce startup cost.
+
+- true_false:
+  - question: API security is complete once a user is authenticated successfully.
+  - correct_answer: False
+  - points: 1
+  - explanation: Secure systems also require authorization, validation, monitoring, rate limiting, and safe error handling.
+
+- short_answer:
+  - question: List two practical ways to reduce frontend performance bottlenecks in a large web application.
+  - expected_focus: Code splitting, lazy loading, caching, render optimization, asset compression, reducing bundle size, or improving state boundaries.
+  - points: 2
+
+- short_answer:
+  - question: Give one reason deployment pipelines should include automated quality checks before production release.
+  - expected_focus: Catching regressions early, reducing manual error, protecting shared environments, or improving release confidence.
+  - points: 2
+
+- multiple_choice:
+  - question: Which practice best protects a backend endpoint that updates sensitive user data?
+  - options:
+    - Trusting the frontend to hide the endpoint from unauthorized users
+    - Enforcing authentication, authorization, and server-side validation on the request
+    - Logging the request only after the update is completed without any validation
+    - Returning detailed stack traces to the client for easier debugging
+  - correct_answer: Enforcing authentication, authorization, and server-side validation on the request
+  - points: 1
+  - explanation: Sensitive endpoints require layered protections before a state-changing operation is allowed.
+
+- multiple_choice:
+  - question: Which post-release signal is most useful for detecting a production regression quickly?
+  - options:
+    - The number of comments in the code review
+    - A dashboard showing rising error rates and slower response times
+    - The number of folders in the source repository
+    - The color of the deployment badge in project documentation
+  - correct_answer: A dashboard showing rising error rates and slower response times
+  - points: 1
+  - explanation: Operational metrics provide immediate evidence about real system behavior after release.
+
+- essay:
+  - question: A web application grows from a small project into a product with multiple teams, frequent releases, and increasing performance complaints. Describe how you would restructure the frontend architecture and performance workflow to keep the product maintainable and fast.
+  - expected_focus: Separation of concerns, shared component strategy, state boundaries, profiling, performance budgets, code splitting, measurement, and iterative optimization.
+  - points: 5
+
+- essay:
+  - question: Your team is preparing a major release that introduces new API endpoints, authentication changes, and infrastructure updates. Explain how you would secure the release process before deployment and what you would monitor immediately afterward.
+  - expected_focus: Pipeline validation, automated tests, environment controls, rollback planning, authentication and authorization checks, logging, metrics, error monitoring, and post-release verification.
+  - points: 5

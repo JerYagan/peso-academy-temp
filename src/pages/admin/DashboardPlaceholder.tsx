@@ -722,6 +722,9 @@ const AdminDashboardPlaceholder = () => {
                         <p className="mt-2 text-3xl font-semibold tracking-tight">{analytics.predictiveOverview.averageDisengagementScore}</p>
                       </div>
                     </div>
+                    <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+                      A 0% recommendation acceptance rate does not cancel out a high risk score. Predictive risk still weighs completion decline, inactive enrollments, and disengagement signals, so courses can rank high-risk before recommendation clicks and accepts accumulate.
+                    </div>
                     {courseRiskChartData.length > 0 ? (
                       <div className="h-72 w-full">
                         <ResponsiveContainer width="100%" height="100%">

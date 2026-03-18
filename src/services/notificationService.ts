@@ -18,6 +18,7 @@ export type NotificationType =
   | "enrollment_confirmed"
   | "feedback_received"
   | "assessment_graded"
+  | "account_verified"
   | "system_announcement"
   | "course_assigned";
 
@@ -34,6 +35,10 @@ export interface Notification {
     certificateId?: string;
     submissionId?: string;
     enrollmentId?: string;
+    routePath?: string;
+    assessmentAttemptId?: string;
+    moduleId?: string;
+    responseId?: string;
     [key: string]: any;
   };
 }
@@ -682,6 +687,42 @@ export const notificationHelpers = {
       "assessment_graded",
       `Your assessment for "${courseTitle}" has been graded. Score: ${score}% ${passed ? "✅ Passed" : "❌ Failed"}`,
       { courseTitle, score, passed }
+    );
+  },
+
+  notifyAccountVerified: async (userId: string): Promise<void> => {
+    await notificationService.createNotification(
+      userId,
+      "account_verified",
+      "Your learner account has been verified. You can now enroll in courses and start learning.",
+      {
+        routePath: "/courses",
+      },
+    );
+  },
+
+  notifyPracticeQuizEssayFeedbackReceived: async (
+    userId: string,
+    courseTitle: string,
+    options: {
+      courseId: string;
+      moduleId: string;
+      enrollmentId: string;
+      responseId: string;
+    },
+  ): Promise<void> => {
+    await notificationService.createNotification(
+      userId,
+      "feedback_received",
+      `Your practice quiz essay in "${courseTitle}" has new feedback from your reviewer.`,
+      {
+        courseId: options.courseId,
+        courseTitle,
+        moduleId: options.moduleId,
+        enrollmentId: options.enrollmentId,
+        responseId: options.responseId,
+        routePath: `/courses/${options.courseId}`,
+      },
     );
   },
 

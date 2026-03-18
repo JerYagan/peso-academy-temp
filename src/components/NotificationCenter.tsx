@@ -140,7 +140,12 @@ const NotificationCenter = () => {
     }
 
     // Navigate based on notification type
-    if (notification.metadata?.courseId) {
+    if (notification.metadata?.routePath) {
+      navigate(notification.metadata.routePath, {
+        state: { entrySource: "notification_center" },
+      });
+      setOpen(false);
+    } else if (notification.metadata?.courseId) {
       navigate(`/courses/${notification.metadata.courseId}`, {
         state: { entrySource: "notification_center" },
       });
@@ -174,6 +179,8 @@ const NotificationCenter = () => {
         return "💬";
       case "assessment_graded":
         return "📝";
+      case "account_verified":
+        return "✅";
       case "course_assigned":
         return "🎯";
       case "system_announcement":
@@ -188,6 +195,7 @@ const NotificationCenter = () => {
       case "course_completed":
       case "certificate_issued":
       case "submission_approved":
+      case "account_verified":
         return "text-green-600 dark:text-green-400";
       case "submission_rejected":
         return "text-red-600 dark:text-red-400";

@@ -85,3 +85,14 @@
 
 - In assessment, there's a bug where sometimes some of the option duplicates
 - Also in assessment don't randomize the order of the options for multiple choice questions, but randomize the order of the questions instead. This way, learners can focus on answering the questions rather than trying to find the correct option among the randomized options. Randomizing the order of the questions will still provide a varied experience for each learner while maintaining consistency in the answer options.
+
+## Changes
+- bring back the course recommendations in the dashboard and add performance summary
+- Make the notifications specially on the learner side work, for example if their module, assessment, and certificate got approved or rejected, they should get notified about it. Also, if they have any pending reviews for their practice quiz essays, they should get notified when the trainer/admin leaves feedback on those essays. This way, learners can stay informed about their progress and any actions they need to take to complete their courses and earn their certificates. If their account got verified, they should also get notified about it. This will help them know when they can start enrolling in courses and accessing the content.
+- Admin: Address why the rec acceptance rate in predictive risk is 0, while the risk score is high
+- Trainer: Address why the click through and accept rate are 0
+
+
+- Learner profile page: move the training snapshot and account summary below. These 2 sections together are too cramped
+
+Trainer and admin should have the same recommendation stats in the dashboard, right now they are different

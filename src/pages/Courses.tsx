@@ -2,6 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "@/contexts/AuthContext";
 import { useLocale } from "@/contexts/LocaleContext";
+import {
+  analyticsService,
+  type PersistedLearnerRecommendation,
+} from "@/services/analyticsService";
 import { filterCoursesForUser } from "@/lib/courseAudience";
 import { canonicalizeCourseCategory } from "@/lib/taxonomy";
 import DashboardLayout from "@/components/DashboardLayout";
@@ -134,7 +138,10 @@ const Courses = () => {
   const [loading, setLoading] = useState(true);
   const [enrolling, setEnrolling] = useState<string | null>(null);
   const [previewCourse, setPreviewCourse] = useState<Course | null>(null);
+  const [previewSourceSurface, setPreviewSourceSurface] = useState<"course_catalog" | "browse_recommendations">("course_catalog");
+  const [previewRecommendation, setPreviewRecommendation] = useState<PersistedLearnerRecommendation | null>(null);
   const [previewModuleCount, setPreviewModuleCount] = useState(0);
+  const [persistedBrowseRecommendations, setPersistedBrowseRecommendations] = useState<PersistedLearnerRecommendation[]>([]);
   const [enrollmentRecovery, setEnrollmentRecovery] = useState<{
     courseId: string;
     courseTitle: string;
@@ -299,6 +306,7 @@ const Courses = () => {
       setPerformanceSummary(null);
       setSessionAggregates([]);
       setCollaborativeSignals({});
+      setPersistedBrowseRecommendations([]);
       return;
     }
 
@@ -307,10 +315,11 @@ const Courses = () => {
     const loadRecommendationInputs = async () => {
       setLoadingRecommendations(true);
       try {
-        const [summary, collaborative, aggregates] = await Promise.all([
+        const [summary, collaborative, aggregates, persistedRecommendations] = await Promise.all([
           reportingService.getLearnerPerformanceSummary(user.id),
           reportingService.getCollaborativeRecommendationSignals(user.id),
           moduleSessionService.getSessionAggregatesByModule(user.id),
+          analyticsService.getPersistedRecommendations(user.id, "browse_recommendations"),
         ]);
 
         if (cancelled) {
@@ -320,12 +329,14 @@ const Courses = () => {
         setPerformanceSummary(summary);
         setCollaborativeSignals(collaborative);
         setSessionAggregates(aggregates);
+        setPersistedBrowseRecommendations(persistedRecommendations);
       } catch (error) {
         if (!cancelled) {
           console.error("Error loading browse-page recommendation inputs:", error);
           setPerformanceSummary(null);
           setCollaborativeSignals({});
           setSessionAggregates([]);
+          setPersistedBrowseRecommendations([]);
         }
       } finally {
         if (!cancelled) {
@@ -394,17 +405,19 @@ const Courses = () => {
   const handleEnrollClick = (
     course: Course,
     sourceSurface: "course_catalog" | "browse_recommendations" = "course_catalog",
+    originatingRecommendationId?: string,
   ) => {
     if (!user) {
       navigate(`/signup?redirect=${encodeURIComponent(`/courses/${course.id}`)}`);
       return;
     }
-    void handleEnroll(course, sourceSurface);
+    void handleEnroll(course, sourceSurface, originatingRecommendationId);
   };
 
   const handleEnroll = async (
     course: Course,
     sourceSurface: "course_catalog" | "browse_recommendations" = "course_catalog",
+    originatingRecommendationId?: string,
   ) => {
     if (!user) return;
 
@@ -419,7 +432,7 @@ const Courses = () => {
       await enrollmentService.enrollInCourse(
         user.id,
         course.id,
-        { sourceSurface },
+        { sourceSurface, originatingRecommendationId },
       );
       await loadEnrollments();
       await loadCourses();
@@ -466,9 +479,36 @@ const Courses = () => {
   }, [collaborativeSignals, courses, enrollments, performanceSummary, sessionAggregates, user]);
 
   const browseRecommendations = useMemo(
-    () => recommendedCourses.slice(0, 3),
-    [recommendedCourses],
+    () => analyticsService.hydrateRecommendationCards(recommendedCourses, persistedBrowseRecommendations).slice(0, 3),
+    [persistedBrowseRecommendations, recommendedCourses],
   );
+
+  const persistedBrowseCards = useMemo(
+    () => browseRecommendations
+      .map((recommendation) => recommendation.persisted)
+      .filter((recommendation): recommendation is PersistedLearnerRecommendation => Boolean(recommendation)),
+    [browseRecommendations],
+  );
+
+  useEffect(() => {
+    if (!user || persistedBrowseCards.length === 0) {
+      return;
+    }
+
+    void analyticsService.logRecommendationImpressions(
+      user.id,
+      persistedBrowseCards,
+      "browse_recommendations",
+    );
+  }, [persistedBrowseCards, user]);
+
+  const handleRecommendationClick = (recommendation?: PersistedLearnerRecommendation) => {
+    if (!user || !recommendation) {
+      return;
+    }
+
+    void analyticsService.logRecommendationClick(user.id, recommendation, "browse_recommendations");
+  };
 
   const displayedCourses = useMemo(() => {
     const query = searchQuery.trim().toLowerCase();
@@ -528,6 +568,7 @@ const Courses = () => {
     sourceSurface: "course_catalog" | "browse_recommendations" = "course_catalog",
     className = "h-12 w-full rounded-xl text-base font-semibold",
     onAction?: () => void,
+    recommendation?: PersistedLearnerRecommendation,
   ) => {
     const enrollment = enrollmentByCourseId[course.id];
     const isEnrolled = !!enrollment;
@@ -550,7 +591,10 @@ const Courses = () => {
     return (
       <Button
         onClick={() => {
-          handleEnrollClick(course, sourceSurface);
+          if (sourceSurface === "browse_recommendations") {
+            handleRecommendationClick(recommendation);
+          }
+          handleEnrollClick(course, sourceSurface, recommendation?.id);
           onAction?.();
         }}
         className={className}
@@ -585,6 +629,8 @@ const Courses = () => {
           type="button"
           onClick={() => {
             setPreviewCourse(course);
+            setPreviewSourceSurface("course_catalog");
+            setPreviewRecommendation(null);
           }}
           className="block w-full text-left"
         >
@@ -724,9 +770,10 @@ const Courses = () => {
               </Button>
               {renderCourseEnrollmentAction(
                 previewCourse,
-                "course_catalog",
+                previewSourceSurface,
                 "w-full sm:w-auto",
                 () => setPreviewCourse(null),
+                previewRecommendation || undefined,
               )}
             </DialogFooter>
           </>
@@ -823,7 +870,7 @@ const Courses = () => {
         </div>
 
         <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
-          {browseRecommendations.map(({ course, reasons }) => (
+          {browseRecommendations.map(({ course, reasons, persisted }) => (
             (() => {
               const enrollment = enrollmentByCourseId[course.id];
               const isEnrolled = !!enrollment;
@@ -835,7 +882,12 @@ const Courses = () => {
             >
               <button
                 type="button"
-                onClick={() => setPreviewCourse(course)}
+                onClick={() => {
+                  handleRecommendationClick(persisted);
+                  setPreviewCourse(course);
+                  setPreviewSourceSurface("browse_recommendations");
+                  setPreviewRecommendation(persisted || null);
+                }}
                 className="block w-full text-left"
               >
                 <div className="relative aspect-[16/10] overflow-hidden border-b border-border bg-muted">
@@ -874,7 +926,13 @@ const Courses = () => {
                 </div>
 
                 <div className="mt-auto pt-5">
-                  {renderCourseEnrollmentAction(course, "browse_recommendations")}
+                  {renderCourseEnrollmentAction(
+                    course,
+                    "browse_recommendations",
+                    "h-12 w-full rounded-xl text-base font-semibold",
+                    undefined,
+                    persisted,
+                  )}
                 </div>
               </div>
             </article>
