@@ -7,7 +7,7 @@
 - Topic tags: Community Development, Public Service, Inclusive Participation, Project Implementation
 - Industry tags: Public Service, Nonprofit, Local Governance, Social Development
 - Career paths: Community Development Worker, Program Coordinator, NGO Field Officer, Local Government Project Assistant
-- Thumbnail: https://picsum.photos/seed/community-engagement-development-course/1200/675
+- Thumbnail: https://placehold.co/1200x675/0f766e/ffffff.png?text=Community+Engagement+and+Development+Excellence
 - Course summary: A practice-oriented course that develops the knowledge and field habits needed to build trust with communities, assess local needs, plan responsive programs, mobilize stakeholders, and sustain community-led development initiatives.
 - Intended learner outcome: Learners should be able to facilitate respectful community engagement processes, convert local needs into realistic action plans, and track development results using inclusive and ethical practices.
 
@@ -24,7 +24,7 @@ By the end of the course, learners should be able to:
 ## Module 1: Foundations of Community Engagement
 - Description: Establishes the core principles, values, and field behaviors that support respectful and effective engagement with communities.
 - Duration: 4 hours
-- Thumbnail: https://picsum.photos/seed/community-engagement-m1/1200/675
+- Thumbnail: https://placehold.co/1200x675/155e75/ffffff.png?text=Module+1+Foundations+of+Community+Engagement
 - Skill tags: Community Engagement, Facilitation, Ethical Practice
 - Topic tags: Community Development, Public Service, Inclusive Participation
 - Learning objectives:
@@ -74,7 +74,7 @@ By the end of the course, learners should be able to:
 ## Module 2: Stakeholder Mapping and Community Needs Assessment
 - Description: Guides learners in identifying key actors, collecting relevant information, and analyzing what a community needs before proposing interventions.
 - Duration: 4 hours
-- Thumbnail: https://picsum.photos/seed/community-engagement-m2/1200/675
+- Thumbnail: https://placehold.co/1200x675/1d4ed8/ffffff.png?text=Module+2+Stakeholder+Mapping+and+Needs+Assessment
 - Skill tags: Stakeholder Analysis, Data Gathering, Community Consultation
 - Topic tags: Needs Assessment, Local Governance, Program Planning
 - Learning objectives:
@@ -124,7 +124,7 @@ By the end of the course, learners should be able to:
 ## Module 3: Participatory Program Design and Resource Mobilization
 - Description: Shows learners how to convert assessment findings into realistic activities, timelines, resource plans, and shared commitments with community partners.
 - Duration: 4 hours
-- Thumbnail: https://picsum.photos/seed/community-engagement-m3/1200/675
+- Thumbnail: https://placehold.co/1200x675/047857/ffffff.png?text=Module+3+Participatory+Program+Design
 - Skill tags: Program Design, Resource Mobilization, Coordination
 - Topic tags: Project Implementation, Community Participation, Action Planning
 - Learning objectives:
@@ -174,7 +174,7 @@ By the end of the course, learners should be able to:
 ## Module 4: Monitoring, Feedback, and Sustainable Community Development
 - Description: Develops the learner's ability to track progress, collect feedback, respond to issues, and strengthen long-term sustainability beyond initial project delivery.
 - Duration: 4 hours
-- Thumbnail: https://picsum.photos/seed/community-engagement-m4/1200/675
+- Thumbnail: https://placehold.co/1200x675/7c3aed/ffffff.png?text=Module+4+Monitoring+Feedback+and+Sustainability
 - Skill tags: Monitoring and Evaluation, Feedback Management, Sustainability Planning
 - Topic tags: Program Improvement, Accountability, Community Ownership
 - Learning objectives:
