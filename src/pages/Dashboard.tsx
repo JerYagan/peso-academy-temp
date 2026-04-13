@@ -176,6 +176,7 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
         noActiveCoursesBody: "Suriin ang mga na-release na certificate o mag-enroll sa ibang kurso kung gusto mo ng bagong susunod na hakbang sa dashboard.",
         noEnrollmentsTitle: "Hindi ka pa naka-enroll sa anumang kurso.",
         noEnrollmentsBody: "Magsimula sa course catalog, pagkatapos ay bumalik dito para ipagpatuloy ang mga module at suriin ang progreso.",
+        totalLearningTime: "Kabuuang Oras ng Pag-aaral",
       }
     : {
         defaultTrainer: "PESO Training Team",
@@ -277,6 +278,7 @@ const TraineeDashboard = ({ user, stats }: TraineeDashboardProps) => {
         noActiveCoursesBody: "Review released certificates or enroll in another course if you want a new next step on the dashboard.",
         noEnrollmentsTitle: "You have not enrolled in any courses yet.",
         noEnrollmentsBody: "Start with the course catalog, then come back here to resume modules and review progress.",
+        totalLearningTime: "Total Learning Time",
       };
 
   useEffect(() => {
