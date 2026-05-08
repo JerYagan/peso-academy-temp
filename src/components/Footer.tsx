@@ -5,7 +5,7 @@ import { useThemePreference } from "@/contexts/ThemePreferenceContext";
 const Footer = () => {
   const { t } = useLocale();
   const { resolvedTheme } = useThemePreference();
-  const logoSrc = resolvedTheme === "dark" ? "/images/logo_dark.png" : "/images/logo.png";
+  const logoSrc = resolvedTheme === "dark" ? "/images/logo.png" : "/images/logo_dark.png";
 
   return (
     <footer className="bg-primary py-10 text-primary-foreground sm:py-14">
